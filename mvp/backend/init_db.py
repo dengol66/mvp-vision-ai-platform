@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from app.db.database import init_db
 from app.core.config import settings
+from app.db import models  # Import models so Base knows about tables
 
 
 def create_directories():

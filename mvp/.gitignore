@@ -45,6 +45,7 @@ data/logs/*
 .env
 .env.local
 .env.*.local
+.env.mvp
 
 # OS
 .DS_Store

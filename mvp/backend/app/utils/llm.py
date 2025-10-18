@@ -55,7 +55,8 @@ If information is missing, respond with JSON:
   "clarification": "<natural language question to ask user>"
 }
 
-Always respond with valid JSON only, no additional text."""
+Always respond with valid JSON only, no additional text.
+IMPORTANT: Do not wrap the JSON in markdown code blocks. Return raw JSON directly without ```json or ``` markers."""
 
     async def parse_message(self, user_message: str, context: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -79,15 +80,33 @@ Always respond with valid JSON only, no additional text."""
 
         try:
             response = await self.llm.ainvoke(messages)
-            result = json.loads(response.content)
+            print(f"[DEBUG] LLM raw response type: {type(response.content)}")
+            print(f"[DEBUG] LLM raw response content: {response.content}")
+
+            # Remove markdown code blocks if present
+            content = response.content.strip()
+            if content.startswith("```json"):
+                content = content[7:]  # Remove ```json
+            elif content.startswith("```"):
+                content = content[3:]  # Remove ```
+            if content.endswith("```"):
+                content = content[:-3]  # Remove trailing ```
+            content = content.strip()
+
+            print(f"[DEBUG] Cleaned content: {content}")
+            result = json.loads(content)
             return result
         except json.JSONDecodeError as e:
+            print(f"[DEBUG] JSON decode error: {str(e)}")
+            print(f"[DEBUG] Response content that failed to parse: '{response.content}'")
             return {
                 "status": "error",
                 "error": "Failed to parse LLM response",
                 "detail": str(e),
             }
         except Exception as e:
+            print(f"[DEBUG] LLM exception: {str(e)}")
+            print(f"[DEBUG] Exception type: {type(e)}")
             return {
                 "status": "error",
                 "error": "LLM request failed",
