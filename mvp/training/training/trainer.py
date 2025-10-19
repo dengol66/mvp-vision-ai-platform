@@ -84,10 +84,26 @@ class Trainer:
             running_loss += loss.item()
 
             # Update progress bar
+            current_loss = running_loss / (batch_idx + 1)
+            current_acc = 100. * correct / total
             pbar.set_postfix({
-                'loss': f'{running_loss / (batch_idx + 1):.4f}',
-                'acc': f'{100. * correct / total:.2f}%'
+                'loss': f'{current_loss:.4f}',
+                'acc': f'{current_acc:.2f}%'
             })
+
+            # Report intermediate metrics every 10 batches
+            if (batch_idx + 1) % 10 == 0:
+                intermediate_metrics = {
+                    "epoch": epoch,
+                    "batch": batch_idx + 1,
+                    "total_batches": len(self.train_loader),
+                    "train_loss": current_loss,
+                    "train_accuracy": current_acc / 100.0,  # Convert to 0-1 range
+                    "val_loss": None,  # Will be filled after validation
+                    "val_accuracy": None,
+                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                }
+                print(f"[METRICS] {json.dumps(intermediate_metrics)}", flush=True)
 
         avg_loss = running_loss / len(self.train_loader)
         accuracy = 100. * correct / total
@@ -128,10 +144,26 @@ class Trainer:
                 running_loss += loss.item()
 
                 # Update progress bar
+                current_loss = running_loss / (batch_idx + 1)
+                current_acc = 100. * correct / total
                 pbar.set_postfix({
-                    'loss': f'{running_loss / (batch_idx + 1):.4f}',
-                    'acc': f'{100. * correct / total:.2f}%'
+                    'loss': f'{current_loss:.4f}',
+                    'acc': f'{current_acc:.2f}%'
                 })
+
+                # Report intermediate metrics every 5 batches (validation is shorter)
+                if (batch_idx + 1) % 5 == 0:
+                    intermediate_metrics = {
+                        "epoch": epoch,
+                        "batch": batch_idx + 1,
+                        "total_batches": len(self.val_loader),
+                        "train_loss": None,
+                        "train_accuracy": None,
+                        "val_loss": current_loss,
+                        "val_accuracy": current_acc / 100.0,  # Convert to 0-1 range
+                        "learning_rate": self.optimizer.param_groups[0]['lr'],
+                    }
+                    print(f"[METRICS] {json.dumps(intermediate_metrics)}", flush=True)
 
         avg_loss = running_loss / len(self.val_loader)
         accuracy = 100. * correct / total
