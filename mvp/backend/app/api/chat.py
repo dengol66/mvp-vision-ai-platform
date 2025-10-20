@@ -18,6 +18,107 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/capabilities")
+async def get_capabilities():
+    """
+    Get platform capabilities including supported models and parameters.
+
+    Returns information about:
+    - Available models
+    - Configurable parameters
+    - Default values
+    """
+    return {
+        "models": [
+            {
+                "name": "resnet50",
+                "display_name": "ResNet-50",
+                "description": "50-layer Residual Network for image classification",
+                "task_types": ["classification"],
+                "supported": True
+            },
+            {
+                "name": "resnet18",
+                "display_name": "ResNet-18",
+                "description": "18-layer Residual Network (coming soon)",
+                "task_types": ["classification"],
+                "supported": False
+            },
+            {
+                "name": "efficientnet_b0",
+                "display_name": "EfficientNet-B0",
+                "description": "Efficient convolutional network (coming soon)",
+                "task_types": ["classification"],
+                "supported": False
+            }
+        ],
+        "parameters": [
+            {
+                "name": "num_classes",
+                "display_name": "클래스 수",
+                "description": "분류할 클래스의 개수",
+                "type": "integer",
+                "required": True,
+                "min": 2,
+                "max": 1000,
+                "default": None
+            },
+            {
+                "name": "epochs",
+                "display_name": "에포크",
+                "description": "학습 반복 횟수",
+                "type": "integer",
+                "required": False,
+                "min": 1,
+                "max": 1000,
+                "default": 50
+            },
+            {
+                "name": "batch_size",
+                "display_name": "배치 크기",
+                "description": "한 번에 처리할 이미지 수",
+                "type": "integer",
+                "required": False,
+                "min": 1,
+                "max": 256,
+                "default": 32
+            },
+            {
+                "name": "learning_rate",
+                "display_name": "학습률",
+                "description": "모델 가중치 업데이트 비율",
+                "type": "float",
+                "required": False,
+                "min": 0.00001,
+                "max": 0.1,
+                "default": 0.001
+            },
+            {
+                "name": "dataset_path",
+                "display_name": "데이터셋 경로",
+                "description": "학습 데이터가 있는 폴더 경로",
+                "type": "string",
+                "required": True,
+                "default": None
+            }
+        ],
+        "task_types": [
+            {
+                "name": "classification",
+                "display_name": "이미지 분류",
+                "description": "이미지를 여러 클래스 중 하나로 분류",
+                "supported": True
+            },
+            {
+                "name": "object_detection",
+                "display_name": "객체 탐지",
+                "description": "이미지 내 객체의 위치와 클래스 탐지 (coming soon)",
+                "supported": False
+            }
+        ]
+    }
+
+
 def _extract_dataset_path(message: str, context: str = "") -> str:
     """
     Extract dataset path from user message or context.

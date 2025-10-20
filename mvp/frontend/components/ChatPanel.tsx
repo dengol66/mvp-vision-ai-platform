@@ -11,6 +11,25 @@ interface Message {
   created_at: string
 }
 
+interface Capability {
+  models: Array<{
+    name: string
+    display_name: string
+    description: string
+    supported: boolean
+  }>
+  parameters: Array<{
+    name: string
+    display_name: string
+    description: string
+    type: string
+    required: boolean
+    min?: number
+    max?: number
+    default: any
+  }>
+}
+
 interface ChatPanelProps {
   sessionId: number | null
   onSessionCreated: (sessionId: number) => void
@@ -25,6 +44,7 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [capabilities, setCapabilities] = useState<Capability | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -35,6 +55,22 @@ export default function ChatPanel({
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Fetch capabilities on mount
+  useEffect(() => {
+    const fetchCapabilities = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat/capabilities`)
+        if (response.ok) {
+          const data = await response.json()
+          setCapabilities(data)
+        }
+      } catch (error) {
+        console.error('Error fetching capabilities:', error)
+      }
+    }
+    fetchCapabilities()
+  }, [])
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
@@ -140,11 +176,81 @@ export default function ChatPanel({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.length === 0 && (
-          <div className="text-center text-gray-500 mt-8">
-            <p className="text-sm">대화를 시작하세요</p>
-            <p className="text-xs mt-2">
-              예: "ResNet50으로 10개 클래스 분류 모델을 학습하고 싶어요"
-            </p>
+          <div className="space-y-6">
+            <div className="text-center text-gray-500 mt-8">
+              <p className="text-sm">대화를 시작하세요</p>
+              <p className="text-xs mt-2">
+                예: "ResNet50으로 10개 클래스 분류 모델을 학습하고 싶어요"
+              </p>
+            </div>
+
+            {/* Platform Capabilities */}
+            {capabilities && (
+              <div className="max-w-2xl mx-auto space-y-4">
+                {/* Supported Models */}
+                <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-lg p-4 border border-violet-200">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                    지원 가능한 모델
+                  </h3>
+                  <div className="space-y-2">
+                    {capabilities.models.map((model) => (
+                      <div
+                        key={model.name}
+                        className={cn(
+                          'text-xs p-2 rounded',
+                          model.supported
+                            ? 'bg-white text-gray-900'
+                            : 'bg-gray-100 text-gray-500'
+                        )}
+                      >
+                        <div className="font-medium">
+                          {model.display_name}
+                          {model.supported && (
+                            <span className="ml-2 text-emerald-600">✓ 사용 가능</span>
+                          )}
+                        </div>
+                        <div className="text-gray-600 mt-0.5">{model.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Configurable Parameters */}
+                <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-lg p-4 border border-blue-200">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                    설정 가능한 파라미터
+                  </h3>
+                  <div className="space-y-2">
+                    {capabilities.parameters.map((param) => (
+                      <div key={param.name} className="text-xs bg-white p-2 rounded">
+                        <div className="font-medium text-gray-900">
+                          {param.display_name}
+                          {param.required && (
+                            <span className="ml-2 text-red-600">* 필수</span>
+                          )}
+                          {!param.required && param.default !== null && (
+                            <span className="ml-2 text-gray-500">
+                              (기본값: {param.default})
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-gray-600 mt-0.5">{param.description}</div>
+                        {param.type === 'integer' && param.min && param.max && (
+                          <div className="text-gray-500 mt-0.5">
+                            범위: {param.min} ~ {param.max}
+                          </div>
+                        )}
+                        {param.type === 'float' && param.min && param.max && (
+                          <div className="text-gray-500 mt-0.5">
+                            범위: {param.min} ~ {param.max}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

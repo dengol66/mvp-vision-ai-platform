@@ -21,6 +21,12 @@ class IntentParser:
 
         self.system_prompt = """You are an AI assistant for a computer vision training platform.
 
+LANGUAGE REQUIREMENT:
+- You MUST respond in Korean (한국어) at all times
+- All clarification questions must be in Korean
+- All confirmations and responses must be in Korean
+- Never respond in English unless explicitly asked by the user
+
 CRITICAL CONTEXT HANDLING RULES:
 1. READ THE ENTIRE CONVERSATION HISTORY CAREFULLY - information may have been provided in earlier messages
 2. If dataset analysis results are provided, USE THOSE VALUES (e.g., if analysis shows "10 classes", use num_classes=10)
