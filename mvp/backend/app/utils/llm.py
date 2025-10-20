@@ -37,21 +37,55 @@ CRITICAL CONTEXT HANDLING RULES:
 
 Your task is to parse user messages and extract training configuration.
 
-The user can train ResNet50 models for image classification tasks.
+SUPPORTED CAPABILITIES:
+
+Frameworks:
+- "timm": PyTorch Image Models for image classification (resnet18, resnet50, efficientnet_b0)
+- "ultralytics": Ultralytics YOLO for detection, segmentation, pose estimation (yolov8n, yolov8s, yolov8m)
+
+Task Types:
+- "image_classification": Image classification (requires num_classes)
+- "object_detection": Object detection (bounding boxes)
+- "instance_segmentation": Instance segmentation (pixel-level masks)
+- "pose_estimation": Human pose estimation (keypoints)
+
+Models by Framework:
+- timm: resnet18, resnet50, efficientnet_b0 (classification only)
+- ultralytics: yolov8n, yolov8s, yolov8m (detection, segmentation, pose, classification)
+
+Dataset Formats:
+- "imagefolder": PyTorch ImageFolder format (for classification)
+- "yolo": YOLO format with data.yaml (for detection, segmentation, pose)
 
 REQUIRED INFORMATION TO EXTRACT:
-- model_name: Must be "resnet50" (only supported model). If user mentions other models (EfficientNet, YOLO, etc.), politely explain only ResNet50 is supported.
-- task_type: Must be "classification" (only supported task)
-- num_classes: Number of classes (integer, minimum 2)
-  * If dataset analysis provides this, USE IT
-  * If user confirms a number, USE IT
-  * Only ask if truly unavailable
+- framework: "timm" or "ultralytics" (infer from model or task)
+- model_name: Model name (e.g., "resnet50", "yolov8n")
+- task_type: Task type (e.g., "image_classification", "object_detection")
 - dataset_path: Path to dataset
   * If mentioned anywhere in conversation, USE IT
   * If dataset analysis shows a path, USE IT
+- dataset_format: "imagefolder" or "yolo" (infer from task_type or dataset structure)
+  * Classification → imagefolder
+  * Detection/Segmentation/Pose → yolo
+- num_classes: Number of classes (ONLY for classification tasks, integer, minimum 2)
+  * If dataset analysis provides this, USE IT
+  * If user confirms a number, USE IT
+  * SKIP for non-classification tasks (detection, segmentation, pose)
 - epochs: Number of training epochs (default: 50)
 - batch_size: Batch size (default: 32, or auto-calculate based on dataset size)
 - learning_rate: Learning rate (default: 0.001)
+
+FRAMEWORK INFERENCE LOGIC:
+- If user mentions "YOLO" or "yolov8" → framework="ultralytics"
+- If user mentions "detection", "segmentation", "pose" → framework="ultralytics", model_name="yolov8n" (default)
+- If user mentions "ResNet", "EfficientNet", or just "classification" → framework="timm"
+- If unclear, default to timm for classification
+
+TASK INFERENCE LOGIC:
+- If user says "분류", "classification" → task_type="image_classification"
+- If user says "탐지", "detection", "객체 탐지" → task_type="object_detection"
+- If user says "분할", "segmentation" → task_type="instance_segmentation"
+- If user says "자세", "pose" → task_type="pose_estimation"
 
 RESPONSE FORMAT:
 
@@ -59,10 +93,12 @@ If ALL required information is available (from ANY source: current message, conv
 {
   "status": "complete",
   "config": {
-    "model_name": "resnet50",
-    "task_type": "classification",
-    "num_classes": <int>,
+    "framework": "timm" or "ultralytics",
+    "model_name": "resnet50" or "yolov8n" etc.,
+    "task_type": "image_classification" or "object_detection" etc.,
     "dataset_path": "<path>",
+    "dataset_format": "imagefolder" or "yolo",
+    "num_classes": <int or null>,  // null for non-classification tasks
     "epochs": <int>,
     "batch_size": <int>,
     "learning_rate": <float>
@@ -80,11 +116,13 @@ EXAMPLES OF GOOD BEHAVIOR:
 - User: "Path is /data/cats_dogs" → Remember this path for later
 - Dataset analysis: "10 classes detected" → Use num_classes=10
 - User: "Train for 200 epochs" → Use epochs=200
-- User: "Yes, 10 classes" → Use num_classes=10, don't ask again
+- User: "YOLOv8로 객체 탐지" → framework="ultralytics", task_type="object_detection", model_name="yolov8n", dataset_format="yolo", num_classes=null
+- User: "ResNet으로 분류" → framework="timm", task_type="image_classification", model_name="resnet50"
 
 EXAMPLES OF BAD BEHAVIOR (NEVER DO THIS):
 - Asking "what's the dataset path?" when it was mentioned 2 messages ago
 - Asking "how many classes?" when dataset analysis already showed "10 classes"
+- Asking "how many classes?" for object detection (it doesn't need num_classes!)
 - Asking "confirm the number of classes" when user already said "yes, 10"
 
 Always respond with valid JSON only, no additional text.
@@ -203,17 +241,29 @@ IMPORTANT: Do not wrap the JSON in markdown code blocks. Return raw JSON directl
         """
         if parsed_result.get("status") == "complete":
             config = parsed_result.get("config", {})
-            return f"""학습 설정을 확인했습니다:
 
-- 모델: {config.get('model_name', 'resnet50')}
-- 작업: {config.get('task_type', 'classification')}
-- 클래스 수: {config.get('num_classes', 'N/A')}
-- 데이터셋: {config.get('dataset_path', 'N/A')}
-- 에포크: {config.get('epochs', 50)}
-- 배치 크기: {config.get('batch_size', 32)}
-- 학습률: {config.get('learning_rate', 0.001)}
+            # Build response with optional fields
+            response_parts = [
+                "학습 설정을 확인했습니다:\n",
+                f"- 프레임워크: {config.get('framework', 'N/A')}",
+                f"- 모델: {config.get('model_name', 'N/A')}",
+                f"- 작업 유형: {config.get('task_type', 'N/A')}",
+            ]
 
-학습을 시작하시겠습니까?"""
+            # Add num_classes only if it exists (classification tasks only)
+            if config.get('num_classes') is not None:
+                response_parts.append(f"- 클래스 수: {config.get('num_classes')}")
+
+            response_parts.extend([
+                f"- 데이터셋: {config.get('dataset_path', 'N/A')}",
+                f"- 데이터셋 형식: {config.get('dataset_format', 'N/A')}",
+                f"- 에포크: {config.get('epochs', 50)}",
+                f"- 배치 크기: {config.get('batch_size', 32)}",
+                f"- 학습률: {config.get('learning_rate', 0.001)}",
+                "\n학습을 시작하시겠습니까?"
+            ])
+
+            return "\n".join(response_parts)
 
         elif parsed_result.get("status") == "needs_clarification":
             return parsed_result.get("clarification", "추가 정보가 필요합니다.")
