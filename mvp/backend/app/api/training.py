@@ -44,10 +44,12 @@ async def create_training_job(
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
+        framework=job_request.config.framework,
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
         dataset_path=job_request.config.dataset_path,
+        dataset_format=job_request.config.dataset_format,
         output_dir=job_output_dir,
         epochs=job_request.config.epochs,
         batch_size=job_request.config.batch_size,

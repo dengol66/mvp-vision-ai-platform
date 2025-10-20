@@ -45,10 +45,12 @@ class TrainingJob(Base):
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
 
     # Training configuration
+    framework = Column(String(50), nullable=False, default="timm")  # NEW: timm, ultralytics, transformers
     model_name = Column(String(100), nullable=False)
     task_type = Column(String(50), nullable=False)
-    num_classes = Column(Integer, nullable=False)
+    num_classes = Column(Integer, nullable=True)  # Changed to nullable for non-classification tasks
     dataset_path = Column(String(500), nullable=False)
+    dataset_format = Column(String(50), nullable=False, default="imagefolder")  # NEW: imagefolder, coco, yolo, etc.
     output_dir = Column(String(500), nullable=False)
 
     # Hyperparameters

@@ -8,10 +8,12 @@ from typing import Optional
 class TrainingConfig(BaseModel):
     """Training configuration schema."""
 
-    model_name: str = Field(..., description="Model name (e.g., resnet50)")
-    task_type: str = Field(..., description="Task type (e.g., classification)")
-    num_classes: int = Field(..., ge=2, description="Number of classes")
+    framework: str = Field("timm", description="Framework (timm, ultralytics, transformers)")
+    model_name: str = Field(..., description="Model name (e.g., resnet50, yolov8n)")
+    task_type: str = Field(..., description="Task type (e.g., image_classification, object_detection)")
+    num_classes: Optional[int] = Field(None, ge=2, description="Number of classes (required for classification)")
     dataset_path: str = Field(..., description="Path to dataset")
+    dataset_format: str = Field("imagefolder", description="Dataset format (imagefolder, coco, yolo, etc.)")
 
     epochs: int = Field(50, ge=1, le=1000, description="Number of epochs")
     batch_size: int = Field(32, ge=1, le=512, description="Batch size")
@@ -31,10 +33,12 @@ class TrainingJobResponse(BaseModel):
     id: int
     session_id: int
 
+    framework: str
     model_name: str
     task_type: str
-    num_classes: int
+    num_classes: Optional[int] = None
     dataset_path: str
+    dataset_format: str
     output_dir: str
 
     epochs: int
