@@ -3,13 +3,21 @@
 import json
 import os
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+try:
+    import mlflow
+    import mlflow.pytorch
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    print("[WARNING] MLflow not available. Experiment tracking will be disabled.")
 
 
 class Trainer:
@@ -173,13 +181,25 @@ class Trainer:
             "accuracy": accuracy,
         }
 
-    def train(self, num_epochs: int, output_dir: str) -> Dict[str, Any]:
+    def train(
+        self,
+        num_epochs: int,
+        output_dir: str,
+        mlflow_experiment_name: Optional[str] = None,
+        mlflow_run_name: Optional[str] = None,
+        model_name: str = "resnet18",
+        dataset_name: str = "unknown",
+    ) -> Dict[str, Any]:
         """
         Train the model for multiple epochs.
 
         Args:
             num_epochs: Number of epochs to train
             output_dir: Directory to save checkpoints
+            mlflow_experiment_name: MLflow experiment name
+            mlflow_run_name: MLflow run name
+            model_name: Name of the model architecture
+            dataset_name: Name of the dataset
 
         Returns:
             Dictionary with final training results
@@ -189,6 +209,32 @@ class Trainer:
         print(f"[TRAIN_START] Starting training for {num_epochs} epochs")
         print(f"[DEVICE] Using device: {self.device}")
         print(f"[MODEL] Total parameters: {sum(p.numel() for p in self.model.parameters())}")
+
+        # Start MLflow run if available
+        mlflow_run = None
+        if MLFLOW_AVAILABLE and mlflow_experiment_name:
+            try:
+                mlflow.set_experiment(mlflow_experiment_name)
+                mlflow_run = mlflow.start_run(run_name=mlflow_run_name)
+
+                # Log parameters
+                mlflow.log_params({
+                    "model_name": model_name,
+                    "dataset_name": dataset_name,
+                    "num_epochs": num_epochs,
+                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "optimizer": type(self.optimizer).__name__,
+                    "scheduler": type(self.scheduler).__name__,
+                    "device": self.device,
+                    "total_parameters": sum(p.numel() for p in self.model.parameters()),
+                    "trainable_parameters": sum(p.numel() for p in self.model.parameters() if p.requires_grad),
+                })
+
+                print(f"[MLFLOW] Started experiment: {mlflow_experiment_name}")
+                print(f"[MLFLOW] Run ID: {mlflow_run.info.run_id}")
+            except Exception as e:
+                print(f"[WARNING] Failed to start MLflow run: {e}")
+                mlflow_run = None
 
         for epoch in range(1, num_epochs + 1):
             epoch_start_time = time.time()
@@ -218,6 +264,20 @@ class Trainer:
             # This line is parsed by backend
             print(f"[METRICS] {json.dumps(metrics_json)}")
 
+            # Log to MLflow
+            if mlflow_run:
+                try:
+                    mlflow.log_metrics({
+                        "train_loss": train_metrics["loss"],
+                        "train_accuracy": train_metrics["accuracy"],
+                        "val_loss": val_metrics["loss"],
+                        "val_accuracy": val_metrics["accuracy"],
+                        "learning_rate": self.optimizer.param_groups[0]['lr'],
+                        "epoch_time": epoch_time,
+                    }, step=epoch)
+                except Exception as e:
+                    print(f"[WARNING] Failed to log metrics to MLflow: {e}")
+
             # Save best model
             if val_metrics["accuracy"] > self.best_val_acc:
                 self.best_val_acc = val_metrics["accuracy"]
@@ -237,8 +297,35 @@ class Trainer:
         print(f"[TRAIN_END] Training completed")
         print(f"[RESULT] Best validation accuracy: {self.best_val_acc:.2f}%")
 
+        # Log model to MLflow and end run
+        if mlflow_run:
+            try:
+                # Log final metrics
+                mlflow.log_metrics({
+                    "best_val_accuracy": self.best_val_acc,
+                    "best_val_loss": self.best_val_loss,
+                })
+
+                # Log model artifact
+                best_model_path = os.path.join(output_dir, "best_model.pth")
+                if os.path.exists(best_model_path):
+                    mlflow.pytorch.log_model(self.model, "model")
+                    mlflow.log_artifact(best_model_path, "checkpoints")
+                    print(f"[MLFLOW] Logged model and checkpoint")
+
+                # End run
+                mlflow.end_run()
+                print(f"[MLFLOW] Run completed: {mlflow_run.info.run_id}")
+            except Exception as e:
+                print(f"[WARNING] Failed to finalize MLflow run: {e}")
+                try:
+                    mlflow.end_run(status="FAILED")
+                except:
+                    pass
+
         return {
             "best_val_accuracy": self.best_val_acc,
             "best_val_loss": self.best_val_loss,
             "final_checkpoint": os.path.join(output_dir, "best_model.pth"),
+            "mlflow_run_id": mlflow_run.info.run_id if mlflow_run else None,
         }

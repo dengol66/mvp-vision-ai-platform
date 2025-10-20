@@ -203,6 +203,33 @@ services:
       - vision-network
 
   # ================================
+  # MLflow - Experiment Tracking & Model Registry
+  # ================================
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: vision-mlflow
+    restart: unless-stopped
+    ports:
+      - "5000:5000"  # MLflow UI
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root s3://vision-platform-dev/mlflow-artifacts
+      --host 0.0.0.0
+      --port 5000
+    environment:
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+    volumes:
+      - mlflow_data:/mlflow
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - vision-network
+
+  # ================================
   # Mailhog - Email Testing (Development)
   # ================================
   mailhog:
@@ -274,6 +301,8 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  mlflow_data:
     driver: local
   pgadmin_data:
     driver: local

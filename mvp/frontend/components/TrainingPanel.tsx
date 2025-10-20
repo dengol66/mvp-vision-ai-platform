@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Play, Square, AlertCircle } from 'lucide-react'
+import { Play, Square, AlertCircle, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
-import MetricsVisualization from './training/MetricsVisualization'
+import MLflowMetricsCharts from './training/MLflowMetricsCharts'
+import MLflowMetricsTable from './training/MLflowMetricsTable'
+import MLflowBestModel from './training/MLflowBestModel'
 
 interface TrainingJob {
   id: number
@@ -179,6 +181,26 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
     }
   }
 
+  // Calculate current epoch and iteration progress
+  const getCurrentProgress = () => {
+    if (!job || metrics.length === 0) {
+      return { currentEpoch: 0, totalEpochs: job?.epochs || 0, currentIteration: 0, totalIterations: 0 }
+    }
+
+    // Get latest metric
+    const latestMetric = metrics[metrics.length - 1]
+    const currentEpoch = latestMetric.epoch || 0
+    const totalEpochs = job.epochs
+
+    // Get iteration info from extra_metrics if available
+    const currentIteration = latestMetric.extra_metrics?.batch || 0
+    const totalIterations = latestMetric.extra_metrics?.total_batches || 0
+
+    return { currentEpoch, totalEpochs, currentIteration, totalIterations }
+  }
+
+  const progress = getCurrentProgress()
+
   const getStatusBadge = (status: string) => {
     const styles = {
       pending: 'bg-gray-100 text-gray-800',
@@ -221,44 +243,81 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
           {getStatusBadge(job.status)}
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-2">
-          {job.status === 'pending' && (
-            <button
-              onClick={startTraining}
-              disabled={isLoading}
-              className={cn(
-                'px-4 py-2.5',
-                'bg-violet-600 hover:bg-violet-700',
-                'text-white font-semibold',
-                'rounded-lg shadow-md',
-                'transition-all duration-200',
-                'disabled:opacity-40',
-                'flex items-center gap-2'
-              )}
-            >
-              <Play className="w-4 h-4" />
-              학습 시작
-            </button>
-          )}
+        {/* Action Buttons and Progress */}
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            {job.status === 'pending' && (
+              <button
+                onClick={startTraining}
+                disabled={isLoading}
+                className={cn(
+                  'px-4 py-2.5',
+                  'bg-violet-600 hover:bg-violet-700',
+                  'text-white font-semibold',
+                  'rounded-lg shadow-md',
+                  'transition-all duration-200',
+                  'disabled:opacity-40',
+                  'flex items-center gap-2'
+                )}
+              >
+                <Play className="w-4 h-4" />
+                학습 시작
+              </button>
+            )}
 
-          {job.status === 'running' && (
-            <button
-              onClick={cancelTraining}
-              disabled={isLoading}
-              className={cn(
-                'px-4 py-2.5',
-                'bg-red-600 hover:bg-red-700',
-                'text-white font-semibold',
-                'rounded-lg',
-                'transition-all duration-200',
-                'disabled:opacity-40',
-                'flex items-center gap-2'
+            {job.status === 'running' && (
+              <button
+                onClick={cancelTraining}
+                disabled={isLoading}
+                className={cn(
+                  'px-4 py-2.5',
+                  'bg-red-600 hover:bg-red-700',
+                  'text-white font-semibold',
+                  'rounded-lg',
+                  'transition-all duration-200',
+                  'disabled:opacity-40',
+                  'flex items-center gap-2'
+                )}
+              >
+                <Square className="w-4 h-4" />
+                중단
+              </button>
+            )}
+          </div>
+
+          {/* Progress Bars - Show only when training is running */}
+          {job.status === 'running' && metrics.length > 0 && (
+            <div className="space-y-2">
+              {/* Epoch Progress */}
+              <div>
+                <div className="flex justify-between text-xs text-gray-600 mb-1">
+                  <span>Epoch Progress</span>
+                  <span>{progress.currentEpoch} / {progress.totalEpochs}</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div
+                    className="bg-violet-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${(progress.currentEpoch / progress.totalEpochs) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Iteration Progress */}
+              {progress.totalIterations > 0 && (
+                <div>
+                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+                    <span>Iteration Progress (Current Epoch)</span>
+                    <span>{progress.currentIteration} / {progress.totalIterations}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className="bg-emerald-500 h-2.5 rounded-full transition-all duration-300"
+                      style={{ width: `${(progress.currentIteration / progress.totalIterations) * 100}%` }}
+                    />
+                  </div>
+                </div>
               )}
-            >
-              <Square className="w-4 h-4" />
-              중단
-            </button>
+            </div>
           )}
         </div>
       </div>
@@ -292,17 +351,58 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
 
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Grafana Metrics Dashboard */}
+        {/* External Monitoring Links */}
         {(job.status === 'running' || job.status === 'completed') && (
-          <div>
-            <MetricsVisualization jobId={job.id} height="500px" />
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">모니터링 대시보드</h3>
+            <div className="flex gap-3">
+              <a
+                href="http://localhost:3001"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-medium rounded-lg hover:from-orange-600 hover:to-red-600 transition-all"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Grafana 대시보드
+              </a>
+              <a
+                href={`http://localhost:5000/#/experiments/1/runs?searchFilter=tags.mlflow.runName%20%3D%20%22job-${job.id}%22`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium rounded-lg hover:from-blue-600 hover:to-cyan-600 transition-all"
+              >
+                <ExternalLink className="w-4 h-4" />
+                MLflow 실험 추적
+              </a>
+            </div>
           </div>
+        )}
+
+        {/* MLflow Metrics and Best Model - Show when training is running or completed */}
+        {(job.status === 'running' || job.status === 'completed') && (
+          <>
+            {/* Best Model Info */}
+            <MLflowBestModel jobId={job.id} />
+
+            {/* Metrics Charts */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                학습 메트릭 차트
+              </h3>
+              <MLflowMetricsCharts jobId={job.id} />
+            </div>
+
+            {/* Metrics Table */}
+            <div>
+              <MLflowMetricsTable jobId={job.id} />
+            </div>
+          </>
         )}
 
         {/* Show message if not started yet */}
         {job.status === 'pending' && (
           <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
-            <p className="text-sm text-gray-500">학습을 시작하면 실시간 메트릭이 표시됩니다</p>
+            <p className="text-sm text-gray-500">학습을 시작하면 메트릭과 실험 정보가 표시됩니다</p>
           </div>
         )}
 

@@ -26,6 +26,7 @@ export default function ChatPanel({
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -72,6 +73,11 @@ export default function ChatPanel({
 
       // Clear input
       setInput('')
+
+      // Refocus input after message is sent
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 0)
 
       // If training config is complete, create training job
       if (data.parsed_intent?.status === 'complete') {
@@ -170,6 +176,7 @@ export default function ChatPanel({
       <div className="p-6 border-t border-gray-200">
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}

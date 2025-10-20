@@ -10,6 +10,7 @@ from app.db import models
 from app.schemas import training
 from app.core.config import settings
 from app.utils.training_manager import TrainingManager
+from app.utils.mlflow_client import get_mlflow_client
 
 router = APIRouter()
 
@@ -210,3 +211,49 @@ async def get_training_logs(
     logs = query.order_by(models.TrainingLog.created_at).limit(limit).all()
 
     return logs
+
+
+@router.get("/jobs/{job_id}/mlflow/metrics")
+async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
+    """
+    Get MLflow metrics for a training job.
+
+    Returns all metrics with their history from MLflow tracking server.
+    """
+    # Verify job exists
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    try:
+        client = get_mlflow_client()
+        metrics_data = client.get_run_metrics(job_id)
+        return metrics_data
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch MLflow metrics: {str(e)}"
+        )
+
+
+@router.get("/jobs/{job_id}/mlflow/summary")
+async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
+    """
+    Get MLflow run summary for a training job.
+
+    Returns summary information including best metrics, parameters, and run status.
+    """
+    # Verify job exists
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    try:
+        client = get_mlflow_client()
+        summary = client.get_run_summary(job_id)
+        return summary
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch MLflow summary: {str(e)}"
+        )

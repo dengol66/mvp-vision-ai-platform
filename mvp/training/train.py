@@ -14,6 +14,12 @@ from models.resnet import create_resnet50, get_model_info
 from data.dataset import create_dataloaders, get_dataset_info
 from training.trainer import Trainer
 
+# Configure MLflow tracking URI
+os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
+os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
+os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -100,9 +106,16 @@ def main():
 
     # Train
     try:
+        # Get dataset name from path
+        dataset_name = os.path.basename(os.path.normpath(args.dataset_path))
+
         results = trainer.train(
             num_epochs=args.epochs,
             output_dir=args.output_dir,
+            mlflow_experiment_name="vision-ai-training",
+            mlflow_run_name=f"job-{args.job_id}",
+            model_name="resnet50",
+            dataset_name=dataset_name,
         )
         print(f"[FINAL_RESULTS] {json.dumps(results)}")
         print("[STATUS] SUCCESS")

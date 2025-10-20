@@ -131,6 +131,12 @@ class TrainingManager:
             job_id: Training job ID
             process: Subprocess instance
         """
+        # Import here to avoid circular dependency
+        from app.db.database import SessionLocal
+
+        # Use a dedicated DB session for this thread
+        db = SessionLocal()
+
         try:
             for line in process.stdout:
                 line = line.strip()
@@ -147,7 +153,7 @@ class TrainingManager:
             process.wait()
 
             # Update job status
-            job = self.db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+            job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
             if job:
                 if process.returncode == 0:
                     job.status = "completed"
@@ -155,7 +161,7 @@ class TrainingManager:
 
                     # Get final accuracy from latest metric
                     latest_metric = (
-                        self.db.query(models.TrainingMetric)
+                        db.query(models.TrainingMetric)
                         .filter(models.TrainingMetric.job_id == job_id)
                         .order_by(models.TrainingMetric.epoch.desc())
                         .first()
@@ -184,31 +190,39 @@ class TrainingManager:
                         status="failed",
                     )
 
-                self.db.commit()
+                db.commit()
 
                 # Decrement active jobs counter
                 active_training_jobs.dec()
 
         except Exception as e:
-            job = self.db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
-            if job:
-                job.status = "failed"
-                job.error_message = f"Monitoring error: {str(e)}"
-                job.completed_at = datetime.utcnow()
-                self.db.commit()
+            print(f"Exception in _monitor_training: {e}")
+            try:
+                job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+                if job:
+                    job.status = "failed"
+                    job.error_message = f"Monitoring error: {str(e)}"
+                    job.completed_at = datetime.utcnow()
+                    db.commit()
 
-                # Update Prometheus metrics
-                update_training_metrics(
-                    job_id=job_id,
-                    model_name="resnet18",
-                    dataset_name=os.path.basename(job.dataset_path),
-                    status="failed",
-                )
+                    # Update Prometheus metrics
+                    update_training_metrics(
+                        job_id=job_id,
+                        model_name="resnet18",
+                        dataset_name=os.path.basename(job.dataset_path),
+                        status="failed",
+                    )
 
-                # Decrement active jobs counter
-                active_training_jobs.dec()
+                    # Decrement active jobs counter
+                    active_training_jobs.dec()
+            except Exception as inner_e:
+                print(f"Error updating job status after exception: {inner_e}")
+                db.rollback()
 
         finally:
+            # Close the dedicated DB session
+            db.close()
+
             # Remove from active processes
             if job_id in self.processes:
                 del self.processes[job_id]
@@ -222,18 +236,26 @@ class TrainingManager:
             content: Log content
             log_type: Type of log ('stdout' or 'stderr')
         """
+        # Import here to avoid circular dependency
+        from app.db.database import SessionLocal
+
+        # Use a new session for each log save to avoid session conflicts
+        db = SessionLocal()
         try:
             log = models.TrainingLog(
                 job_id=job_id,
                 log_type=log_type,
                 content=content,
             )
-            self.db.add(log)
-            self.db.commit()
+            db.add(log)
+            db.commit()
         except Exception as e:
             print(f"Error saving log: {e}")
+            db.rollback()
             # Don't fail training if logging fails
             pass
+        finally:
+            db.close()
 
     def _parse_and_save_metrics(self, job_id: int, line: str):
         """
@@ -245,6 +267,10 @@ class TrainingManager:
         """
         # Look for [METRICS] tag
         if "[METRICS]" in line:
+            # Import here to avoid circular dependency
+            from app.db.database import SessionLocal
+
+            db = SessionLocal()
             try:
                 # Extract JSON from line
                 json_start = line.find("{")
@@ -273,8 +299,8 @@ class TrainingManager:
                             "total_batches": metrics_data.get("total_batches"),
                         },
                     )
-                    self.db.add(metric)
-                    self.db.commit()
+                    db.add(metric)
+                    db.commit()
 
                 # Export to Prometheus (if we have metrics to export)
                 if loss is not None:
@@ -293,6 +319,9 @@ class TrainingManager:
                 pass  # Ignore lines that aren't valid JSON
             except Exception as e:
                 print(f"Error parsing metrics: {e}")
+                db.rollback()
+            finally:
+                db.close()
 
     def stop_training(self, job_id: int) -> bool:
         """
@@ -307,6 +336,10 @@ class TrainingManager:
         if job_id not in self.processes:
             return False
 
+        # Import here to avoid circular dependency
+        from app.db.database import SessionLocal
+
+        db = SessionLocal()
         try:
             process = self.processes[job_id]
             process.terminate()
@@ -318,16 +351,20 @@ class TrainingManager:
                 process.kill()
 
             # Update job status
-            job = self.db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+            job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
             if job:
                 job.status = "cancelled"
                 job.completed_at = datetime.utcnow()
-                self.db.commit()
+                db.commit()
 
             return True
 
-        except Exception:
+        except Exception as e:
+            print(f"Error stopping training: {e}")
+            db.rollback()
             return False
+        finally:
+            db.close()
 
     def _get_training_python(self) -> str:
         """
