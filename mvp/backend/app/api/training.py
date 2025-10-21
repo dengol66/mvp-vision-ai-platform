@@ -108,6 +108,21 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
+
+    # Auto-link MLflow run_id if not already linked and job is running/completed
+    if not job.mlflow_run_id and job.status in ["running", "completed"]:
+        try:
+            mlflow_client = get_mlflow_client()
+            mlflow_run = mlflow_client.get_run_by_job_id(job_id)
+            if mlflow_run:
+                job.mlflow_run_id = mlflow_run.info.run_id
+                db.commit()
+                db.refresh(job)
+                print(f"[INFO] Linked MLflow run_id {job.mlflow_run_id} to job {job_id}")
+        except Exception as e:
+            # Don't fail the request if MLflow linking fails
+            print(f"[WARNING] Failed to link MLflow run for job {job_id}: {e}")
+
     return job
 
 
