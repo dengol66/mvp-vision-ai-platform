@@ -25,6 +25,10 @@ class TrainingJobCreate(BaseModel):
 
     session_id: int
     config: TrainingConfig
+    project_id: Optional[int] = Field(None, description="Project ID to associate with")
+    experiment_name: Optional[str] = Field(None, max_length=200, description="Experiment name")
+    tags: Optional[list[str]] = Field(None, description="Tags for categorization")
+    notes: Optional[str] = Field(None, description="User notes about this experiment")
 
 
 class TrainingJobResponse(BaseModel):
@@ -32,6 +36,13 @@ class TrainingJobResponse(BaseModel):
 
     id: int
     session_id: int
+    project_id: Optional[int] = None
+
+    # Experiment metadata
+    experiment_name: Optional[str] = None
+    tags: Optional[list[str]] = None
+    notes: Optional[str] = None
+    mlflow_run_id: Optional[str] = None
 
     framework: str
     model_name: str

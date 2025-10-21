@@ -62,6 +62,12 @@ async def create_training_job(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Verify project exists if provided
+    if job_request.project_id:
+        project = db.query(models.Project).filter(models.Project.id == job_request.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
     # Create output directory
     job_output_dir = os.path.join(
         settings.OUTPUT_DIR,
@@ -72,6 +78,10 @@ async def create_training_job(
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
+        project_id=job_request.project_id,
+        experiment_name=job_request.experiment_name,
+        tags=job_request.tags,  # Will be stored as JSON
+        notes=job_request.notes,
         framework=job_request.config.framework,
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
