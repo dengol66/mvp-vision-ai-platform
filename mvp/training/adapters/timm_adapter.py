@@ -72,7 +72,7 @@ class TimmAdapter(TrainingAdapter):
 
     def prepare_dataset(self):
         """Prepare dataset for training."""
-        from ..data.dataset import create_dataloaders
+        from data.dataset import create_dataloaders
 
         print(f"Loading dataset from: {self.dataset_config.dataset_path}")
 
