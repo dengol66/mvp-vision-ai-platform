@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Download } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Message {
@@ -206,14 +206,70 @@ export default function ChatPanel({
     }
   }
 
+  const handleExportChat = () => {
+    if (!sessionId || messages.length === 0) return
+
+    try {
+      // Build chat log text
+      const logLines = []
+      logLines.push('='.repeat(80))
+      logLines.push(`Chat Session Log - Session ID: ${sessionId}`)
+      logLines.push(`Exported: ${new Date().toLocaleString('ko-KR')}`)
+      logLines.push(`Total Messages: ${messages.length}`)
+      logLines.push('='.repeat(80))
+      logLines.push('')
+
+      messages.forEach((msg) => {
+        const timestamp = new Date(msg.created_at).toLocaleString('ko-KR')
+        const roleLabel = msg.role === 'user' ? 'USER' : 'ASSISTANT'
+
+        logLines.push(`[${timestamp}] ${roleLabel}:`)
+        logLines.push(msg.content)
+        logLines.push('')
+        logLines.push('-'.repeat(80))
+        logLines.push('')
+      })
+
+      const logText = logLines.join('\n')
+
+      // Create and download file
+      const blob = new Blob([logText], { type: 'text/plain;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `chat_session_${sessionId}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Failed to export chat:', error)
+      alert('채팅 로그 다운로드에 실패했습니다.')
+    }
+  }
+
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="p-6 border-b border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-900">채팅</h2>
-        <p className="text-sm text-gray-600 mt-1">
-          자연어로 학습 설정을 입력하세요
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">채팅</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              자연어로 학습 설정을 입력하세요
+            </p>
+          </div>
+          {sessionId && messages.length > 0 && (
+            <button
+              onClick={handleExportChat}
+              className="px-3 py-2 text-sm text-gray-700 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex items-center gap-2"
+              title="채팅 로그 다운로드"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">다운로드</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}

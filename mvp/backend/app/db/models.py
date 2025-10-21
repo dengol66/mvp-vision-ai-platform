@@ -34,6 +34,13 @@ class Session(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Conversation state management (Phase 1+2)
+    state = Column(String(50), nullable=False, default="initial", index=True)
+    """Current conversation state: initial, gathering_config, selecting_project, etc."""
+
+    temp_data = Column(JSON, nullable=False, default={})
+    """Temporary conversation data: config, available_projects, selected_project_id, etc."""
+
     # Relationships
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
     training_jobs = relationship("TrainingJob", back_populates="session", cascade="all, delete-orphan")
