@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from app.db.models import Session as SessionModel, Message as MessageModel
-from app.models.conversation import ConversationState, GeminiActionResponse
+from app.models.conversation import ConversationState, GeminiActionResponse, ActionType
 from app.utils.llm_structured import structured_intent_parser
 from app.services.action_handlers import ActionHandlers
 
@@ -67,31 +67,74 @@ class ConversationManager:
             current_state = ConversationState(session.state)
             temp_data = session.temp_data or {}
 
+            # TRACE: Step 1 - Load from DB
+            import sys
+            sys.stderr.write(f"\n[TRACE-1-LOAD] Session {session_id}\n")
+            sys.stderr.write(f"  State: {current_state}\n")
+            sys.stderr.write(f"  temp_data from DB: {str(temp_data)}\n")
+            if "config" in temp_data:
+                sys.stderr.write(f"  config keys: {list(temp_data['config'].keys())}\n")
+            sys.stderr.flush()
+
             logger.info(f"[Session {session_id}] Current state: {current_state}")
             logger.debug(f"[Session {session_id}] Temp data: {json.dumps(temp_data, ensure_ascii=False)}")
 
             # 2. Build conversation context (last 5 messages)
             context = self._build_context(session)
 
-            # 3. Parse intent with LLM (get structured action)
-            logger.info(f"[Session {session_id}] Parsing intent: '{user_message[:100]}...'")
+            # 3. Handle simple option selection in SELECTING_PROJECT state
+            # (LLM sometimes fails to parse simple "1", "2", "3" inputs correctly)
+            if current_state == ConversationState.SELECTING_PROJECT:
+                direct_action = self._handle_project_selection(user_message, temp_data)
+                if direct_action:
+                    logger.info(f"[Session {session_id}] Direct action (bypassing LLM): {direct_action.action}")
+                    action_response = direct_action
+                else:
+                    # Fall back to LLM for complex inputs
+                    action_response = await structured_intent_parser.parse_intent(
+                        user_message=user_message,
+                        state=current_state,
+                        context=context,
+                        temp_data=temp_data
+                    )
+            else:
+                # 3. Parse intent with LLM (get structured action)
+                logger.info(f"[Session {session_id}] Parsing intent: '{user_message[:100]}...'")
 
-            action_response: GeminiActionResponse = await structured_intent_parser.parse_intent(
-                user_message=user_message,
-                state=current_state,
-                context=context,
-                temp_data=temp_data
-            )
+                action_response: GeminiActionResponse = await structured_intent_parser.parse_intent(
+                    user_message=user_message,
+                    state=current_state,
+                    context=context,
+                    temp_data=temp_data
+                )
 
             logger.info(f"[Session {session_id}] LLM action: {action_response.action}")
             logger.debug(f"[Session {session_id}] LLM message: {action_response.message}")
 
+            # EXPLICIT DEBUG - Log LLM response to file
+            debug_log_path = "C:/Users/flyto/Project/Github/mvp-vision-ai-platform/mvp/backend/llm_debug.log"
+            with open(debug_log_path, "a", encoding="utf-8") as f:
+                f.write("\n" + "="*80 + "\n")
+                f.write(f"[DEBUG] LLM Response for session {session_id}:\n")
+                f.write(f"Action: {action_response.action}\n")
+                f.write(f"Message: {action_response.message[:200]}\n")
+                if action_response.current_config:
+                    f.write(f"Current Config: {json.dumps(action_response.current_config, ensure_ascii=False)}\n")
+                else:
+                    f.write(f"Current Config: NONE/NULL\n")
+                if action_response.config:
+                    f.write(f"Config: {json.dumps(action_response.config, ensure_ascii=False)}\n")
+                f.write("="*80 + "\n")
+
             # 4. Execute action
+            logger.warning(f"[CM] Calling handle_action for action: {action_response.action}")
+            logger.warning(f"[CM] User message: {user_message}")
             result = await self.action_handlers.handle_action(
                 action_response=action_response,
                 session=session,
                 user_message=user_message
             )
+            logger.warning(f"[CM] handle_action returned")
 
             new_state = result["new_state"]
             response_message = result["message"]
@@ -100,9 +143,21 @@ class ConversationManager:
 
             logger.info(f"[Session {session_id}] State transition: {current_state} -> {new_state}")
 
+            # TRACE: Step 5 - Before saving to DB
+            print(f"\n[TRACE-5-SAVE] Saving to DB:")
+            print(f"  new_state: {new_state}")
+            print(f"  updated_temp_data: {json.dumps(updated_temp_data, ensure_ascii=False)}")
+            if "config" in updated_temp_data:
+                print(f"  config keys: {list(updated_temp_data['config'].keys())}")
+
             # 5. Update session in DB
             session.state = new_state.value
             session.temp_data = updated_temp_data
+
+            # CRITICAL FIX: Force SQLAlchemy to detect JSON column change
+            # When updated_temp_data is the same dict object, SQLAlchemy won't see the change
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(session, "temp_data")
 
             # 6. Save messages
             # Save user message
@@ -123,6 +178,16 @@ class ConversationManager:
 
             # 7. Commit all changes
             self.db.commit()
+
+            # TRACE: Step 6 - After commit, verify what's in DB
+            self.db.refresh(session)
+            print(f"\n[TRACE-6-VERIFY] After commit:")
+            print(f"  session.state: {session.state}")
+            print(f"  session.temp_data: {session.temp_data}")
+            if session.temp_data and "config" in session.temp_data:
+                print(f"  config keys in DB: {list(session.temp_data['config'].keys())}")
+            else:
+                print(f"  NO CONFIG IN DB!")
 
             logger.info(f"[Session {session_id}] Response sent, state updated to {new_state}")
 
@@ -157,6 +222,39 @@ class ConversationManager:
                 "message": f"죄송합니다. 오류가 발생했습니다: {str(e)}",
                 "state": ConversationState.ERROR.value
             }
+
+    def _handle_project_selection(self, user_message: str, temp_data: Dict[str, Any]) -> Optional[GeminiActionResponse]:
+        """
+        Handle simple project selection inputs (1, 2, 3) directly
+
+        Returns GeminiActionResponse if input matches a simple pattern, None otherwise
+        """
+        msg = user_message.strip().lower()
+
+        # Option 1: Create new project
+        if msg in ["1", "1번", "신규"]:
+            return GeminiActionResponse(
+                action=ActionType.ASK_CLARIFICATION,
+                message="신규 프로젝트를 생성합니다. 프로젝트 이름을 입력해주세요.\n\n예시: 이미지 분류 프로젝트 - 설명",
+                missing_fields=["project_name"]
+            )
+
+        # Option 2: Select existing project
+        if msg in ["2", "2번", "기존"]:
+            return GeminiActionResponse(
+                action=ActionType.SHOW_PROJECT_LIST,
+                message="기존 프로젝트를 조회합니다..."
+            )
+
+        # Option 3: Skip project
+        if msg in ["3", "3번", "건너뛰기", "없이"]:
+            return GeminiActionResponse(
+                action=ActionType.SKIP_PROJECT,
+                message="프로젝트 없이 진행합니다."
+            )
+
+        # Not a simple option - let LLM handle it
+        return None
 
     def _build_context(self, session: SessionModel, max_messages: int = 10) -> str:
         """
