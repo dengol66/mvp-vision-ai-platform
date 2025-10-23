@@ -1,18 +1,35 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import Sidebar, { NavigationView } from '@/components/Sidebar'
+import Sidebar from '@/components/Sidebar'
 import ChatPanel from '@/components/ChatPanel'
 import TrainingPanel from '@/components/TrainingPanel'
-import ProjectList from '@/components/ProjectList'
 import ProjectDetail from '@/components/ProjectDetail'
+import CreateProjectForm from '@/components/CreateProjectForm'
+import TrainingConfigPanel from '@/components/TrainingConfigPanel'
+
+interface TrainingConfig {
+  framework?: string
+  model_name?: string
+  task_type?: string
+  dataset_path?: string
+  dataset_format?: string
+  epochs?: number
+  batch_size?: number
+  learning_rate?: number
+}
 
 export default function Home() {
-  const [currentView, setCurrentView] = useState<NavigationView>('chat')
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [trainingJobId, setTrainingJobId] = useState<number | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
-  const [leftWidth, setLeftWidth] = useState(30) // 30% initial width
+  const [previousProjectId, setPreviousProjectId] = useState<number | null>(null) // For back button
+  const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const [isCreatingTraining, setIsCreatingTraining] = useState(false)
+  const [trainingConfig, setTrainingConfig] = useState<TrainingConfig | null>(null)
+  const [trainingProjectId, setTrainingProjectId] = useState<number | null>(null)
+  const [sidebarKey, setSidebarKey] = useState(0) // For forcing Sidebar refresh
+  const [centerWidth, setCenterWidth] = useState(35) // Chat panel width (35%)
   const [isDragging, setIsDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -26,11 +43,11 @@ export default function Home() {
       if (!isDragging || !containerRef.current) return
 
       const containerRect = containerRef.current.getBoundingClientRect()
-      const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
+      const newCenterWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
 
-      // Clamp between 30% (min) and 50% (max)
-      const clampedWidth = Math.max(30, Math.min(50, newLeftWidth))
-      setLeftWidth(clampedWidth)
+      // Clamp between 25% (min) and 50% (max) for chat panel
+      const clampedWidth = Math.max(25, Math.min(50, newCenterWidth))
+      setCenterWidth(clampedWidth)
     }
 
     const handleMouseUp = () => {
@@ -48,102 +65,183 @@ export default function Home() {
     }
   }, [isDragging])
 
-  const handleNewProject = () => {
-    // Reset session and training job to start fresh
-    setSessionId(null)
-    setTrainingJobId(null)
+  const handleProjectSelect = (projectId: number) => {
+    setSelectedProjectId(projectId)
+    setIsCreatingProject(false)  // Close create form if open
+    setIsCreatingTraining(false) // Close training config if open
+    setTrainingJobId(null)       // Close training panel if open
   }
 
-  const handleSelectSession = (selectedSessionId: number) => {
-    // TODO: Load session data from backend
-    console.log('Selected session:', selectedSessionId)
+  const handleCreateProject = () => {
+    setPreviousProjectId(selectedProjectId) // Save current project for back button
+    setIsCreatingProject(true)
+    setSelectedProjectId(null)   // Close project detail if open
+    setIsCreatingTraining(false) // Close training config if open
+    setTrainingJobId(null)       // Close training panel if open
   }
 
-  const handleNavigationChange = (view: NavigationView) => {
-    setCurrentView(view)
-    // Reset selections when switching views
-    if (view === 'projects') {
-      setSelectedProjectId(null)
+  const handleProjectCreated = (projectId: number) => {
+    setIsCreatingProject(false)
+    setPreviousProjectId(null)   // Clear previous project
+    setSelectedProjectId(projectId)  // Show the newly created project
+    setSidebarKey(prev => prev + 1)  // Force Sidebar to refresh by changing key
+  }
+
+  const handleCancelCreateProject = () => {
+    setIsCreatingProject(false)
+    // Restore previous project if there was one
+    if (previousProjectId !== null) {
+      setSelectedProjectId(previousProjectId)
+      setPreviousProjectId(null)
     }
   }
 
-  const handleProjectSelect = (projectId: number) => {
-    setSelectedProjectId(projectId)
+  const handleStartNewTraining = (projectId?: number) => {
+    setTrainingConfig(null) // Clear config for fresh start
+    setTrainingProjectId(projectId || null)
+    setIsCreatingTraining(true)
+    setIsCreatingProject(false)  // Close project creation if open
+    setSelectedProjectId(null)   // Close project detail if open
+    setTrainingJobId(null)       // Close training panel if open
   }
 
-  const handleProjectBack = () => {
-    setSelectedProjectId(null)
+  const handleCloneExperiment = async (experimentId: number, projectId?: number) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${experimentId}`)
+      if (!response.ok) {
+        console.error('Failed to fetch experiment config')
+        return
+      }
+
+      const experiment = await response.json()
+
+      // Extract config from experiment
+      const config: TrainingConfig = {
+        framework: experiment.framework,
+        model_name: experiment.model_name,
+        task_type: experiment.task_type,
+        dataset_path: experiment.dataset_path,
+        dataset_format: experiment.dataset_format,
+        epochs: experiment.config?.epochs,
+        batch_size: experiment.config?.batch_size,
+        learning_rate: experiment.config?.learning_rate,
+      }
+
+      setTrainingConfig(config)
+      setTrainingProjectId(projectId || null)
+      setIsCreatingTraining(true)
+      setIsCreatingProject(false)
+      setSelectedProjectId(null)
+      setTrainingJobId(null)
+    } catch (error) {
+      console.error('Error cloning experiment:', error)
+    }
+  }
+
+  const handleTrainingStarted = (jobId: number) => {
+    setIsCreatingTraining(false)
+    setTrainingConfig(null)
+    setTrainingJobId(jobId)
+  }
+
+  const handleCancelTraining = () => {
+    setIsCreatingTraining(false)
+    setTrainingConfig(null)
+  }
+
+  const handleViewExperiment = (experimentId: number) => {
+    // Store the current project ID so we can go back
+    setPreviousProjectId(selectedProjectId)
+    setTrainingJobId(experimentId)
+    setSelectedProjectId(null)   // Close project detail
+    setIsCreatingTraining(false) // Close training config if open
+    setIsCreatingProject(false)  // Close create project if open
+  }
+
+  const handleNavigateToExperiments = () => {
+    // Go back to project detail from training panel
+    setTrainingJobId(null)
+    if (previousProjectId !== null) {
+      setSelectedProjectId(previousProjectId)
+      setPreviousProjectId(null)
+    }
   }
 
   return (
     <div className="h-screen flex">
-      {/* Sidebar */}
+      {/* Sidebar - Fixed Left */}
       <Sidebar
-        onNewProject={handleNewProject}
-        onSelectSession={handleSelectSession}
-        currentSessionId={sessionId}
-        onNavigationChange={handleNavigationChange}
-        currentView={currentView}
+        key={sidebarKey}
+        onProjectSelect={handleProjectSelect}
+        selectedProjectId={selectedProjectId}
+        onCreateProject={handleCreateProject}
       />
 
-      {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden relative">
-        {/* Chat View (Chat + Training panels with resizer) */}
-        {currentView === 'chat' && (
-          <>
-            {/* Chat Panel - Left */}
-            <div
-              ref={containerRef}
-              style={{ width: `${leftWidth}%` }}
-              className="border-r border-gray-200"
-            >
-              <ChatPanel
-                sessionId={sessionId}
-                onSessionCreated={setSessionId}
-                onTrainingRequested={setTrainingJobId}
-              />
-            </div>
+      {/* Main Content Area - 3 Column Layout */}
+      <main ref={containerRef} className="flex-1 flex overflow-hidden relative">
+        {/* Chat Panel - Center (Resizable) */}
+        <div
+          style={{ width: `${centerWidth}%` }}
+          className="border-r border-gray-200"
+        >
+          <ChatPanel
+            sessionId={sessionId}
+            onSessionCreated={setSessionId}
+            onTrainingRequested={setTrainingJobId}
+            onProjectSelected={handleProjectSelect}
+          />
+        </div>
 
-            {/* Resizer */}
-            <div
-              onMouseDown={handleMouseDown}
-              className={`w-1 bg-gray-200 hover:bg-violet-400 cursor-col-resize transition-colors relative group ${
-                isDragging ? 'bg-violet-500' : ''
-              }`}
-            >
-              <div className="absolute inset-y-0 -left-1 -right-1" />
-            </div>
+        {/* Resizer */}
+        <div
+          onMouseDown={handleMouseDown}
+          className={`w-1 bg-gray-200 hover:bg-violet-400 cursor-col-resize transition-colors relative group ${
+            isDragging ? 'bg-violet-500' : ''
+          }`}
+        >
+          <div className="absolute inset-y-0 -left-1 -right-1" />
+        </div>
 
-            {/* Training Panel - Right */}
-            <div style={{ width: `${100 - leftWidth}%` }} className="flex-1">
-              <TrainingPanel trainingJobId={trainingJobId} />
+        {/* Workspace Panel - Right (Dynamic Content) */}
+        <div style={{ width: `${100 - centerWidth}%` }} className="flex-1">
+          {isCreatingProject ? (
+            // Show create project form
+            <CreateProjectForm
+              onCancel={handleCancelCreateProject}
+              onProjectCreated={handleProjectCreated}
+            />
+          ) : isCreatingTraining ? (
+            // Show training config panel
+            <TrainingConfigPanel
+              projectId={trainingProjectId}
+              initialConfig={trainingConfig}
+              onCancel={handleCancelTraining}
+              onTrainingStarted={handleTrainingStarted}
+            />
+          ) : selectedProjectId ? (
+            // Show project detail when project is selected
+            <ProjectDetail
+              projectId={selectedProjectId}
+              onBack={() => setSelectedProjectId(null)}
+              onStartNewTraining={handleStartNewTraining}
+              onCloneExperiment={handleCloneExperiment}
+              onViewExperiment={handleViewExperiment}
+            />
+          ) : trainingJobId ? (
+            // Show training panel when training job exists
+            <TrainingPanel trainingJobId={trainingJobId} onNavigateToExperiments={handleNavigateToExperiments} />
+          ) : (
+            // Default empty state
+            <div className="h-full flex items-center justify-center bg-gray-50">
+              <div className="text-center text-gray-500">
+                <p className="text-sm">작업 공간</p>
+                <p className="text-xs mt-1 text-gray-400">
+                  프로젝트를 선택하거나 학습을 시작하세요
+                </p>
+              </div>
             </div>
-          </>
-        )}
-
-        {/* Projects View */}
-        {currentView === 'projects' && (
-          <div className="flex-1 flex overflow-hidden">
-            {/* Project List - Left (30% width) */}
-            <div className="w-[30%] border-r border-gray-200">
-              <ProjectList onProjectSelect={handleProjectSelect} />
-            </div>
-
-            {/* Project Detail - Right (70% width) */}
-            <div className="flex-1">
-              {selectedProjectId ? (
-                <ProjectDetail projectId={selectedProjectId} onBack={handleProjectBack} />
-              ) : (
-                <div className="h-full flex items-center justify-center bg-gray-50">
-                  <div className="text-center text-gray-500">
-                    <p className="text-sm">프로젝트를 선택하세요</p>
-                    <p className="text-xs mt-1">왼쪽 목록에서 프로젝트를 클릭하면 상세 정보가 표시됩니다</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   )

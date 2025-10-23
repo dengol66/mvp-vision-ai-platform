@@ -19,11 +19,14 @@ class TrainingConfig(BaseModel):
     batch_size: int = Field(32, ge=1, le=512, description="Batch size")
     learning_rate: float = Field(0.001, gt=0, lt=1, description="Learning rate")
 
+    class Config:
+        protected_namespaces = ()  # Allow model_name field
+
 
 class TrainingJobCreate(BaseModel):
     """Schema for creating a training job."""
 
-    session_id: int
+    session_id: Optional[int] = Field(None, description="Chat session ID (optional)")
     config: TrainingConfig
     project_id: Optional[int] = Field(None, description="Project ID to associate with")
     experiment_name: Optional[str] = Field(None, max_length=200, description="Experiment name")
@@ -35,8 +38,9 @@ class TrainingJobResponse(BaseModel):
     """Schema for training job response."""
 
     id: int
-    session_id: int
+    session_id: Optional[int] = Field(None, description="Chat session ID (optional)")
     project_id: Optional[int] = None
+    project_name: Optional[str] = None  # Project name for breadcrumb navigation
 
     # Experiment metadata
     experiment_name: Optional[str] = None
@@ -69,6 +73,7 @@ class TrainingJobResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        protected_namespaces = ()  # Allow model_name field
 
 
 class TrainingMetricResponse(BaseModel):

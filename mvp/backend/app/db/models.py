@@ -34,6 +34,13 @@ class Session(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Conversation state management (Phase 1+2)
+    state = Column(String(50), nullable=False, default="initial", index=True)
+    """Current conversation state: initial, gathering_config, selecting_project, etc."""
+
+    temp_data = Column(JSON, nullable=False, default={})
+    """Temporary conversation data: config, available_projects, selected_project_id, etc."""
+
     # Relationships
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
     training_jobs = relationship("TrainingJob", back_populates="session", cascade="all, delete-orphan")
@@ -60,7 +67,7 @@ class TrainingJob(Base):
     __tablename__ = "training_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)  # Optional: training can be created without chat session
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # NEW: Link to project (nullable for backward compatibility)
 
     # Experiment metadata (NEW)
