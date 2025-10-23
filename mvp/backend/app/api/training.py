@@ -57,10 +57,11 @@ async def create_training_job(
             detail="num_classes is required for image classification tasks"
         )
 
-    # Verify session exists
-    session = db.query(models.Session).filter(models.Session.id == job_request.session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    # Verify session exists (if provided)
+    if job_request.session_id:
+        session = db.query(models.Session).filter(models.Session.id == job_request.session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
 
     # Verify project exists if provided
     if job_request.project_id:
@@ -98,6 +99,12 @@ async def create_training_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+    # Add project_name for breadcrumb navigation
+    if job.project_id and job.project:
+        job.project_name = job.project.name
+    else:
+        job.project_name = None
+
 
     return job
 
@@ -122,6 +129,12 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
         except Exception as e:
             # Don't fail the request if MLflow linking fails
             print(f"[WARNING] Failed to link MLflow run for job {job_id}: {e}")
+    # Add project_name for breadcrumb navigation
+    if job.project_id and job.project:
+        job.project_name = job.project.name
+    else:
+        job.project_name = None
+
 
     return job
 

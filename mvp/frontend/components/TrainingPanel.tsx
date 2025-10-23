@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Play, Square, AlertCircle, ExternalLink } from 'lucide-react'
+import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import MLflowMetricsTable from './training/MLflowMetricsTable'
@@ -9,6 +9,8 @@ import MLflowBestModel from './training/MLflowBestModel'
 
 interface TrainingJob {
   id: number
+  project_id: number | null
+  project_name: string | null
   framework: string
   model_name: string
   task_type: string
@@ -40,9 +42,10 @@ interface TrainingLog {
 
 interface TrainingPanelProps {
   trainingJobId: number | null
+  onNavigateToExperiments?: () => void
 }
 
-export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
+export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }: TrainingPanelProps) {
   const [job, setJob] = useState<TrainingJob | null>(null)
   const [metrics, setMetrics] = useState<TrainingMetric[]>([])
   const [logs, setLogs] = useState<TrainingLog[]>([])
@@ -240,8 +243,41 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
       <div className="p-6 bg-white border-b border-gray-200">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+          <button
+            onClick={onNavigateToExperiments}
+            className="hover:text-violet-600 transition-colors"
+          >
+            {job.project_name || '프로젝트'}
+          </button>
+          <ChevronRight className="w-4 h-4" />
+          <button
+            onClick={onNavigateToExperiments}
+            className="hover:text-violet-600 transition-colors"
+          >
+            실험
+          </button>
+          <ChevronRight className="w-4 h-4" />
+          <span className="text-gray-900 font-medium">학습 #{job.id}</span>
+        </div>
+
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">학습 진행 상황</h2>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onNavigateToExperiments}
+              className={cn(
+                'p-2 rounded-lg',
+                'text-gray-600 hover:text-violet-600',
+                'hover:bg-gray-100',
+                'transition-colors'
+              )}
+              title="실험 목록으로 돌아가기"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg font-semibold text-gray-900">학습 진행 상황</h2>
+          </div>
           {getStatusBadge(job.status)}
         </div>
 

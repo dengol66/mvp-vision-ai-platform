@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeftIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Experiment {
@@ -36,13 +36,15 @@ interface ProjectDetailProps {
   onBack?: () => void
   onStartNewTraining?: (projectId: number) => void
   onCloneExperiment?: (experimentId: number, projectId: number) => void
+  onViewExperiment?: (experimentId: number) => void
 }
 
 export default function ProjectDetail({
   projectId,
   onBack,
   onStartNewTraining,
-  onCloneExperiment
+  onCloneExperiment,
+  onViewExperiment
 }: ProjectDetailProps) {
   const [project, setProject] = useState<Project | null>(null)
   const [experiments, setExperiments] = useState<Experiment[]>([])
@@ -518,6 +520,25 @@ export default function ProjectDetail({
 
                     {/* Action Buttons */}
                     <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onViewExperiment?.(exp.id)
+                        }}
+                        className={cn(
+                          'px-3 py-1.5 bg-violet-600 text-white rounded-lg',
+                          'hover:bg-violet-700',
+                          'transition-colors text-sm font-medium',
+                          'flex items-center gap-2'
+                        )}
+                      >
+                        <ArrowRightIcon className="w-4 h-4" />
+                        <span>
+                          {exp.status === 'pending' && '학습 보기'}
+                          {exp.status === 'running' && '학습 진행 보기'}
+                          {(exp.status === 'completed' || exp.status === 'failed' || exp.status === 'cancelled') && '학습 상세 보기'}
+                        </span>
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()

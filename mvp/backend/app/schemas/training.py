@@ -26,7 +26,7 @@ class TrainingConfig(BaseModel):
 class TrainingJobCreate(BaseModel):
     """Schema for creating a training job."""
 
-    session_id: int
+    session_id: Optional[int] = Field(None, description="Chat session ID (optional)")
     config: TrainingConfig
     project_id: Optional[int] = Field(None, description="Project ID to associate with")
     experiment_name: Optional[str] = Field(None, max_length=200, description="Experiment name")
@@ -38,8 +38,9 @@ class TrainingJobResponse(BaseModel):
     """Schema for training job response."""
 
     id: int
-    session_id: int
+    session_id: Optional[int] = Field(None, description="Chat session ID (optional)")
     project_id: Optional[int] = None
+    project_name: Optional[str] = None  # Project name for breadcrumb navigation
 
     # Experiment metadata
     experiment_name: Optional[str] = None

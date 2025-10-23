@@ -67,7 +67,7 @@ class TrainingJob(Base):
     __tablename__ = "training_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)  # Optional: training can be created without chat session
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # NEW: Link to project (nullable for backward compatibility)
 
     # Experiment metadata (NEW)

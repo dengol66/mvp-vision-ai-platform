@@ -149,6 +149,24 @@ export default function Home() {
     setTrainingConfig(null)
   }
 
+  const handleViewExperiment = (experimentId: number) => {
+    // Store the current project ID so we can go back
+    setPreviousProjectId(selectedProjectId)
+    setTrainingJobId(experimentId)
+    setSelectedProjectId(null)   // Close project detail
+    setIsCreatingTraining(false) // Close training config if open
+    setIsCreatingProject(false)  // Close create project if open
+  }
+
+  const handleNavigateToExperiments = () => {
+    // Go back to project detail from training panel
+    setTrainingJobId(null)
+    if (previousProjectId !== null) {
+      setSelectedProjectId(previousProjectId)
+      setPreviousProjectId(null)
+    }
+  }
+
   return (
     <div className="h-screen flex">
       {/* Sidebar - Fixed Left */}
@@ -207,10 +225,11 @@ export default function Home() {
               onBack={() => setSelectedProjectId(null)}
               onStartNewTraining={handleStartNewTraining}
               onCloneExperiment={handleCloneExperiment}
+              onViewExperiment={handleViewExperiment}
             />
           ) : trainingJobId ? (
             // Show training panel when training job exists
-            <TrainingPanel trainingJobId={trainingJobId} />
+            <TrainingPanel trainingJobId={trainingJobId} onNavigateToExperiments={handleNavigateToExperiments} />
           ) : (
             // Default empty state
             <div className="h-full flex items-center justify-center bg-gray-50">
