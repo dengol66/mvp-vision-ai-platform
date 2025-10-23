@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeftIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon } from 'lucide-react'
+import { ArrowLeftIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Experiment {
@@ -40,6 +40,15 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
   const [project, setProject] = useState<Project | null>(null)
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [loading, setLoading] = useState(true)
+  const [expandedExpId, setExpandedExpId] = useState<number | null>(null)
+
+  // Edit mode states
+  const [isEditing, setIsEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editTaskType, setEditTaskType] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (projectId) {
@@ -106,6 +115,72 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     })
   }
 
+  const handleStartEdit = () => {
+    if (!project) return
+    setEditName(project.name)
+    setEditDescription(project.description || '')
+    setEditTaskType(project.task_type || 'image_classification')
+    setIsEditing(true)
+    setError(null)
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setError(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!project || !editName.trim()) {
+      setError('프로젝트 이름을 입력해주세요')
+      return
+    }
+
+    setIsSaving(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: editName.trim(),
+          description: editDescription.trim() || null,
+          task_type: editTaskType || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+
+        // Handle duplicate project name
+        if (response.status === 400 && errorData.detail?.includes('already exists')) {
+          throw new Error('이미 존재하는 프로젝트 이름입니다. 다른 이름을 사용해주세요.')
+        }
+
+        throw new Error(errorData.detail || '프로젝트 수정에 실패했습니다')
+      }
+
+      const updatedProject = await response.json()
+      setProject(updatedProject)
+      setIsEditing(false)
+    } catch (err) {
+      console.error('Error updating project:', err)
+      setError(err instanceof Error ? err.message : '프로젝트 수정 중 오류가 발생했습니다')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const taskTypes = [
+    { value: 'image_classification', label: '이미지 분류' },
+    { value: 'object_detection', label: '객체 탐지' },
+    { value: 'semantic_segmentation', label: '의미론적 분할' },
+    { value: 'instance_segmentation', label: '인스턴스 분할' },
+    { value: 'pose_estimation', label: '포즈 추정' },
+  ]
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -126,33 +201,163 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center space-x-4">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeftIcon className="w-5 h-5 text-gray-600" />
-            </button>
-          )}
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-gray-900">{project.name}</h2>
-            {project.description && (
-              <p className="text-sm text-gray-600 mt-1">{project.description}</p>
+        {/* Title bar with back button and action buttons */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-4">
+            {onBack && (
+              <button
+                onClick={isEditing ? handleCancelEdit : onBack}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title={isEditing ? '편집 취소' : '뒤로 가기'}
+              >
+                <ArrowLeftIcon className="w-5 h-5 text-gray-600" />
+              </button>
+            )}
+            <h2 className="text-lg font-semibold text-gray-900">
+              {isEditing ? '프로젝트 정보 수정' : project.name}
+            </h2>
+          </div>
+
+          {/* Edit/Save/Cancel Buttons */}
+          <div className="flex gap-2">
+            {!isEditing ? (
+              <button
+                onClick={handleStartEdit}
+                className={cn(
+                  'px-3 py-1.5 hover:bg-gray-100 rounded-lg transition-colors',
+                  'text-gray-600 hover:text-violet-600',
+                  'flex items-center gap-2 text-sm font-medium'
+                )}
+              >
+                <EditIcon className="w-4 h-4" />
+                <span>수정</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  className={cn(
+                    'px-3 py-1.5 border border-gray-300 rounded-lg',
+                    'text-gray-700 hover:bg-gray-50',
+                    'transition-colors text-sm font-medium',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={isSaving || !editName.trim()}
+                  className={cn(
+                    'px-3 py-1.5 bg-violet-600 text-white rounded-lg',
+                    'hover:bg-violet-700 transition-colors text-sm font-medium',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                >
+                  {isSaving ? '저장 중...' : '저장'}
+                </button>
+              </>
             )}
           </div>
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
-          {project.task_type && (
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700">
-              {project.task_type}
-            </span>
-          )}
-          <span className="text-sm text-gray-500">
-            실험 {experiments.length}개
-          </span>
-        </div>
+        {/* Content: View or Edit mode */}
+        {!isEditing ? (
+          <div>
+            {project.description && (
+              <p className="text-sm text-gray-600 mb-4">{project.description}</p>
+            )}
+            <div className="flex items-center gap-3">
+              {project.task_type && (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700">
+                  {project.task_type}
+                </span>
+              )}
+              <span className="text-sm text-gray-500">
+                실험 {experiments.length}개
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Error Message */}
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+
+            {/* Edit Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                프로젝트 이름 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className={cn(
+                  'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                  'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+                  'text-sm'
+                )}
+                maxLength={100}
+                disabled={isSaving}
+                placeholder="예: ResNet 실험 프로젝트"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {editName.length}/100 자
+              </p>
+            </div>
+
+            {/* Edit Description */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                설명 (선택)
+              </label>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+                className={cn(
+                  'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                  'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+                  'text-sm resize-none'
+                )}
+                maxLength={500}
+                disabled={isSaving}
+                placeholder="프로젝트에 대한 설명을 입력하세요"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {editDescription.length}/500 자
+              </p>
+            </div>
+
+            {/* Edit Task Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                작업 유형 (선택)
+              </label>
+              <select
+                value={editTaskType}
+                onChange={(e) => setEditTaskType(e.target.value)}
+                className={cn(
+                  'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                  'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+                  'text-sm bg-white'
+                )}
+                disabled={isSaving}
+              >
+                {taskTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Experiments List */}
@@ -171,6 +376,7 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
             {experiments.map((exp) => (
               <div
                 key={exp.id}
+                onClick={() => setExpandedExpId(expandedExpId === exp.id ? null : exp.id)}
                 className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow cursor-pointer"
               >
                 <div className="flex items-start justify-between">
@@ -234,6 +440,63 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                     </div>
                   </div>
                 </div>
+
+                {/* 확장된 상세 정보 */}
+                {expandedExpId === exp.id && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <h5 className="text-sm font-semibold text-gray-700 mb-3">학습 설정</h5>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-gray-500">프레임워크:</span>
+                        <span className="ml-2 text-gray-900">{exp.framework}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">모델:</span>
+                        <span className="ml-2 text-gray-900">{exp.model_name}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">작업 유형:</span>
+                        <span className="ml-2 text-gray-900">{exp.task_type}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Epochs:</span>
+                        <span className="ml-2 text-gray-900">{exp.epochs}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Batch Size:</span>
+                        <span className="ml-2 text-gray-900">{exp.batch_size}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Learning Rate:</span>
+                        <span className="ml-2 text-gray-900">{exp.learning_rate}</span>
+                      </div>
+                    </div>
+
+                    {exp.status === 'running' && (
+                      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                        <p className="text-sm text-blue-800">
+                          🚀 학습이 진행 중입니다. 우측 패널에서 실시간 진행 상황을 확인하세요.
+                        </p>
+                      </div>
+                    )}
+
+                    {exp.status === 'completed' && exp.final_accuracy && (
+                      <div className="mt-4 p-3 bg-emerald-50 rounded-lg">
+                        <p className="text-sm text-emerald-800">
+                          ✅ 학습 완료! 최종 정확도: <strong>{exp.final_accuracy.toFixed(2)}%</strong>
+                        </p>
+                      </div>
+                    )}
+
+                    {exp.status === 'failed' && (
+                      <div className="mt-4 p-3 bg-red-50 rounded-lg">
+                        <p className="text-sm text-red-800">
+                          ❌ 학습 실패. 로그를 확인해주세요.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

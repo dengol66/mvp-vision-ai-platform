@@ -201,6 +201,12 @@ class ConversationManager:
                 response["training_job_id"] = training_job_id
                 logger.info(f"[Session {session_id}] Training job created: {training_job_id}")
 
+            # Include selected_project_id for frontend to show project detail
+            selected_project_id = result.get("selected_project_id")
+            if selected_project_id:
+                response["selected_project_id"] = selected_project_id
+                logger.info(f"[Session {session_id}] Project selected: {selected_project_id}")
+
             return response
 
         except Exception as e:
@@ -230,6 +236,14 @@ class ConversationManager:
         Returns GeminiActionResponse if input matches a simple pattern, None otherwise
         """
         msg = user_message.strip().lower()
+
+        # Check if we're already showing project list (user is selecting from list)
+        if "available_projects" in temp_data:
+            # User is selecting a specific project from the list
+            # Let LLM handle this (it will route to SELECT_PROJECT action)
+            return None
+
+        # We're at the initial selection screen (신규/기존/건너뛰기)
 
         # Option 1: Create new project
         if msg in ["1", "1번", "신규"]:

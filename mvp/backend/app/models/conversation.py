@@ -158,6 +158,9 @@ class TrainingConfig(BaseModel):
     batch_size: Optional[int] = Field(None, description="배치 크기")
     learning_rate: Optional[float] = Field(None, description="학습률")
 
+    class Config:
+        protected_namespaces = ()  # Allow model_name field
+
     def is_complete(self) -> bool:
         """모든 필수 필드가 채워졌는지 확인"""
         required_fields = [

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { User, FolderIcon } from 'lucide-react'
+import { User, FolderIcon, PlusIcon } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Project {
@@ -17,11 +17,13 @@ interface Project {
 interface SidebarProps {
   onProjectSelect?: (projectId: number) => void
   selectedProjectId?: number | null
+  onCreateProject?: () => void
 }
 
 export default function Sidebar({
   onProjectSelect,
   selectedProjectId,
+  onCreateProject,
 }: SidebarProps) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
@@ -77,7 +79,21 @@ export default function Sidebar({
 
       {/* Recent Projects */}
       <div className="flex-1 overflow-hidden flex flex-col px-4 py-2">
-        <h2 className="text-sm font-semibold text-gray-400 mb-2 px-2">프로젝트</h2>
+        <div className="flex items-center justify-between mb-2 px-2">
+          <h2 className="text-sm font-semibold text-gray-400">프로젝트</h2>
+          <button
+            onClick={onCreateProject}
+            className={cn(
+              'p-1.5 rounded-lg',
+              'text-gray-400 hover:text-violet-400',
+              'hover:bg-gray-800',
+              'transition-colors'
+            )}
+            title="새 프로젝트"
+          >
+            <PlusIcon className="w-4 h-4" />
+          </button>
+        </div>
         <div className="flex-1 overflow-y-auto space-y-1">
           {loadingProjects ? (
             <div className="text-center py-4 text-gray-500 text-sm">

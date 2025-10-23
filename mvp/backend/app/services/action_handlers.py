@@ -58,6 +58,56 @@ class ActionHandlers:
                 "training_job_id": int (optional)
             }
         """
+        # CRITICAL: Apply fallback extraction BEFORE routing to handler
+        # This ensures config data is extracted even if LLM fails
+        temp_data = session.temp_data or {}
+        existing_config = temp_data.get("config", {})
+
+        # TRACE: Step 4 - Before merging
+        print(f"\n[TRACE-4-MERGE] Action handler:")
+        print(f"  existing_config (from session): {existing_config}")
+        print(f"  action_response.current_config: {action_response.current_config}")
+
+        # Merge LLM's config first
+        if action_response.current_config:
+            existing_config.update(action_response.current_config)
+            print(f"  MERGED config: {existing_config}")
+        else:
+            print(f"  NO MERGE - action_response.current_config is None/empty")
+
+        # Then apply fallback extraction from user message
+        # CRITICAL DEBUG: Write to file
+        try:
+            import os
+            import datetime
+            log_path = "C:\\Users\\flyto\\Project\\Github\\mvp-vision-ai-platform\\mvp\\data\\logs\\fallback_debug.log"
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+            with open(log_path, "a", encoding="utf-8") as f:
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"\n[{timestamp}] Action: {action_response.action}\n")
+                f.write(f"Before: {existing_config}\n")
+                f.write(f"User message: {user_message}\n")
+        except Exception as e:
+            print(f"LOG ERROR: {e}")
+
+        existing_config = self._extract_from_user_message(user_message, existing_config)
+
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"After: {existing_config}\n")
+        except:
+            pass
+
+        logger.warning(f"[DEBUG] Before extraction: {existing_config}")
+        logger.warning(f"[DEBUG] After extraction: {existing_config}")
+
+        # Update session temp_data with extracted config
+        temp_data["config"] = existing_config
+        session.temp_data = temp_data
+
+        logger.warning(f"[FALLBACK] Config after extraction: {existing_config}")
+
         action = action_response.action
 
         handlers = {
@@ -77,7 +127,23 @@ class ActionHandlers:
             logger.error(f"Unknown action: {action}")
             return self._handle_error(action_response, session, user_message)
 
-        return await handler(action_response, session, user_message)
+        # Call handler
+        result = await handler(action_response, session, user_message)
+
+        # CRITICAL: Merge our extracted config with handler's temp_data
+        # This ensures extracted data isn't lost when handler returns
+        handler_temp_data = result.get("temp_data", {})
+        handler_config = handler_temp_data.get("config", {})
+
+        # Merge: extracted config (priority) + handler config
+        final_config = {**handler_config, **existing_config}
+
+        handler_temp_data["config"] = final_config
+        result["temp_data"] = handler_temp_data
+
+        logger.info(f"[MERGE] Final config: {final_config}")
+
+        return result
 
     async def _handle_ask_clarification(
         self,
@@ -87,15 +153,25 @@ class ActionHandlers:
     ) -> Dict[str, Any]:
         """Handle ask_clarification action"""
         temp_data = session.temp_data or {}
+        current_state = ConversationState(session.state)
 
-        # Update config with current info
-        if action_response.current_config:
-            current_config = temp_data.get("config", {})
-            current_config.update(action_response.current_config)
-            temp_data["config"] = current_config
+        # Config is already extracted in handle_action, just retrieve it
+        existing_config = temp_data.get("config", {})
+
+        # Determine next state based on missing fields
+        missing_fields = action_response.missing_fields or []
+
+        # If asking for project_name, transition to CREATING_PROJECT
+        if "project_name" in missing_fields:
+            new_state = ConversationState.CREATING_PROJECT
+        # If asking for config fields, stay in or go to GATHERING_CONFIG
+        else:
+            new_state = ConversationState.GATHERING_CONFIG
+
+        logger.debug(f"After ask_clarification: config = {existing_config}")
 
         return {
-            "new_state": ConversationState.GATHERING_CONFIG,
+            "new_state": new_state,
             "message": action_response.message,
             "temp_data": temp_data,
         }
@@ -109,13 +185,14 @@ class ActionHandlers:
         """Handle show_project_options action"""
         temp_data = session.temp_data or {}
 
-        # Save complete config
-        if action_response.config:
-            temp_data["config"] = action_response.config
+        # Config is already extracted in handle_action, just retrieve it
+        existing_config = temp_data.get("config", {})
 
         # Save experiment metadata
         if action_response.experiment:
             temp_data["experiment"] = action_response.experiment
+
+        logger.debug(f"After show_project_options: config = {existing_config}")
 
         # Build project options message
         message = "설정이 완료되었습니다. 프로젝트를 선택해주세요.\n\n"
@@ -272,6 +349,7 @@ class ActionHandlers:
             "new_state": ConversationState.CONFIRMING,
             "message": message,
             "temp_data": temp_data,
+            "selected_project_id": project.id,  # For frontend to show project detail
         }
 
     async def _handle_skip_project(
@@ -393,6 +471,64 @@ class ActionHandlers:
             "message": f"죄송합니다. 오류가 발생했습니다: {error_msg}\n\n처음부터 다시 시작해주세요.",
             "temp_data": {},
         }
+
+    def _extract_from_user_message(
+        self, user_message: str, existing_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Extract config values from user message (fallback for LLM limitations)
+
+        This handles cases where LLM doesn't properly extract structured data.
+        """
+        import re
+        import os
+
+        msg_lower = user_message.lower().strip()
+
+        # Extract dataset path (Windows/Unix paths)
+        # Match patterns like: C:\path\to\dataset or /path/to/dataset
+        path_pattern = r'[A-Za-z]:\\[\w\\\-\.]+|/[\w/\-\.]+'
+        path_matches = re.findall(path_pattern, user_message)
+        if path_matches:
+            # Take the longest match (most likely to be the full path)
+            dataset_path = max(path_matches, key=len)
+            if 'dataset' in dataset_path.lower() or os.path.exists(dataset_path):
+                existing_config["dataset_path"] = dataset_path
+                logger.info(f"Extracted dataset_path from user message: {dataset_path}")
+
+        # Extract default values (Korean & English)
+        if any(keyword in msg_lower for keyword in ["기본", "default", "기본값"]):
+            if "epochs" not in existing_config or existing_config.get("epochs") is None:
+                existing_config["epochs"] = 50
+                logger.info("Applied default epochs: 50")
+            if "batch_size" not in existing_config or existing_config.get("batch_size") is None:
+                existing_config["batch_size"] = 32
+                logger.info("Applied default batch_size: 32")
+            if "learning_rate" not in existing_config or existing_config.get("learning_rate") is None:
+                existing_config["learning_rate"] = 0.001
+                logger.info("Applied default learning_rate: 0.001")
+            if "dataset_format" not in existing_config or existing_config.get("dataset_format") is None:
+                existing_config["dataset_format"] = "imagefolder"
+
+        # Extract epochs (숫자 + "epoch" or "에포크")
+        epoch_match = re.search(r'(\d+)\s*(?:epoch|에포크)', msg_lower)
+        if epoch_match:
+            existing_config["epochs"] = int(epoch_match.group(1))
+            logger.info(f"Extracted epochs: {existing_config['epochs']}")
+
+        # Extract batch size (숫자 + "batch" or "배치")
+        batch_match = re.search(r'(?:batch|배치)[\s:]*(\d+)', msg_lower)
+        if batch_match:
+            existing_config["batch_size"] = int(batch_match.group(1))
+            logger.info(f"Extracted batch_size: {existing_config['batch_size']}")
+
+        # Extract learning rate
+        lr_match = re.search(r'(?:lr|learning.?rate|학습률)[\s:=]*(0?\.\d+)', msg_lower)
+        if lr_match:
+            existing_config["learning_rate"] = float(lr_match.group(1))
+            logger.info(f"Extracted learning_rate: {existing_config['learning_rate']}")
+
+        return existing_config
 
     def _format_config_summary(self, config: Dict[str, Any]) -> str:
         """Format config as readable summary"""

@@ -19,6 +19,9 @@ class TrainingConfig(BaseModel):
     batch_size: int = Field(32, ge=1, le=512, description="Batch size")
     learning_rate: float = Field(0.001, gt=0, lt=1, description="Learning rate")
 
+    class Config:
+        protected_namespaces = ()  # Allow model_name field
+
 
 class TrainingJobCreate(BaseModel):
     """Schema for creating a training job."""
@@ -69,6 +72,7 @@ class TrainingJobResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        protected_namespaces = ()  # Allow model_name field
 
 
 class TrainingMetricResponse(BaseModel):

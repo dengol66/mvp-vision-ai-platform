@@ -57,12 +57,14 @@ interface ChatPanelProps {
   sessionId: number | null
   onSessionCreated: (sessionId: number) => void
   onTrainingRequested: (jobId: number) => void
+  onProjectSelected: (projectId: number) => void
 }
 
 export default function ChatPanel({
   sessionId,
   onSessionCreated,
   onTrainingRequested,
+  onProjectSelected,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -142,6 +144,12 @@ export default function ChatPanel({
 
       // Clear input
       setInput('')
+
+      // If project was selected via chat, notify parent to show project detail
+      if (data.selected_project_id) {
+        console.log('Project selected via chat:', data.selected_project_id)
+        onProjectSelected(data.selected_project_id)
+      }
 
       // If training config is complete, create training job
       if (data.parsed_intent?.status === 'complete') {
