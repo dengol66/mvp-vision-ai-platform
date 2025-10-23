@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeftIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Experiment {
@@ -34,9 +34,16 @@ interface Project {
 interface ProjectDetailProps {
   projectId: number
   onBack?: () => void
+  onStartNewTraining?: (projectId: number) => void
+  onCloneExperiment?: (experimentId: number, projectId: number) => void
 }
 
-export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
+export default function ProjectDetail({
+  projectId,
+  onBack,
+  onStartNewTraining,
+  onCloneExperiment
+}: ProjectDetailProps) {
   const [project, setProject] = useState<Project | null>(null)
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [loading, setLoading] = useState(true)
@@ -221,17 +228,30 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
           {/* Edit/Save/Cancel Buttons */}
           <div className="flex gap-2">
             {!isEditing ? (
-              <button
-                onClick={handleStartEdit}
-                className={cn(
-                  'px-3 py-1.5 hover:bg-gray-100 rounded-lg transition-colors',
-                  'text-gray-600 hover:text-violet-600',
-                  'flex items-center gap-2 text-sm font-medium'
-                )}
-              >
-                <EditIcon className="w-4 h-4" />
-                <span>수정</span>
-              </button>
+              <>
+                <button
+                  onClick={() => onStartNewTraining?.(projectId)}
+                  className={cn(
+                    'px-3 py-1.5 bg-violet-600 text-white rounded-lg',
+                    'hover:bg-violet-700 transition-colors',
+                    'flex items-center gap-2 text-sm font-medium'
+                  )}
+                >
+                  <PlusIcon className="w-4 h-4" />
+                  <span>새 학습 시작</span>
+                </button>
+                <button
+                  onClick={handleStartEdit}
+                  className={cn(
+                    'px-3 py-1.5 hover:bg-gray-100 rounded-lg transition-colors',
+                    'text-gray-600 hover:text-violet-600',
+                    'flex items-center gap-2 text-sm font-medium'
+                  )}
+                >
+                  <EditIcon className="w-4 h-4" />
+                  <span>수정</span>
+                </button>
+              </>
             ) : (
               <>
                 <button
@@ -495,6 +515,25 @@ export default function ProjectDetail({ projectId, onBack }: ProjectDetailProps)
                         </p>
                       </div>
                     )}
+
+                    {/* Action Buttons */}
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onCloneExperiment?.(exp.id, projectId)
+                        }}
+                        className={cn(
+                          'px-3 py-1.5 border border-violet-300 rounded-lg',
+                          'text-violet-600 hover:bg-violet-50',
+                          'transition-colors text-sm font-medium',
+                          'flex items-center gap-2'
+                        )}
+                      >
+                        <CopyIcon className="w-4 h-4" />
+                        <span>복사하여 새 학습</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

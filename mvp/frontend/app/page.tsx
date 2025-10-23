@@ -6,12 +6,28 @@ import ChatPanel from '@/components/ChatPanel'
 import TrainingPanel from '@/components/TrainingPanel'
 import ProjectDetail from '@/components/ProjectDetail'
 import CreateProjectForm from '@/components/CreateProjectForm'
+import TrainingConfigPanel from '@/components/TrainingConfigPanel'
+
+interface TrainingConfig {
+  framework?: string
+  model_name?: string
+  task_type?: string
+  dataset_path?: string
+  dataset_format?: string
+  epochs?: number
+  batch_size?: number
+  learning_rate?: number
+}
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [trainingJobId, setTrainingJobId] = useState<number | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  const [previousProjectId, setPreviousProjectId] = useState<number | null>(null) // For back button
   const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const [isCreatingTraining, setIsCreatingTraining] = useState(false)
+  const [trainingConfig, setTrainingConfig] = useState<TrainingConfig | null>(null)
+  const [trainingProjectId, setTrainingProjectId] = useState<number | null>(null)
   const [sidebarKey, setSidebarKey] = useState(0) // For forcing Sidebar refresh
   const [centerWidth, setCenterWidth] = useState(35) // Chat panel width (35%)
   const [isDragging, setIsDragging] = useState(false)
@@ -52,23 +68,85 @@ export default function Home() {
   const handleProjectSelect = (projectId: number) => {
     setSelectedProjectId(projectId)
     setIsCreatingProject(false)  // Close create form if open
+    setIsCreatingTraining(false) // Close training config if open
     setTrainingJobId(null)       // Close training panel if open
   }
 
   const handleCreateProject = () => {
+    setPreviousProjectId(selectedProjectId) // Save current project for back button
     setIsCreatingProject(true)
     setSelectedProjectId(null)   // Close project detail if open
+    setIsCreatingTraining(false) // Close training config if open
     setTrainingJobId(null)       // Close training panel if open
   }
 
   const handleProjectCreated = (projectId: number) => {
     setIsCreatingProject(false)
+    setPreviousProjectId(null)   // Clear previous project
     setSelectedProjectId(projectId)  // Show the newly created project
     setSidebarKey(prev => prev + 1)  // Force Sidebar to refresh by changing key
   }
 
   const handleCancelCreateProject = () => {
     setIsCreatingProject(false)
+    // Restore previous project if there was one
+    if (previousProjectId !== null) {
+      setSelectedProjectId(previousProjectId)
+      setPreviousProjectId(null)
+    }
+  }
+
+  const handleStartNewTraining = (projectId?: number) => {
+    setTrainingConfig(null) // Clear config for fresh start
+    setTrainingProjectId(projectId || null)
+    setIsCreatingTraining(true)
+    setIsCreatingProject(false)  // Close project creation if open
+    setSelectedProjectId(null)   // Close project detail if open
+    setTrainingJobId(null)       // Close training panel if open
+  }
+
+  const handleCloneExperiment = async (experimentId: number, projectId?: number) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${experimentId}`)
+      if (!response.ok) {
+        console.error('Failed to fetch experiment config')
+        return
+      }
+
+      const experiment = await response.json()
+
+      // Extract config from experiment
+      const config: TrainingConfig = {
+        framework: experiment.framework,
+        model_name: experiment.model_name,
+        task_type: experiment.task_type,
+        dataset_path: experiment.dataset_path,
+        dataset_format: experiment.dataset_format,
+        epochs: experiment.config?.epochs,
+        batch_size: experiment.config?.batch_size,
+        learning_rate: experiment.config?.learning_rate,
+      }
+
+      setTrainingConfig(config)
+      setTrainingProjectId(projectId || null)
+      setIsCreatingTraining(true)
+      setIsCreatingProject(false)
+      setSelectedProjectId(null)
+      setTrainingJobId(null)
+    } catch (error) {
+      console.error('Error cloning experiment:', error)
+    }
+  }
+
+  const handleTrainingStarted = (jobId: number) => {
+    setIsCreatingTraining(false)
+    setTrainingConfig(null)
+    setTrainingJobId(jobId)
+  }
+
+  const handleCancelTraining = () => {
+    setIsCreatingTraining(false)
+    setTrainingConfig(null)
   }
 
   return (
@@ -114,11 +192,21 @@ export default function Home() {
               onCancel={handleCancelCreateProject}
               onProjectCreated={handleProjectCreated}
             />
+          ) : isCreatingTraining ? (
+            // Show training config panel
+            <TrainingConfigPanel
+              projectId={trainingProjectId}
+              initialConfig={trainingConfig}
+              onCancel={handleCancelTraining}
+              onTrainingStarted={handleTrainingStarted}
+            />
           ) : selectedProjectId ? (
             // Show project detail when project is selected
             <ProjectDetail
               projectId={selectedProjectId}
               onBack={() => setSelectedProjectId(null)}
+              onStartNewTraining={handleStartNewTraining}
+              onCloneExperiment={handleCloneExperiment}
             />
           ) : trainingJobId ? (
             // Show training panel when training job exists

@@ -156,7 +156,7 @@ export default function CreateProjectForm({
           {/* Task Type */}
           <div>
             <label htmlFor="taskType" className="block text-sm font-medium text-gray-700 mb-2">
-              작업 유형 (선택)
+              주요 작업 유형 (선택)
             </label>
             <select
               id="taskType"
@@ -176,7 +176,7 @@ export default function CreateProjectForm({
               ))}
             </select>
             <p className="text-xs text-gray-500 mt-1">
-              이 프로젝트에서 주로 수행할 작업 유형을 선택하세요
+              프로젝트의 주요 작업 유형입니다. 다른 유형의 실험도 추가할 수 있습니다.
             </p>
           </div>
 

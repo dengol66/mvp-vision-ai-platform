@@ -375,15 +375,36 @@ See `.claude/commands/commit.md` for full implementation.
 
 ## Documentation References
 
-- **ARCHITECTURE.md** - Detailed system design, component responsibilities, data flows
-- **API_SPECIFICATION.md** - Complete REST API and WebSocket reference
-- **DEVELOPMENT.md** - Setup instructions, coding conventions, testing
-- **DESIGN_SYSTEM.md** - UI design tokens, colors, typography
-- **UI_COMPONENTS.md** - Component specifications and usage
-- **README.md** - Project overview, quick start, roadmap
-- **MVP_PLAN.md** - 2-week MVP implementation plan
-- **MVP_STRUCTURE.md** - Detailed MVP folder structure
-- **DATABASE_SCHEMA.md** - Database schemas and migration guides
+All documentation is organized in the `/docs` folder by category. See [docs/README.md](./docs/README.md) for the complete index.
+
+### Quick Links
+
+**Architecture & Design:**
+- [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) - System design, component responsibilities, data flows
+- [docs/architecture/DATABASE_SCHEMA.md](./docs/architecture/DATABASE_SCHEMA.md) - Database schemas and migration guides
+
+**UI/UX Design:**
+- [docs/design/DESIGN_SYSTEM.md](./docs/design/DESIGN_SYSTEM.md) - Design tokens, colors, typography
+- [docs/design/UI_COMPONENTS.md](./docs/design/UI_COMPONENTS.md) - Component specifications and usage
+
+**Development:**
+- [docs/development/DEVELOPMENT.md](./docs/development/DEVELOPMENT.md) - Setup instructions, coding conventions, testing
+- [docs/development/PROJECT_SETUP.md](./docs/development/PROJECT_SETUP.md) - Initial project setup
+
+**API:**
+- [docs/api/API_SPECIFICATION.md](./docs/api/API_SPECIFICATION.md) - Complete REST API and WebSocket reference
+
+**Planning:**
+- [docs/planning/MVP_PLAN.md](./docs/planning/MVP_PLAN.md) - 2-week MVP implementation plan
+- [docs/planning/MVP_STRUCTURE.md](./docs/planning/MVP_STRUCTURE.md) - Detailed MVP folder structure
+- [docs/planning/MVP_DESIGN_GUIDE.md](./docs/planning/MVP_DESIGN_GUIDE.md) - MVP design decisions
+
+**Features:**
+- [docs/features/DATASET_SOURCES_DESIGN.md](./docs/features/DATASET_SOURCES_DESIGN.md) - Dataset source types and auto-detection design
+
+**Root Level:**
+- [README.md](./README.md) - Project overview, quick start, roadmap
+- [CONTRIBUTING.md](./CONTRIBUTING.md) - Contribution guidelines
 
 ## Notes for Future Implementation
 
