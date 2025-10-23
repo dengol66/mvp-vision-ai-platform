@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { User, FolderIcon, PlusIcon } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { User, FolderIcon, PlusIcon, Settings, LogOut } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Project {
   id: number
@@ -18,25 +20,65 @@ interface SidebarProps {
   onProjectSelect?: (projectId: number) => void
   selectedProjectId?: number | null
   onCreateProject?: () => void
+  onOpenLogin?: () => void
+  onOpenRegister?: () => void
+  onOpenProfile?: () => void
 }
 
 export default function Sidebar({
   onProjectSelect,
   selectedProjectId,
   onCreateProject,
+  onOpenLogin,
+  onOpenRegister,
+  onOpenProfile,
 }: SidebarProps) {
+  const router = useRouter()
+  const { user: authUser, isAuthenticated, logout } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
 
-  // Fetch recent projects
+  // Close dropdown when clicking outside
   useEffect(() => {
-    fetchRecentProjects()
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [])
+
+  // Fetch recent projects only when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchRecentProjects()
+    } else {
+      setProjects([])
+    }
+  }, [isAuthenticated])
 
   const fetchRecentProjects = async () => {
     setLoadingProjects(true)
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`)
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        setProjects([])
+        setLoadingProjects(false)
+        return
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
       if (response.ok) {
         const data = await response.json()
         // Get top 5 most recent projects (excluding "Uncategorized")
@@ -47,9 +89,13 @@ export default function Sidebar({
           )
           .slice(0, 5)
         setProjects(filtered)
+      } else if (response.status === 401) {
+        // Unauthorized - clear projects
+        setProjects([])
       }
     } catch (error) {
       console.error('Failed to fetch projects:', error)
+      setProjects([])
     } finally {
       setLoadingProjects(false)
     }
@@ -60,12 +106,39 @@ export default function Sidebar({
     onProjectSelect?.(projectId)
   }
 
-  // Dummy user data
-  const user = {
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    avatar: 'JD',
+  const handleLogout = () => {
+    logout()
+    setShowUserMenu(false)
+    router.push('/')  // 메인 페이지로 이동 (로그아웃 상태의 플랫폼 화면)
   }
+
+  const handleSettings = () => {
+    setShowUserMenu(false)
+    onOpenProfile?.()
+  }
+
+  // Generate avatar initials from user name or email
+  const getAvatarInitials = () => {
+    if (authUser?.full_name) {
+      // For Korean names, take first 2 characters
+      if (/[가-힣]/.test(authUser.full_name)) {
+        return authUser.full_name.slice(0, 2)
+      }
+      // For English names, take first letter of first and last name
+      const parts = authUser.full_name.split(' ')
+      if (parts.length >= 2) {
+        return parts[0][0] + parts[parts.length - 1][0]
+      }
+      return authUser.full_name.slice(0, 2).toUpperCase()
+    }
+    if (authUser?.email) {
+      return authUser.email.slice(0, 2).toUpperCase()
+    }
+    return 'U'
+  }
+
+  const displayName = authUser?.full_name || authUser?.email || 'User'
+  const displayEmail = authUser?.email || ''
 
   return (
     <div className="w-64 h-screen bg-gray-900 text-white flex flex-col">
@@ -141,15 +214,60 @@ export default function Sidebar({
 
       {/* User Info */}
       <div className="border-t border-gray-800 p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-full flex items-center justify-center font-semibold">
-            {user.avatar}
+        {isAuthenticated ? (
+          <div className="relative" ref={userMenuRef}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-gray-800 transition-colors"
+            >
+              <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-full flex items-center justify-center font-semibold">
+                {getAvatarInitials()}
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-semibold truncate">{displayName}</p>
+                <p className="text-xs text-gray-400 truncate">{displayEmail}</p>
+              </div>
+            </button>
+
+            {/* Dropdown Menu */}
+            {showUserMenu && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-gray-800 rounded-lg shadow-lg border border-gray-700 overflow-hidden">
+                <button
+                  onClick={handleSettings}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-gray-700 transition-colors flex items-center gap-3"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>설정</span>
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-gray-700 transition-colors flex items-center gap-3"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>로그아웃</span>
+                </button>
+              </div>
+            )}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate">{user.name}</p>
-            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400 text-center">로그인이 필요합니다</p>
+            <div className="space-y-2">
+              <button
+                onClick={onOpenLogin}
+                className="w-full px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                로그인
+              </button>
+              <button
+                onClick={onOpenRegister}
+                className="w-full px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                회원가입
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

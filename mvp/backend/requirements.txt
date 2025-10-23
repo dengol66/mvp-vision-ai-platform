@@ -27,3 +27,7 @@ mlflow==2.9.2
 
 # Lightweight ML (for config validation only)
 # Full PyTorch is in training module
+
+# Authentication & Security
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0

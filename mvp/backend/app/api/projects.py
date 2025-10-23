@@ -6,23 +6,31 @@ from sqlalchemy import func
 from typing import List
 
 from app.db.database import get_db
-from app.db.models import Project, TrainingJob
+from app.db.models import Project, TrainingJob, User
 from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
     ProjectResponse,
     ProjectWithExperimentsResponse,
 )
+from app.utils.dependencies import get_current_active_user
 
 router = APIRouter(tags=["projects"])
 
 
 @router.post("", response_model=ProjectResponse)
-def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    project: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
     """Create a new project."""
 
-    # Check if project with same name already exists
-    existing = db.query(Project).filter(Project.name == project.name).first()
+    # Check if project with same name already exists for this user
+    existing = db.query(Project).filter(
+        Project.name == project.name,
+        Project.user_id == current_user.id
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project with this name already exists")
 
@@ -30,6 +38,7 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
         name=project.name,
         description=project.description,
         task_type=project.task_type,
+        user_id=current_user.id,  # Set the owner
     )
 
     db.add(db_project)
@@ -40,19 +49,28 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=List[ProjectWithExperimentsResponse])
-def list_projects(db: Session = Depends(get_db)):
-    """List all projects with experiment counts."""
+def list_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List all projects owned by the current user with experiment counts."""
 
-    # Query projects with experiment counts
+    # Debug: Print current user info
+    print(f"[DEBUG] list_projects called by user_id={current_user.id}, email={current_user.email}")
+
+    # Query projects with experiment counts - only for current user
     projects = (
         db.query(
             Project,
             func.count(TrainingJob.id).label("experiment_count")
         )
+        .filter(Project.user_id == current_user.id)  # Filter by current user
         .outerjoin(TrainingJob, TrainingJob.project_id == Project.id)
         .group_by(Project.id)
         .all()
     )
+
+    print(f"[DEBUG] Found {len(projects)} projects for user_id={current_user.id}")
 
     # Format response
     result = []
@@ -73,12 +91,20 @@ def list_projects(db: Session = Depends(get_db)):
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
     """Get a specific project by ID."""
 
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Check permission
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
     return project
 
@@ -87,7 +113,8 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 def update_project(
     project_id: int,
     project_update: ProjectUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Update a project."""
 
@@ -95,12 +122,17 @@ def update_project(
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # Check permission
+    if db_project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this project")
+
     # Update fields if provided
     if project_update.name is not None:
-        # Check if new name conflicts with existing project
+        # Check if new name conflicts with existing project for this user
         existing = db.query(Project).filter(
             Project.name == project_update.name,
-            Project.id != project_id
+            Project.id != project_id,
+            Project.user_id == current_user.id
         ).first()
         if existing:
             raise HTTPException(status_code=400, detail="Project with this name already exists")
@@ -119,12 +151,20 @@ def update_project(
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: int, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
     """Delete a project and all its experiments."""
 
     db_project = db.query(Project).filter(Project.id == project_id).first()
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Check permission
+    if db_project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this project")
 
     # Prevent deletion of default "Uncategorized" project
     if db_project.name == "Uncategorized":
@@ -147,13 +187,21 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{project_id}/experiments")
-def get_project_experiments(project_id: int, db: Session = Depends(get_db)):
+def get_project_experiments(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
     """Get all experiments for a specific project."""
 
     # Check if project exists
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Check permission
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
     # Get all experiments for this project
     experiments = (

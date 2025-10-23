@@ -7,6 +7,9 @@ import TrainingPanel from '@/components/TrainingPanel'
 import ProjectDetail from '@/components/ProjectDetail'
 import CreateProjectForm from '@/components/CreateProjectForm'
 import TrainingConfigPanel from '@/components/TrainingConfigPanel'
+import LoginModal from '@/components/LoginModal'
+import RegisterModal from '@/components/RegisterModal'
+import ProfileModal from '@/components/ProfileModal'
 
 interface TrainingConfig {
   framework?: string
@@ -32,6 +35,11 @@ export default function Home() {
   const [centerWidth, setCenterWidth] = useState(35) // Chat panel width (35%)
   const [isDragging, setIsDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Modal states
+  const [showLoginModal, setShowLoginModal] = useState(false)
+  const [showRegisterModal, setShowRegisterModal] = useState(false)
+  const [showProfileModal, setShowProfileModal] = useState(false)
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -175,6 +183,9 @@ export default function Home() {
         onProjectSelect={handleProjectSelect}
         selectedProjectId={selectedProjectId}
         onCreateProject={handleCreateProject}
+        onOpenLogin={() => setShowLoginModal(true)}
+        onOpenRegister={() => setShowRegisterModal(true)}
+        onOpenProfile={() => setShowProfileModal(true)}
       />
 
       {/* Main Content Area - 3 Column Layout */}
@@ -243,6 +254,30 @@ export default function Home() {
           )}
         </div>
       </main>
+
+      {/* Modals */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSwitchToRegister={() => {
+          setShowLoginModal(false)
+          setShowRegisterModal(true)
+        }}
+      />
+
+      <RegisterModal
+        isOpen={showRegisterModal}
+        onClose={() => setShowRegisterModal(false)}
+        onSwitchToLogin={() => {
+          setShowRegisterModal(false)
+          setShowLoginModal(true)
+        }}
+      />
+
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+      />
     </div>
   )
 }
