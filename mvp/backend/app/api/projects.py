@@ -6,7 +6,7 @@ from sqlalchemy import func
 from typing import List
 
 from app.db.database import get_db
-from app.db.models import Project, TrainingJob, User
+from app.db.models import Project, TrainingJob, User, ProjectMember
 from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
@@ -14,8 +14,48 @@ from app.schemas.project import (
     ProjectWithExperimentsResponse,
 )
 from app.utils.dependencies import get_current_active_user
+from pydantic import BaseModel, EmailStr
 
 router = APIRouter(tags=["projects"])
+
+
+def check_project_access(project_id: int, user_id: int, db: Session) -> bool:
+    """Check if user has access to project (owner or member)."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        return False
+
+    # Check if owner
+    if project.user_id == user_id:
+        return True
+
+    # Check if member
+    is_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == user_id
+    ).first()
+
+    return is_member is not None
+
+
+class ProjectMemberResponse(BaseModel):
+    """Schema for project member response."""
+    user_id: int
+    email: str
+    full_name: str | None
+    role: str
+    joined_at: str
+    is_owner: bool
+    badge_color: str | None
+
+    class Config:
+        from_attributes = True
+
+
+class MemberInviteRequest(BaseModel):
+    """Schema for inviting a member to project."""
+    email: EmailStr
+    role: str = "member"  # member, viewer, etc.
 
 
 @router.post("", response_model=ProjectResponse)
@@ -53,34 +93,70 @@ def list_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """List all projects owned by the current user with experiment counts."""
+    """List all projects owned by or shared with the current user with experiment counts."""
 
-    # Query projects with experiment counts - only for current user
-    projects = (
+    # Get owned projects
+    owned_projects = (
         db.query(
             Project,
             func.count(TrainingJob.id).label("experiment_count")
         )
-        .filter(Project.user_id == current_user.id)  # Filter by current user
+        .filter(Project.user_id == current_user.id)
         .outerjoin(TrainingJob, TrainingJob.project_id == Project.id)
         .group_by(Project.id)
         .all()
     )
 
-    # Format response
-    result = []
-    for project, exp_count in projects:
-        result.append(
-            ProjectWithExperimentsResponse(
-                id=project.id,
-                name=project.name,
-                description=project.description,
-                task_type=project.task_type,
-                created_at=project.created_at,
-                updated_at=project.updated_at,
-                experiment_count=exp_count,
-            )
+    # Get projects where user is a member (with role)
+    member_projects = (
+        db.query(
+            Project,
+            func.count(TrainingJob.id).label("experiment_count"),
+            ProjectMember.role
         )
+        .join(ProjectMember, ProjectMember.project_id == Project.id)
+        .filter(ProjectMember.user_id == current_user.id)
+        .outerjoin(TrainingJob, TrainingJob.project_id == Project.id)
+        .group_by(Project.id, ProjectMember.role)
+        .all()
+    )
+
+    # Format owned projects
+    result = []
+    seen_ids = set()
+
+    for project, exp_count in owned_projects:
+        if project.id not in seen_ids:
+            seen_ids.add(project.id)
+            result.append(
+                ProjectWithExperimentsResponse(
+                    id=project.id,
+                    name=project.name,
+                    description=project.description,
+                    task_type=project.task_type,
+                    created_at=project.created_at,
+                    updated_at=project.updated_at,
+                    experiment_count=exp_count,
+                    user_role="owner"
+                )
+            )
+
+    # Format member projects
+    for project, exp_count, role in member_projects:
+        if project.id not in seen_ids:
+            seen_ids.add(project.id)
+            result.append(
+                ProjectWithExperimentsResponse(
+                    id=project.id,
+                    name=project.name,
+                    description=project.description,
+                    task_type=project.task_type,
+                    created_at=project.created_at,
+                    updated_at=project.updated_at,
+                    experiment_count=exp_count,
+                    user_role=role  # Use actual role from ProjectMember
+                )
+            )
 
     return result
 
@@ -97,8 +173,8 @@ def get_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Check permission
-    if project.user_id != current_user.id:
+    # Check permission (owner or member)
+    if not check_project_access(project_id, current_user.id, db):
         raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
     return project
@@ -194,8 +270,8 @@ def get_project_experiments(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Check permission
-    if project.user_id != current_user.id:
+    # Check permission (owner or member)
+    if not check_project_access(project_id, current_user.id, db):
         raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
     # Get all experiments for this project
@@ -208,3 +284,151 @@ def get_project_experiments(
 
     from app.schemas.training import TrainingJobResponse
     return [TrainingJobResponse.from_orm(exp) for exp in experiments]
+
+
+@router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
+def get_project_members(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get all members of a project."""
+
+    # Check if project exists
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Check permission (owner or member)
+    if not check_project_access(project_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="Not authorized to access this project")
+
+    # Get owner
+    members = []
+    if project.user_id:
+        owner = db.query(User).filter(User.id == project.user_id).first()
+        if owner:
+            members.append({
+                "user_id": owner.id,
+                "email": owner.email,
+                "full_name": owner.full_name,
+                "role": "owner",
+                "joined_at": project.created_at.isoformat(),
+                "is_owner": True,
+                "badge_color": owner.badge_color
+            })
+
+    # Get other members
+    project_members = (
+        db.query(ProjectMember, User)
+        .join(User, User.id == ProjectMember.user_id)
+        .filter(ProjectMember.project_id == project_id)
+        .all()
+    )
+
+    for member, user in project_members:
+        members.append({
+            "user_id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": member.role,
+            "joined_at": member.joined_at.isoformat(),
+            "is_owner": False,
+            "badge_color": user.badge_color
+        })
+
+    return members
+
+
+@router.post("/{project_id}/members")
+def invite_project_member(
+    project_id: int,
+    invite: MemberInviteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Invite a user to join the project."""
+
+    # Check if project exists
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Check permission - only owner can invite
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only project owner can invite members")
+
+    # Find user by email
+    user = db.query(User).filter(User.email == invite.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User with this email not found")
+
+    # Check if user is already the owner
+    if user.id == project.user_id:
+        raise HTTPException(status_code=400, detail="User is already the project owner")
+
+    # Check if user is already a member
+    existing_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == user.id
+    ).first()
+    if existing_member:
+        raise HTTPException(status_code=400, detail="User is already a member of this project")
+
+    # Create membership
+    from datetime import datetime
+    new_member = ProjectMember(
+        project_id=project_id,
+        user_id=user.id,
+        role=invite.role,
+        invited_by=current_user.id,
+        joined_at=datetime.utcnow()
+    )
+
+    db.add(new_member)
+    db.commit()
+    db.refresh(new_member)
+
+    return {
+        "message": "Member invited successfully",
+        "user_id": user.id,
+        "email": user.email,
+        "role": invite.role
+    }
+
+
+@router.delete("/{project_id}/members/{user_id}")
+def remove_project_member(
+    project_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Remove a member from the project."""
+
+    # Check if project exists
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Check permission - only owner can remove members
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only project owner can remove members")
+
+    # Cannot remove owner
+    if user_id == project.user_id:
+        raise HTTPException(status_code=400, detail="Cannot remove project owner")
+
+    # Find membership
+    member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == user_id
+    ).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    db.delete(member)
+    db.commit()
+
+    return {"message": "Member removed successfully", "user_id": user_id}

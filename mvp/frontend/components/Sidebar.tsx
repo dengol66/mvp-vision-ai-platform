@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
 import { getRoleLabel, getRoleBadgeColor } from '@/lib/utils/roleUtils'
+import { getAvatarColorStyle, getAvatarRingColor } from '@/lib/utils/avatarColors'
 
 interface Project {
   id: number
@@ -15,6 +16,7 @@ interface Project {
   created_at: string
   updated_at: string
   experiment_count: number
+  user_role: string
 }
 
 interface SidebarProps {
@@ -204,8 +206,13 @@ export default function Sidebar({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium truncate">{project.name}</p>
-                    <span className="px-1.5 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded flex-shrink-0">
-                      Owner
+                    <span className={cn(
+                      "px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0",
+                      project.user_role === "owner"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-blue-500/20 text-blue-400"
+                    )}>
+                      {project.user_role === "owner" ? "Owner" : "Member"}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500">
@@ -225,17 +232,21 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Admin Controls - Show for admin and manager */}
+      {/* Admin Controls */}
       {isAuthenticated && authUser && (authUser.system_role === 'admin' || authUser.system_role === 'manager') && (
         <div className="border-t border-gray-800 px-4 py-3">
           <div className="space-y-1">
-            <button
-              onClick={onOpenAdminProjects}
-              className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
-            >
-              <FolderKanban className="w-4 h-4" />
-              <span>프로젝트 관리</span>
-            </button>
+            {/* Project Management - Admin only */}
+            {authUser.system_role === 'admin' && (
+              <button
+                onClick={onOpenAdminProjects}
+                className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
+              >
+                <FolderKanban className="w-4 h-4" />
+                <span>프로젝트 관리</span>
+              </button>
+            )}
+            {/* User Management - Admin and Manager */}
             <button
               onClick={onOpenAdminUsers}
               className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
@@ -255,7 +266,10 @@ export default function Sidebar({
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-gray-800 transition-colors"
             >
-              <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-full flex items-center justify-center font-semibold">
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white"
+                style={getAvatarColorStyle(authUser?.badge_color)}
+              >
                 {getAvatarInitials()}
               </div>
               <div className="flex-1 min-w-0 text-left">

@@ -8,6 +8,7 @@ interface User {
   full_name: string | null
   is_active: boolean
   system_role: string  // '''guest''' | '''standard_engineer''' | '''advanced_engineer''' | '''manager''' | '''admin'''
+  badge_color?: string | null
   company?: string | null
   division?: string | null
   department?: string | null

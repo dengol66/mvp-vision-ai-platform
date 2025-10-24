@@ -28,6 +28,7 @@ class User(Base):
 
     system_role = Column(String(50), nullable=False, default='guest')
     is_active = Column(Boolean, nullable=False, default=True)
+    badge_color = Column(String(20), nullable=True)  # Avatar badge color (e.g., 'blue', 'green', 'purple')
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

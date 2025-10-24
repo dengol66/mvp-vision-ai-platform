@@ -1,5 +1,6 @@
 """Authentication API endpoints."""
 
+import random
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -17,6 +18,13 @@ from app.schemas import user as user_schemas
 from app.utils.dependencies import get_current_user
 
 router = APIRouter()
+
+# Avatar badge colors (excluding light colors like yellow, amber, lime)
+BADGE_COLORS = [
+    'red', 'orange', 'green', 'emerald',
+    'teal', 'cyan', 'sky', 'blue',
+    'indigo', 'violet', 'purple', 'fuchsia', 'pink'
+]
 
 
 @router.post("/register", response_model=user_schemas.UserResponse, status_code=status.HTTP_201_CREATED)
@@ -45,7 +53,7 @@ def register(
             detail="Email already registered"
         )
 
-    # Create new user with default system_role='guest'
+    # Create new user with default system_role='guest' and random badge color
     hashed_password = get_password_hash(user_in.password)
     db_user = models.User(
         email=user_in.email,
@@ -59,7 +67,8 @@ def register(
         phone_number=user_in.phone_number,
         bio=user_in.bio,
         system_role='guest',  # New users start as guest
-        is_active=True
+        is_active=True,
+        badge_color=random.choice(BADGE_COLORS)  # Assign random badge color
     )
 
     db.add(db_user)

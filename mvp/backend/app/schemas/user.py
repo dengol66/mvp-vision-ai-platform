@@ -50,6 +50,7 @@ class UserResponse(UserBase):
     id: int
     system_role: SystemRole  # 시스템 권한
     is_active: bool
+    badge_color: Optional[str] = None  # Avatar badge color
     created_at: datetime
 
     class Config:

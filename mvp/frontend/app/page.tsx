@@ -84,6 +84,8 @@ export default function Home() {
     setIsCreatingProject(false)  // Close create form if open
     setIsCreatingTraining(false) // Close training config if open
     setTrainingJobId(null)       // Close training panel if open
+    setShowAdminProjects(false)  // Close admin panels if open
+    setShowAdminUsers(false)
   }
 
   const handleCreateProject = () => {
