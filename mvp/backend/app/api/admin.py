@@ -40,7 +40,7 @@ def list_all_projects(
         )
         .outerjoin(User, User.id == Project.user_id)
         .outerjoin(TrainingJob, TrainingJob.project_id == Project.id)
-        .group_by(Project.id, User.id)
+        .group_by(Project.id)
         .all()
     )
 

@@ -32,13 +32,8 @@ export default function AdminUsersPanel() {
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
 
-  // Filter state
-  const [nameFilter, setNameFilter] = useState('')
-  const [emailFilter, setEmailFilter] = useState('')
-  const [companyFilter, setCompanyFilter] = useState('')
-  const [divisionFilter, setDivisionFilter] = useState('')
-  const [departmentFilter, setDepartmentFilter] = useState('')
-  const [roleFilter, setRoleFilter] = useState('')
+  // Filter state - unified search
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     fetchUsers()
@@ -46,7 +41,7 @@ export default function AdminUsersPanel() {
 
   useEffect(() => {
     applyFiltersAndSort()
-  }, [users, nameFilter, emailFilter, companyFilter, divisionFilter, departmentFilter, roleFilter, sortField, sortDirection])
+  }, [users, searchQuery, sortField, sortDirection])
 
   const fetchUsers = async () => {
     setLoading(true)
@@ -76,37 +71,19 @@ export default function AdminUsersPanel() {
   const applyFiltersAndSort = () => {
     let result = [...users]
 
-    // Apply filters
-    if (nameFilter) {
+    // Apply unified search filter - search across all fields
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
       result = result.filter(u =>
-        u.full_name?.toLowerCase().includes(nameFilter.toLowerCase())
-      )
-    }
-    if (emailFilter) {
-      result = result.filter(u =>
-        u.email.toLowerCase().includes(emailFilter.toLowerCase())
-      )
-    }
-    if (companyFilter) {
-      result = result.filter(u =>
-        (u.company?.toLowerCase().includes(companyFilter.toLowerCase())) ||
-        (u.company_custom?.toLowerCase().includes(companyFilter.toLowerCase()))
-      )
-    }
-    if (divisionFilter) {
-      result = result.filter(u =>
-        (u.division?.toLowerCase().includes(divisionFilter.toLowerCase())) ||
-        (u.division_custom?.toLowerCase().includes(divisionFilter.toLowerCase()))
-      )
-    }
-    if (departmentFilter) {
-      result = result.filter(u =>
-        u.department?.toLowerCase().includes(departmentFilter.toLowerCase())
-      )
-    }
-    if (roleFilter) {
-      result = result.filter(u =>
-        u.system_role.toLowerCase().includes(roleFilter.toLowerCase())
+        u.full_name?.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query) ||
+        (u.company?.toLowerCase().includes(query)) ||
+        (u.company_custom?.toLowerCase().includes(query)) ||
+        (u.division?.toLowerCase().includes(query)) ||
+        (u.division_custom?.toLowerCase().includes(query)) ||
+        (u.department?.toLowerCase().includes(query)) ||
+        u.system_role.toLowerCase().includes(query) ||
+        u.id.toString().includes(query)
       )
     }
 
@@ -164,13 +141,8 @@ export default function AdminUsersPanel() {
     return <ArrowDown className="w-4 h-4 text-violet-400" />
   }
 
-  const clearFilters = () => {
-    setNameFilter('')
-    setEmailFilter('')
-    setCompanyFilter('')
-    setDivisionFilter('')
-    setDepartmentFilter('')
-    setRoleFilter('')
+  const clearSearch = () => {
+    setSearchQuery('')
   }
 
   const formatDate = (dateString: string) => {
@@ -215,8 +187,6 @@ export default function AdminUsersPanel() {
     )
   }
 
-  const hasFilters = nameFilter || emailFilter || companyFilter || divisionFilter || departmentFilter || roleFilter
-
   return (
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
@@ -227,76 +197,26 @@ export default function AdminUsersPanel() {
         </p>
       </div>
 
-      {/* Filters */}
+      {/* Search */}
       <div className="bg-white border-b border-gray-200 px-6 py-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="이름 검색..."
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+              placeholder="이름, 이메일, 회사, 사업부, 부서, 권한 등으로 검색..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
             />
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="이메일 검색..."
-              value={emailFilter}
-              onChange={(e) => setEmailFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="회사 검색..."
-              value={companyFilter}
-              onChange={(e) => setCompanyFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="사업부 검색..."
-              value={divisionFilter}
-              onChange={(e) => setDivisionFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="부서 검색..."
-              value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="권한 검색..."
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          {hasFilters && (
+          {searchQuery && (
             <button
-              onClick={clearFilters}
-              className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
+              onClick={clearSearch}
+              className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
             >
               <X className="w-4 h-4" />
-              필터 초기화
+              초기화
             </button>
           )}
         </div>
@@ -388,8 +308,8 @@ export default function AdminUsersPanel() {
             {filteredUsers.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                  {hasFilters
-                    ? '필터 조건에 맞는 사용자가 없습니다.'
+                  {searchQuery
+                    ? '검색 조건에 맞는 사용자가 없습니다.'
                     : '사용자가 없습니다.'}
                 </td>
               </tr>

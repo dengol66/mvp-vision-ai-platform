@@ -29,10 +29,8 @@ export default function AdminProjectsPanel() {
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
 
-  // Filter state
-  const [nameFilter, setNameFilter] = useState('')
-  const [ownerFilter, setOwnerFilter] = useState('')
-  const [taskTypeFilter, setTaskTypeFilter] = useState('')
+  // Filter state - unified search
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     fetchProjects()
@@ -40,7 +38,7 @@ export default function AdminProjectsPanel() {
 
   useEffect(() => {
     applyFiltersAndSort()
-  }, [projects, nameFilter, ownerFilter, taskTypeFilter, sortField, sortDirection])
+  }, [projects, searchQuery, sortField, sortDirection])
 
   const fetchProjects = async () => {
     setLoading(true)
@@ -70,21 +68,16 @@ export default function AdminProjectsPanel() {
   const applyFiltersAndSort = () => {
     let result = [...projects]
 
-    // Apply filters
-    if (nameFilter) {
+    // Apply unified search filter - search across all fields
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
       result = result.filter(p =>
-        p.name.toLowerCase().includes(nameFilter.toLowerCase())
-      )
-    }
-    if (ownerFilter) {
-      result = result.filter(p =>
-        (p.owner_name?.toLowerCase().includes(ownerFilter.toLowerCase())) ||
-        (p.owner_email?.toLowerCase().includes(ownerFilter.toLowerCase()))
-      )
-    }
-    if (taskTypeFilter) {
-      result = result.filter(p =>
-        p.task_type?.toLowerCase().includes(taskTypeFilter.toLowerCase())
+        p.name.toLowerCase().includes(query) ||
+        (p.description?.toLowerCase().includes(query)) ||
+        (p.owner_name?.toLowerCase().includes(query)) ||
+        (p.owner_email?.toLowerCase().includes(query)) ||
+        (p.task_type?.toLowerCase().includes(query)) ||
+        p.id.toString().includes(query)
       )
     }
 
@@ -133,10 +126,8 @@ export default function AdminProjectsPanel() {
     return <ArrowDown className="w-4 h-4 text-violet-400" />
   }
 
-  const clearFilters = () => {
-    setNameFilter('')
-    setOwnerFilter('')
-    setTaskTypeFilter('')
+  const clearSearch = () => {
+    setSearchQuery('')
   }
 
   const formatDate = (dateString: string) => {
@@ -165,46 +156,26 @@ export default function AdminProjectsPanel() {
         </p>
       </div>
 
-      {/* Filters */}
+      {/* Search */}
       <div className="bg-white border-b border-gray-200 px-6 py-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="프로젝트명 검색..."
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+              placeholder="프로젝트명, 소유자, 작업 유형 등으로 검색..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
             />
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="소유자 검색..."
-              value={ownerFilter}
-              onChange={(e) => setOwnerFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="작업 유형 검색..."
-              value={taskTypeFilter}
-              onChange={(e) => setTaskTypeFilter(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-          {(nameFilter || ownerFilter || taskTypeFilter) && (
+          {searchQuery && (
             <button
-              onClick={clearFilters}
-              className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
+              onClick={clearSearch}
+              className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
             >
               <X className="w-4 h-4" />
-              필터 초기화
+              초기화
             </button>
           )}
         </div>
@@ -269,8 +240,8 @@ export default function AdminProjectsPanel() {
             {filteredProjects.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  {nameFilter || ownerFilter || taskTypeFilter
-                    ? '필터 조건에 맞는 프로젝트가 없습니다.'
+                  {searchQuery
+                    ? '검색 조건에 맞는 프로젝트가 없습니다.'
                     : '프로젝트가 없습니다.'}
                 </td>
               </tr>
