@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { User, FolderIcon, PlusIcon, Settings, LogOut } from 'lucide-react'
+import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,6 +23,8 @@ interface SidebarProps {
   onOpenLogin?: () => void
   onOpenRegister?: () => void
   onOpenProfile?: () => void
+  onOpenAdminProjects?: () => void
+  onOpenAdminUsers?: () => void
 }
 
 export default function Sidebar({
@@ -32,6 +34,8 @@ export default function Sidebar({
   onOpenLogin,
   onOpenRegister,
   onOpenProfile,
+  onOpenAdminProjects,
+  onOpenAdminUsers,
 }: SidebarProps) {
   const router = useRouter()
   const { user: authUser, isAuthenticated, logout } = useAuth()
@@ -230,6 +234,28 @@ export default function Sidebar({
           )}
         </div>
       </div>
+
+      {/* Admin Controls - Only show for admin/superadmin */}
+      {isAuthenticated && authUser && (authUser.system_role === 'admin' || authUser.system_role === 'superadmin') && (
+        <div className="border-t border-gray-800 px-4 py-3">
+          <div className="space-y-1">
+            <button
+              onClick={onOpenAdminProjects}
+              className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
+            >
+              <FolderKanban className="w-4 h-4" />
+              <span>프로젝트 관리</span>
+            </button>
+            <button
+              onClick={onOpenAdminUsers}
+              className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
+            >
+              <Users className="w-4 h-4" />
+              <span>사용자 관리</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* User Info */}
       <div className="border-t border-gray-800 p-4">

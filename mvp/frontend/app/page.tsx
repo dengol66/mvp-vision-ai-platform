@@ -10,6 +10,8 @@ import TrainingConfigPanel from '@/components/TrainingConfigPanel'
 import LoginModal from '@/components/LoginModal'
 import RegisterModal from '@/components/RegisterModal'
 import ProfileModal from '@/components/ProfileModal'
+import AdminProjectsPanel from '@/components/AdminProjectsPanel'
+import AdminUsersPanel from '@/components/AdminUsersPanel'
 
 interface TrainingConfig {
   framework?: string
@@ -40,6 +42,10 @@ export default function Home() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
+
+  // Admin panel states
+  const [showAdminProjects, setShowAdminProjects] = useState(false)
+  const [showAdminUsers, setShowAdminUsers] = useState(false)
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -175,6 +181,24 @@ export default function Home() {
     }
   }
 
+  const handleOpenAdminProjects = () => {
+    setShowAdminProjects(true)
+    setShowAdminUsers(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
+  const handleOpenAdminUsers = () => {
+    setShowAdminUsers(true)
+    setShowAdminProjects(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
   return (
     <div className="h-screen flex">
       {/* Sidebar - Fixed Left */}
@@ -186,6 +210,8 @@ export default function Home() {
         onOpenLogin={() => setShowLoginModal(true)}
         onOpenRegister={() => setShowRegisterModal(true)}
         onOpenProfile={() => setShowProfileModal(true)}
+        onOpenAdminProjects={handleOpenAdminProjects}
+        onOpenAdminUsers={handleOpenAdminUsers}
       />
 
       {/* Main Content Area - 3 Column Layout */}
@@ -215,7 +241,13 @@ export default function Home() {
 
         {/* Workspace Panel - Right (Dynamic Content) */}
         <div style={{ width: `${100 - centerWidth}%` }} className="flex-1">
-          {isCreatingProject ? (
+          {showAdminProjects ? (
+            // Show admin projects panel
+            <AdminProjectsPanel />
+          ) : showAdminUsers ? (
+            // Show admin users panel
+            <AdminUsersPanel />
+          ) : isCreatingProject ? (
             // Show create project form
             <CreateProjectForm
               onCancel={handleCancelCreateProject}
