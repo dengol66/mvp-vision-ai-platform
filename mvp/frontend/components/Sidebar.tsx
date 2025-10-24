@@ -5,6 +5,7 @@ import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban } fro
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
+import { getRoleLabel, getRoleBadgeColor } from '@/lib/utils/roleUtils'
 
 interface Project {
   id: number
@@ -25,6 +26,7 @@ interface SidebarProps {
   onOpenProfile?: () => void
   onOpenAdminProjects?: () => void
   onOpenAdminUsers?: () => void
+  onLogout?: () => void
 }
 
 export default function Sidebar({
@@ -36,6 +38,7 @@ export default function Sidebar({
   onOpenProfile,
   onOpenAdminProjects,
   onOpenAdminUsers,
+  onLogout: onLogoutCallback,
 }: SidebarProps) {
   const router = useRouter()
   const { user: authUser, isAuthenticated, logout } = useAuth()
@@ -111,6 +114,7 @@ export default function Sidebar({
   }
 
   const handleLogout = () => {
+    onLogoutCallback?.()  // Reset workspace state in parent
     logout()
     setShowUserMenu(false)
     router.push('/')  // 메인 페이지로 이동 (로그아웃 상태의 플랫폼 화면)
@@ -143,20 +147,6 @@ export default function Sidebar({
 
   const displayName = authUser?.full_name || authUser?.email || 'User'
   const displayEmail = authUser?.email || ''
-
-  // Format system role for display
-  const getRoleLabel = (role?: string) => {
-    switch (role) {
-      case 'superadmin':
-        return '최고 관리자'
-      case 'admin':
-        return '관리자'
-      case 'guest':
-        return '게스트'
-      default:
-        return '게스트'
-    }
-  }
 
   return (
     <div className="w-64 h-screen bg-gray-900 text-white flex flex-col">
@@ -235,8 +225,8 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Admin Controls - Only show for admin/superadmin */}
-      {isAuthenticated && authUser && (authUser.system_role === 'admin' || authUser.system_role === 'superadmin') && (
+      {/* Admin Controls - Show for admin and manager */}
+      {isAuthenticated && authUser && (authUser.system_role === 'admin' || authUser.system_role === 'manager') && (
         <div className="border-t border-gray-800 px-4 py-3">
           <div className="space-y-1">
             <button
@@ -271,8 +261,11 @@ export default function Sidebar({
               <div className="flex-1 min-w-0 text-left">
                 <p className="text-sm font-semibold truncate">{displayName}</p>
                 <p className="text-xs text-gray-400 truncate">{displayEmail}</p>
-                <span className="px-2 py-0.5 text-xs font-medium bg-violet-500/20 text-violet-300 rounded inline-block mt-1">
-                  {getRoleLabel(authUser?.system_role)}
+                <span className={cn(
+                  "px-2 py-0.5 text-xs font-medium rounded inline-block mt-1",
+                  getRoleBadgeColor(authUser?.system_role || 'guest')
+                )}>
+                  {getRoleLabel(authUser?.system_role || 'guest')}
                 </span>
               </div>
             </button>

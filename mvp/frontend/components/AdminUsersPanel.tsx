@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, X, Edit2, Shield, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
+import { getRoleLabel, getRoleBadgeColor } from '@/lib/utils/roleUtils'
 
 interface User {
   id: number
@@ -24,6 +26,7 @@ type SortField = 'email' | 'full_name' | 'company' | 'division' | 'department' |
 type SortDirection = 'asc' | 'desc' | null
 
 export default function AdminUsersPanel() {
+  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [filteredUsers, setFilteredUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -37,6 +40,8 @@ export default function AdminUsersPanel() {
 
   // Modal states
   const [roleEditUser, setRoleEditUser] = useState<User | null>(null)
+  const [selectedRole, setSelectedRole] = useState<string>('')
+  const [editUser, setEditUser] = useState<User | null>(null)
   const [deleteUser, setDeleteUser] = useState<User | null>(null)
 
   useEffect(() => {
@@ -177,6 +182,34 @@ export default function AdminUsersPanel() {
     }
   }
 
+  const handleUpdateUser = async (userId: number, updates: Partial<User>) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) return
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updates)
+      })
+
+      if (response.ok) {
+        setEditUser(null)
+        fetchUsers() // Refresh list
+        alert('사용자 정보가 수정되었습니다.')
+      } else {
+        const error = await response.json()
+        alert(error.detail || '사용자 정보 수정에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('Failed to update user:', error)
+      alert('사용자 정보 수정 중 오류가 발생했습니다.')
+    }
+  }
+
   const handleDeleteUser = async (userId: number) => {
     try {
       const token = localStorage.getItem('access_token')
@@ -211,32 +244,6 @@ export default function AdminUsersPanel() {
     })
   }
 
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'superadmin':
-        return '최고 관리자'
-      case 'admin':
-        return '관리자'
-      case 'guest':
-        return '게스트'
-      default:
-        return role
-    }
-  }
-
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'superadmin':
-        return 'bg-red-100 text-red-700'
-      case 'admin':
-        return 'bg-violet-100 text-violet-700'
-      case 'guest':
-        return 'bg-gray-100 text-gray-700'
-      default:
-        return 'bg-gray-100 text-gray-700'
-    }
-  }
-
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-gray-50">
@@ -251,7 +258,11 @@ export default function AdminUsersPanel() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <h2 className="text-xl font-bold text-gray-900">사용자 관리</h2>
         <p className="text-sm text-gray-500 mt-1">
-          전체 {users.length}명 | 필터링 결과 {filteredUsers.length}명
+          {searchQuery ? (
+            <>표시 중: {filteredUsers.length}명 / 전체 {users.length}명</>
+          ) : (
+            <>전체 {users.length}명</>
+          )}
         </p>
       </div>
 
@@ -412,19 +423,28 @@ export default function AdminUsersPanel() {
                   <td className="px-4 py-3 text-sm text-center">
                     <div className="flex items-center justify-center gap-2">
                       <button
+                        onClick={() => setEditUser(user)}
+                        className="p-1.5 text-gray-600 hover:bg-gray-50 rounded transition-colors"
+                        title="정보 수정"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => setRoleEditUser(user)}
                         className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                         title="권한 수정"
                       >
                         <Shield className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => setDeleteUser(user)}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="삭제"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {currentUser?.system_role === 'admin' && (
+                        <button
+                          onClick={() => setDeleteUser(user)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="삭제"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -433,6 +453,112 @@ export default function AdminUsersPanel() {
           </tbody>
         </table>
       </div>
+
+      {/* User Info Edit Modal */}
+      {editUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">사용자 정보 수정</h3>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const formData = new FormData(e.currentTarget)
+                const updates = {
+                  full_name: formData.get('full_name') as string,
+                  email: formData.get('email') as string,
+                  company: formData.get('company') as string || null,
+                  division: formData.get('division') as string || null,
+                  department: formData.get('department') as string || null,
+                  phone_number: formData.get('phone_number') as string || null,
+                }
+                handleUpdateUser(editUser.id, updates)
+              }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">이름</label>
+                  <input
+                    type="text"
+                    name="full_name"
+                    defaultValue={editUser.full_name || ''}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">이메일</label>
+                  <input
+                    type="email"
+                    name="email"
+                    defaultValue={editUser.email}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">회사</label>
+                  <input
+                    type="text"
+                    name="company"
+                    defaultValue={editUser.company_custom || editUser.company || ''}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">사업부</label>
+                  <input
+                    type="text"
+                    name="division"
+                    defaultValue={editUser.division_custom || editUser.division || ''}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">부서</label>
+                  <input
+                    type="text"
+                    name="department"
+                    defaultValue={editUser.department || ''}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">전화번호</label>
+                  <input
+                    type="text"
+                    name="phone_number"
+                    defaultValue={editUser.phone_number || ''}
+                    placeholder="010-1234-5678"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditUser(null)}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-violet-600 text-white rounded-md hover:bg-violet-700 transition-colors"
+                >
+                  저장
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Role Edit Modal */}
       {roleEditUser && (
@@ -443,27 +569,52 @@ export default function AdminUsersPanel() {
               {roleEditUser.full_name || roleEditUser.email}의 권한을 변경합니다.
             </p>
             <div className="space-y-2 mb-6">
-              {['guest', 'admin', 'superadmin'].map((role) => (
-                <button
-                  key={role}
-                  onClick={() => handleRoleChange(roleEditUser.id, role)}
-                  className={cn(
-                    'w-full px-4 py-2 rounded-md text-left transition-colors',
-                    roleEditUser.system_role === role
-                      ? 'bg-violet-100 text-violet-700 font-medium'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  )}
-                >
-                  {getRoleLabel(role)}
-                </button>
-              ))}
+              {['guest', 'standard_engineer', 'advanced_engineer', 'manager', 'admin'].map((role) => {
+                const isDisabled = currentUser?.system_role === 'manager' && (role === 'manager' || role === 'admin')
+                return (
+                  <button
+                    key={role}
+                    onClick={() => !isDisabled && setSelectedRole(role)}
+                    disabled={isDisabled}
+                    className={cn(
+                      'w-full px-4 py-2 rounded-md text-left transition-colors',
+                      (selectedRole || roleEditUser.system_role) === role
+                        ? 'bg-violet-100 text-violet-700 font-medium'
+                        : isDisabled
+                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    )}
+                  >
+                    {getRoleLabel(role)}
+                    {isDisabled && ' (권한 없음)'}
+                  </button>
+                )
+              })}
             </div>
-            <button
-              onClick={() => setRoleEditUser(null)}
-              className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-            >
-              취소
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setRoleEditUser(null)
+                  setSelectedRole('')
+                }}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedRole && selectedRole !== roleEditUser.system_role) {
+                    handleRoleChange(roleEditUser.id, selectedRole)
+                  } else {
+                    setRoleEditUser(null)
+                  }
+                  setSelectedRole('')
+                }}
+                className="flex-1 px-4 py-2 bg-violet-600 text-white rounded-md hover:bg-violet-700 transition-colors"
+              >
+                저장
+              </button>
+            </div>
           </div>
         </div>
       )}

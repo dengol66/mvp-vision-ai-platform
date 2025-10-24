@@ -199,6 +199,16 @@ export default function Home() {
     setTrainingJobId(null)
   }
 
+  const handleLogout = () => {
+    // Reset all workspace states when logging out
+    setShowAdminUsers(false)
+    setShowAdminProjects(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
   return (
     <div className="h-screen flex">
       {/* Sidebar - Fixed Left */}
@@ -212,6 +222,7 @@ export default function Home() {
         onOpenProfile={() => setShowProfileModal(true)}
         onOpenAdminProjects={handleOpenAdminProjects}
         onOpenAdminUsers={handleOpenAdminUsers}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area - 3 Column Layout */}

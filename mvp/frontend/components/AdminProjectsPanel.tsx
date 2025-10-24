@@ -182,7 +182,11 @@ export default function AdminProjectsPanel() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <h2 className="text-xl font-bold text-gray-900">프로젝트 관리</h2>
         <p className="text-sm text-gray-500 mt-1">
-          전체 {projects.length}개 프로젝트 | 필터링 결과 {filteredProjects.length}개
+          {searchQuery ? (
+            <>표시 중: {filteredProjects.length}개 / 전체 {projects.length}개</>
+          ) : (
+            <>전체 {projects.length}개</>
+          )}
         </p>
       </div>
 

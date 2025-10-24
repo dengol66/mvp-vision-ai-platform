@@ -20,6 +20,16 @@ class UserRoleUpdate(BaseModel):
     system_role: str
 
 
+class AdminUserUpdate(BaseModel):
+    """Schema for admin to update user info."""
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    company: Optional[str] = None
+    division: Optional[str] = None
+    department: Optional[str] = None
+    phone_number: Optional[str] = None
+
+
 class AdminProjectUpdate(BaseModel):
     """Schema for admin to update any project."""
     name: Optional[str] = None
@@ -29,11 +39,21 @@ class AdminProjectUpdate(BaseModel):
 
 
 def require_admin(current_user: User = Depends(get_current_active_user)):
-    """Dependency to check if user is admin or superadmin."""
-    if current_user.system_role not in ["admin", "superadmin"]:
+    """Dependency to check if user is admin."""
+    if current_user.system_role != "admin":
         raise HTTPException(
             status_code=403,
             detail="Admin privileges required"
+        )
+    return current_user
+
+
+def require_admin_or_manager(current_user: User = Depends(get_current_active_user)):
+    """Dependency to check if user is admin or manager."""
+    if current_user.system_role not in ["admin", "manager"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin or Manager privileges required"
         )
     return current_user
 
@@ -80,20 +100,24 @@ def list_all_projects(
 @router.get("/users")
 def list_all_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin_or_manager)
 ):
-    """List all users in the system (admin only)."""
+    """List all users in the system (admin or manager)."""
 
     # Query all users with project counts
-    users = (
+    query = (
         db.query(
             User,
             func.count(Project.id).label("project_count")
         )
         .outerjoin(Project, Project.user_id == User.id)
-        .group_by(User.id)
-        .all()
     )
+
+    # If user is manager, exclude other managers and admins
+    if current_user.system_role == "manager":
+        query = query.filter(User.system_role.notin_(["manager", "admin"]))
+
+    users = query.group_by(User.id).all()
 
     # Format response
     result = []
@@ -117,18 +141,69 @@ def list_all_users(
     return result
 
 
+@router.put("/users/{user_id}")
+def update_user(
+    user_id: int,
+    user_update: AdminUserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_manager)
+):
+    """Update a user's information (admin or manager)."""
+
+    # Get user
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Update fields if provided
+    if user_update.email is not None:
+        # Check if email is already taken by another user
+        existing_user = db.query(User).filter(User.email == user_update.email, User.id != user_id).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = user_update.email
+
+    if user_update.full_name is not None:
+        user.full_name = user_update.full_name
+    if user_update.company is not None:
+        # Store in company_custom for user-entered values
+        user.company_custom = user_update.company
+    if user_update.division is not None:
+        # Store in division_custom for user-entered values
+        user.division_custom = user_update.division
+    if user_update.department is not None:
+        user.department = user_update.department
+    if user_update.phone_number is not None:
+        user.phone_number = user_update.phone_number
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "User updated successfully",
+        "user_id": user.id,
+        "email": user.email,
+        "full_name": user.full_name
+    }
+
+
 @router.patch("/users/{user_id}/role")
 def update_user_role(
     user_id: int,
     role_update: UserRoleUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin_or_manager)
 ):
-    """Update a user's system role (admin only)."""
+    """Update a user's system role (admin or manager)."""
 
     # Validate role
-    if role_update.system_role not in ["guest", "admin", "superadmin"]:
+    valid_roles = ["guest", "standard_engineer", "advanced_engineer", "manager", "admin"]
+    if role_update.system_role not in valid_roles:
         raise HTTPException(status_code=400, detail="Invalid role")
+
+    # If user is manager, they cannot set roles to manager or admin
+    if current_user.system_role == "manager" and role_update.system_role in ["manager", "admin"]:
+        raise HTTPException(status_code=403, detail="Managers cannot assign manager or admin roles")
 
     # Get user
     user = db.query(User).filter(User.id == user_id).first()
@@ -136,7 +211,7 @@ def update_user_role(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Prevent self-demotion
-    if user.id == current_user.id and role_update.system_role not in ["admin", "superadmin"]:
+    if user.id == current_user.id and role_update.system_role not in ["admin", "manager"]:
         raise HTTPException(status_code=400, detail="Cannot demote yourself")
 
     # Update role
