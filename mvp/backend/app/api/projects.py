@@ -55,9 +55,6 @@ def list_projects(
 ):
     """List all projects owned by the current user with experiment counts."""
 
-    # Debug: Print current user info
-    print(f"[DEBUG] list_projects called by user_id={current_user.id}, email={current_user.email}")
-
     # Query projects with experiment counts - only for current user
     projects = (
         db.query(
@@ -69,8 +66,6 @@ def list_projects(
         .group_by(Project.id)
         .all()
     )
-
-    print(f"[DEBUG] Found {len(projects)} projects for user_id={current_user.id}")
 
     # Format response
     result = []
