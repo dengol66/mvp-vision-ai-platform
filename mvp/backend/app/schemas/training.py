@@ -3,6 +3,14 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Optional
+from .configs import (
+    OptimizerConfig,
+    SchedulerConfig,
+    AugmentationConfig,
+    PreprocessConfig,
+    ValidationConfig,
+    TrainingConfigAdvanced,
+)
 
 
 class TrainingConfig(BaseModel):
@@ -15,9 +23,16 @@ class TrainingConfig(BaseModel):
     dataset_path: str = Field(..., description="Path to dataset")
     dataset_format: str = Field("imagefolder", description="Dataset format (imagefolder, coco, yolo, etc.)")
 
+    # Basic training parameters (backward compatible)
     epochs: int = Field(50, ge=1, le=1000, description="Number of epochs")
     batch_size: int = Field(32, ge=1, le=512, description="Batch size")
     learning_rate: float = Field(0.001, gt=0, lt=1, description="Learning rate")
+
+    # Advanced configurations (optional)
+    advanced_config: Optional[TrainingConfigAdvanced] = Field(
+        None,
+        description="Advanced training configuration (optimizer, scheduler, augmentation, etc.)"
+    )
 
     class Config:
         protected_namespaces = ()  # Allow model_name field
@@ -56,9 +71,13 @@ class TrainingJobResponse(BaseModel):
     dataset_format: str
     output_dir: str
 
+    # Basic training parameters
     epochs: int
     batch_size: int
     learning_rate: float
+
+    # Advanced configurations (optional)
+    advanced_config: Optional[TrainingConfigAdvanced] = None
 
     status: str
     error_message: Optional[str] = None

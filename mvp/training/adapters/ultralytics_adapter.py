@@ -116,21 +116,11 @@ class UltralyticsAdapter(TrainingAdapter):
         print(f"  Batch size: {self.training_config.batch_size}")
         print(f"  Device: {self.training_config.device}")
 
+        # Build YOLO training arguments from advanced config
+        train_args = self._build_yolo_train_args()
+
         # YOLO training
-        results = self.model.train(
-            data=self.data_yaml,
-            epochs=self.training_config.epochs,
-            imgsz=self.model_config.image_size,
-            batch=self.training_config.batch_size,
-            lr0=self.training_config.learning_rate,
-            device=self.training_config.device,
-            project=self.output_dir,
-            name=f'job_{self.job_id}',
-            exist_ok=True,
-            verbose=True,
-            # MLflow integration
-            # plots=True,  # Generate plots
-        )
+        results = self.model.train(**train_args)
 
         print(f"\nTraining completed!")
         print(f"Results saved to: {self.output_dir}/job_{self.job_id}")
@@ -138,6 +128,109 @@ class UltralyticsAdapter(TrainingAdapter):
         # Convert results to MetricsResult format
         metrics_list = self._convert_yolo_results(results)
         return metrics_list
+
+    def _build_yolo_train_args(self) -> Dict[str, Any]:
+        """
+        Build YOLO training arguments from advanced config.
+
+        Maps our advanced config schema to YOLO's training parameters.
+        """
+        args = {
+            # Basic parameters
+            'data': self.data_yaml,
+            'epochs': self.training_config.epochs,
+            'imgsz': self.model_config.image_size,
+            'batch': self.training_config.batch_size,
+            'lr0': self.training_config.learning_rate,
+            'device': self.training_config.device,
+            'project': self.output_dir,
+            'name': f'job_{self.job_id}',
+            'exist_ok': True,
+            'verbose': True,
+        }
+
+        adv_config = self.training_config.advanced_config
+        if not adv_config:
+            return args
+
+        # Optimizer config
+        if 'optimizer' in adv_config:
+            opt_config = adv_config['optimizer']
+            opt_type = opt_config.get('type', 'adam').upper()
+
+            # Map our optimizer types to YOLO optimizer types
+            optimizer_map = {
+                'ADAM': 'Adam',
+                'ADAMW': 'AdamW',
+                'SGD': 'SGD',
+                'RMSPROP': 'RMSprop',
+            }
+            args['optimizer'] = optimizer_map.get(opt_type, 'Adam')
+
+            if 'weight_decay' in opt_config:
+                args['weight_decay'] = opt_config['weight_decay']
+            if 'momentum' in opt_config and opt_type == 'SGD':
+                args['momentum'] = opt_config['momentum']
+
+        # Scheduler config
+        if 'scheduler' in adv_config:
+            sched_config = adv_config['scheduler']
+            sched_type = sched_config.get('type', 'none')
+
+            # YOLO has built-in cosine LR scheduler
+            if sched_type == 'cosine':
+                args['cos_lr'] = True
+                args['lrf'] = sched_config.get('eta_min', 0.01)
+
+            # Warmup
+            if 'warmup_epochs' in sched_config:
+                args['warmup_epochs'] = sched_config['warmup_epochs']
+
+        # Augmentation config
+        if 'augmentation' in adv_config:
+            aug_config = adv_config['augmentation']
+
+            if aug_config.get('enabled', True):
+                # Random flip
+                if aug_config.get('random_flip', False):
+                    args['fliplr'] = aug_config.get('random_flip_prob', 0.5)
+
+                # Rotation
+                if aug_config.get('random_rotation', False):
+                    args['degrees'] = aug_config.get('rotation_degrees', 15)
+
+                # Color jitter (HSV augmentation)
+                if aug_config.get('color_jitter', False):
+                    # YOLO uses HSV augmentation parameters
+                    args['hsv_h'] = aug_config.get('hue', 0.015)
+                    args['hsv_s'] = aug_config.get('saturation', 0.7)
+                    args['hsv_v'] = aug_config.get('brightness', 0.4)
+
+                # Mixup
+                if aug_config.get('mixup', False):
+                    args['mixup'] = aug_config.get('mixup_alpha', 0.0)
+
+                # YOLO-specific augmentations
+                args['mosaic'] = 1.0  # Enable mosaic augmentation by default
+                args['copy_paste'] = 0.0  # Disable copy-paste by default
+
+        # Preprocessing config
+        if 'preprocessing' in adv_config:
+            preprocess_config = adv_config['preprocessing']
+            if 'image_size' in preprocess_config:
+                args['imgsz'] = preprocess_config['image_size']
+
+        # Validation config
+        if 'validation' in adv_config:
+            val_config = adv_config['validation']
+            # YOLO always validates, but we can control the interval
+            # Note: YOLO doesn't have a val_interval parameter in the same way
+
+        # Mixed precision
+        if self.training_config.mixed_precision:
+            args['amp'] = True
+
+        return args
 
     def _convert_yolo_results(self, results) -> List[MetricsResult]:
         """

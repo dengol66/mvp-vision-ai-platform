@@ -76,6 +76,9 @@ class TrainingConfig:
     gradient_accumulation_steps: int = 1
     early_stopping: Optional[Dict] = None
 
+    # Advanced configuration (optional)
+    advanced_config: Optional[Dict[str, Any]] = None  # Contains OptimizerConfig, SchedulerConfig, etc.
+
 
 @dataclass
 class MetricsResult:
@@ -187,6 +190,310 @@ class TrainingAdapter(ABC):
             str: Path to saved checkpoint
         """
         pass
+
+    # ========== Config Builder Methods ==========
+
+    def build_optimizer(self, model_parameters):
+        """
+        Build optimizer from advanced config or fallback to basic config.
+
+        Args:
+            model_parameters: Model parameters to optimize
+
+        Returns:
+            torch.optim.Optimizer: Configured optimizer
+        """
+        import torch.optim as optim
+
+        # Get optimizer config from advanced_config or use defaults
+        adv_config = self.training_config.advanced_config
+        if adv_config and 'optimizer' in adv_config:
+            opt_config = adv_config['optimizer']
+            opt_type = opt_config.get('type', 'adam')
+            lr = opt_config.get('learning_rate', self.training_config.learning_rate)
+            weight_decay = opt_config.get('weight_decay', 0.0)
+
+            if opt_type == 'adam':
+                return optim.Adam(
+                    model_parameters,
+                    lr=lr,
+                    betas=tuple(opt_config.get('betas', (0.9, 0.999))),
+                    eps=opt_config.get('eps', 1e-8),
+                    weight_decay=weight_decay,
+                    amsgrad=opt_config.get('amsgrad', False)
+                )
+            elif opt_type == 'adamw':
+                return optim.AdamW(
+                    model_parameters,
+                    lr=lr,
+                    betas=tuple(opt_config.get('betas', (0.9, 0.999))),
+                    eps=opt_config.get('eps', 1e-8),
+                    weight_decay=weight_decay,
+                    amsgrad=opt_config.get('amsgrad', False)
+                )
+            elif opt_type == 'sgd':
+                return optim.SGD(
+                    model_parameters,
+                    lr=lr,
+                    momentum=opt_config.get('momentum', 0.9),
+                    weight_decay=weight_decay,
+                    nesterov=opt_config.get('nesterov', False)
+                )
+            elif opt_type == 'rmsprop':
+                return optim.RMSprop(
+                    model_parameters,
+                    lr=lr,
+                    alpha=opt_config.get('alpha', 0.99),
+                    eps=opt_config.get('eps', 1e-8),
+                    weight_decay=weight_decay,
+                    momentum=opt_config.get('momentum', 0.0)
+                )
+            elif opt_type == 'adagrad':
+                return optim.Adagrad(
+                    model_parameters,
+                    lr=lr,
+                    eps=opt_config.get('eps', 1e-10),
+                    weight_decay=weight_decay
+                )
+            else:
+                # Fallback to Adam
+                return optim.Adam(model_parameters, lr=lr)
+        else:
+            # Use basic config
+            return optim.Adam(model_parameters, lr=self.training_config.learning_rate)
+
+    def build_scheduler(self, optimizer, num_training_steps: Optional[int] = None):
+        """
+        Build learning rate scheduler from advanced config.
+
+        Args:
+            optimizer: Optimizer instance
+            num_training_steps: Total number of training steps (for OneCycleLR)
+
+        Returns:
+            torch.optim.lr_scheduler: Configured scheduler or None
+        """
+        import torch.optim.lr_scheduler as lr_scheduler
+
+        adv_config = self.training_config.advanced_config
+        if not adv_config or 'scheduler' not in adv_config:
+            return None
+
+        sched_config = adv_config['scheduler']
+        sched_type = sched_config.get('type', 'none')
+
+        if sched_type == 'none':
+            return None
+        elif sched_type == 'step':
+            return lr_scheduler.StepLR(
+                optimizer,
+                step_size=sched_config.get('step_size', 30),
+                gamma=sched_config.get('gamma', 0.1)
+            )
+        elif sched_type == 'multistep':
+            return lr_scheduler.MultiStepLR(
+                optimizer,
+                milestones=sched_config.get('milestones', [30, 60, 90]),
+                gamma=sched_config.get('gamma', 0.1)
+            )
+        elif sched_type == 'exponential':
+            return lr_scheduler.ExponentialLR(
+                optimizer,
+                gamma=sched_config.get('gamma', 0.95)
+            )
+        elif sched_type == 'cosine':
+            return lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=sched_config.get('T_max', self.training_config.epochs),
+                eta_min=sched_config.get('eta_min', 0.0)
+            )
+        elif sched_type == 'cosine_warm_restarts':
+            return lr_scheduler.CosineAnnealingWarmRestarts(
+                optimizer,
+                T_0=sched_config.get('T_0', 10),
+                T_mult=sched_config.get('T_mult', 2),
+                eta_min=sched_config.get('eta_min', 0.0)
+            )
+        elif sched_type == 'reduce_on_plateau':
+            return lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode=sched_config.get('mode', 'min'),
+                factor=sched_config.get('factor', 0.1),
+                patience=sched_config.get('patience', 10),
+                threshold=sched_config.get('threshold', 1e-4),
+                cooldown=sched_config.get('cooldown', 0),
+                min_lr=sched_config.get('min_lr', 0.0)
+            )
+        elif sched_type == 'one_cycle':
+            if num_training_steps is None:
+                num_training_steps = self.training_config.epochs
+            return lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=sched_config.get('max_lr', 0.1),
+                total_steps=num_training_steps,
+                pct_start=sched_config.get('pct_start', 0.3),
+                anneal_strategy=sched_config.get('anneal_strategy', 'cos')
+            )
+        else:
+            return None
+
+    def build_train_transforms(self):
+        """
+        Build training data augmentation transforms from advanced config.
+
+        Returns:
+            Compose: Composition of torchvision transforms
+        """
+        from torchvision import transforms
+
+        adv_config = self.training_config.advanced_config
+        transform_list = []
+
+        # Get preprocessing config
+        if adv_config and 'preprocessing' in adv_config:
+            preprocess_config = adv_config['preprocessing']
+            image_size = preprocess_config.get('image_size', 224)
+            resize_mode = preprocess_config.get('resize_mode', 'resize')
+
+            if resize_mode == 'resize':
+                transform_list.append(transforms.Resize((image_size, image_size)))
+            elif resize_mode == 'resize_crop':
+                transform_list.append(transforms.Resize(int(image_size * 1.14)))
+                transform_list.append(transforms.CenterCrop(image_size))
+            elif resize_mode == 'pad':
+                transform_list.append(transforms.Resize(image_size))
+                transform_list.append(transforms.Pad(
+                    padding=0,
+                    fill=preprocess_config.get('pad_value', 0)
+                ))
+        else:
+            # Default resize
+            transform_list.append(transforms.Resize((224, 224)))
+
+        # Get augmentation config
+        if adv_config and 'augmentation' in adv_config:
+            aug_config = adv_config['augmentation']
+
+            if aug_config.get('enabled', True):
+                # Random horizontal flip
+                if aug_config.get('random_flip', False):
+                    transform_list.append(transforms.RandomHorizontalFlip(
+                        p=aug_config.get('random_flip_prob', 0.5)
+                    ))
+
+                # Random rotation
+                if aug_config.get('random_rotation', False):
+                    transform_list.append(transforms.RandomRotation(
+                        degrees=aug_config.get('rotation_degrees', 15)
+                    ))
+
+                # Random crop
+                if aug_config.get('random_crop', False):
+                    image_size = adv_config.get('preprocessing', {}).get('image_size', 224)
+                    transform_list.append(transforms.RandomResizedCrop(
+                        size=image_size,
+                        scale=tuple(aug_config.get('crop_scale', (0.8, 1.0))),
+                        ratio=tuple(aug_config.get('crop_ratio', (0.75, 1.333)))
+                    ))
+
+                # Color jitter
+                if aug_config.get('color_jitter', False):
+                    transform_list.append(transforms.ColorJitter(
+                        brightness=aug_config.get('brightness', 0.2),
+                        contrast=aug_config.get('contrast', 0.2),
+                        saturation=aug_config.get('saturation', 0.2),
+                        hue=aug_config.get('hue', 0.1)
+                    ))
+
+                # Random grayscale
+                if aug_config.get('random_grayscale', False):
+                    transform_list.append(transforms.RandomGrayscale(
+                        p=aug_config.get('grayscale_prob', 0.1)
+                    ))
+
+                # Gaussian blur
+                if aug_config.get('gaussian_blur', False):
+                    transform_list.append(transforms.GaussianBlur(
+                        kernel_size=aug_config.get('blur_kernel_size', 5),
+                        sigma=tuple(aug_config.get('blur_sigma', (0.1, 2.0)))
+                    ))
+
+                # AutoAugment
+                if aug_config.get('autoaugment', False):
+                    policy = aug_config.get('autoaugment_policy', 'imagenet')
+                    if policy == 'imagenet':
+                        transform_list.append(transforms.AutoAugment(transforms.AutoAugmentPolicy.IMAGENET))
+                    elif policy == 'cifar10':
+                        transform_list.append(transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10))
+                    elif policy == 'svhn':
+                        transform_list.append(transforms.AutoAugment(transforms.AutoAugmentPolicy.SVHN))
+
+        # Always convert to tensor and normalize
+        transform_list.append(transforms.ToTensor())
+
+        # Normalization
+        if adv_config and 'preprocessing' in adv_config:
+            preprocess_config = adv_config['preprocessing']
+            if preprocess_config.get('normalize', True):
+                transform_list.append(transforms.Normalize(
+                    mean=list(preprocess_config.get('mean', (0.485, 0.456, 0.406))),
+                    std=list(preprocess_config.get('std', (0.229, 0.224, 0.225)))
+                ))
+        else:
+            # Default ImageNet normalization
+            transform_list.append(transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ))
+
+        # Random erasing (applied after ToTensor)
+        if adv_config and 'augmentation' in adv_config:
+            aug_config = adv_config['augmentation']
+            if aug_config.get('random_erasing', False):
+                transform_list.append(transforms.RandomErasing(
+                    p=aug_config.get('erasing_prob', 0.5)
+                ))
+
+        return transforms.Compose(transform_list)
+
+    def build_val_transforms(self):
+        """
+        Build validation data transforms (no augmentation).
+
+        Returns:
+            Compose: Composition of torchvision transforms
+        """
+        from torchvision import transforms
+
+        adv_config = self.training_config.advanced_config
+        transform_list = []
+
+        # Get preprocessing config
+        if adv_config and 'preprocessing' in adv_config:
+            preprocess_config = adv_config['preprocessing']
+            image_size = preprocess_config.get('image_size', 224)
+            transform_list.append(transforms.Resize((image_size, image_size)))
+        else:
+            transform_list.append(transforms.Resize((224, 224)))
+
+        # Always convert to tensor and normalize
+        transform_list.append(transforms.ToTensor())
+
+        # Normalization
+        if adv_config and 'preprocessing' in adv_config:
+            preprocess_config = adv_config['preprocessing']
+            if preprocess_config.get('normalize', True):
+                transform_list.append(transforms.Normalize(
+                    mean=list(preprocess_config.get('mean', (0.485, 0.456, 0.406))),
+                    std=list(preprocess_config.get('std', (0.229, 0.224, 0.225)))
+                ))
+        else:
+            transform_list.append(transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ))
+
+        return transforms.Compose(transform_list)
 
     # ========== Common Methods (can be overridden) ==========
 

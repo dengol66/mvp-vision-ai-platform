@@ -42,31 +42,19 @@ class TimmAdapter(TrainingAdapter):
 
         print(f"Model loaded on {self.device}")
 
-        # Loss and optimizer
+        # Loss function
         self.criterion = nn.CrossEntropyLoss()
 
-        if self.training_config.optimizer.lower() == "adam":
-            self.optimizer = optim.Adam(
-                self.model.parameters(),
-                lr=self.training_config.learning_rate
-            )
-        elif self.training_config.optimizer.lower() == "sgd":
-            self.optimizer = optim.SGD(
-                self.model.parameters(),
-                lr=self.training_config.learning_rate,
-                momentum=0.9
-            )
-        else:
-            raise ValueError(f"Unsupported optimizer: {self.training_config.optimizer}")
+        # Build optimizer from advanced config (or use basic config)
+        self.optimizer = self.build_optimizer(self.model.parameters())
+        print(f"Optimizer: {self.optimizer.__class__.__name__}")
 
-        # Scheduler
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',
-            factor=0.5,
-            patience=3,
-            verbose=True
-        )
+        # Build scheduler from advanced config (optional)
+        self.scheduler = self.build_scheduler(self.optimizer)
+        if self.scheduler:
+            print(f"Scheduler: {self.scheduler.__class__.__name__}")
+        else:
+            print("No scheduler configured")
 
         self.best_val_acc = 0.0
 
@@ -157,8 +145,14 @@ class TimmAdapter(TrainingAdapter):
         avg_loss = running_loss / len(self.val_loader)
         accuracy = 100. * correct / total
 
-        # Update scheduler
-        self.scheduler.step(avg_loss)
+        # Update scheduler if it exists and is ReduceLROnPlateau
+        if self.scheduler:
+            # ReduceLROnPlateau needs a metric value
+            if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.scheduler.step(avg_loss)
+            else:
+                # Other schedulers are stepped per epoch
+                self.scheduler.step()
 
         # Track best accuracy
         if accuracy > self.best_val_acc:
@@ -183,17 +177,22 @@ class TimmAdapter(TrainingAdapter):
             f"checkpoint_epoch_{epoch}.pt"
         )
 
-        torch.save({
+        checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
             'metrics': {
                 'train_loss': metrics.train_loss,
                 'val_loss': metrics.val_loss,
                 **metrics.metrics
             }
-        }, checkpoint_path)
+        }
+
+        # Add scheduler state if it exists
+        if self.scheduler:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
+
+        torch.save(checkpoint, checkpoint_path)
 
         # Also save best model
         if metrics.metrics.get('val_accuracy', 0) == self.best_val_acc:

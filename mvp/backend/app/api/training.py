@@ -325,3 +325,302 @@ async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Failed to fetch MLflow summary: {str(e)}"
         )
+
+
+# ==================== Advanced Configuration Endpoints ====================
+
+
+@router.get("/config/schema")
+async def get_config_schema():
+    """
+    Get the JSON schema for advanced training configuration.
+
+    Returns the complete schema including:
+    - Optimizer options and parameters
+    - Scheduler options and parameters
+    - Augmentation options and parameters
+    - Preprocessing options and parameters
+    - Validation options and parameters
+
+    This schema can be used by the frontend to dynamically generate configuration forms.
+    """
+    from app.schemas.configs import (
+        OptimizerConfig,
+        SchedulerConfig,
+        AugmentationConfig,
+        PreprocessConfig,
+        ValidationConfig,
+        TrainingConfigAdvanced,
+    )
+
+    return {
+        "optimizer": OptimizerConfig.model_json_schema(),
+        "scheduler": SchedulerConfig.model_json_schema(),
+        "augmentation": AugmentationConfig.model_json_schema(),
+        "preprocessing": PreprocessConfig.model_json_schema(),
+        "validation": ValidationConfig.model_json_schema(),
+        "complete": TrainingConfigAdvanced.model_json_schema(),
+    }
+
+
+@router.get("/config/defaults")
+async def get_config_defaults():
+    """
+    Get default values for advanced training configuration.
+
+    Returns sensible default values for all configuration options.
+    """
+    from app.schemas.configs import (
+        OptimizerConfig,
+        SchedulerConfig,
+        AugmentationConfig,
+        PreprocessConfig,
+        ValidationConfig,
+        TrainingConfigAdvanced,
+    )
+
+    return {
+        "optimizer": OptimizerConfig().model_dump(),
+        "scheduler": SchedulerConfig().model_dump(),
+        "augmentation": AugmentationConfig().model_dump(),
+        "preprocessing": PreprocessConfig().model_dump(),
+        "validation": ValidationConfig().model_dump(),
+        "complete": TrainingConfigAdvanced().model_dump(),
+    }
+
+
+@router.get("/config/presets")
+async def get_config_presets():
+    """
+    Get pre-defined configuration presets.
+
+    Returns preset configurations for common use cases:
+    - basic: Simple training with minimal augmentation
+    - standard: Balanced configuration for general use
+    - aggressive: Heavy augmentation for small datasets
+    - fine_tuning: Optimized for fine-tuning pre-trained models
+    """
+    from app.schemas.configs import (
+        OptimizerConfig,
+        SchedulerConfig,
+        AugmentationConfig,
+        PreprocessConfig,
+        ValidationConfig,
+        TrainingConfigAdvanced,
+    )
+
+    presets = {
+        "basic": TrainingConfigAdvanced(
+            optimizer=OptimizerConfig(
+                type="adam",
+                learning_rate=1e-3,
+                weight_decay=0.0
+            ),
+            scheduler=SchedulerConfig(type="none"),
+            augmentation=AugmentationConfig(
+                enabled=True,
+                random_flip=True,
+                random_flip_prob=0.5
+            ),
+            preprocessing=PreprocessConfig(
+                image_size=224,
+                resize_mode="resize"
+            ),
+            validation=ValidationConfig(
+                enabled=True,
+                val_interval=1,
+                save_best=True,
+                metrics=["accuracy"]
+            )
+        ),
+
+        "standard": TrainingConfigAdvanced(
+            optimizer=OptimizerConfig(
+                type="adamw",
+                learning_rate=3e-4,
+                weight_decay=0.01,
+                betas=(0.9, 0.999)
+            ),
+            scheduler=SchedulerConfig(
+                type="cosine",
+                T_max=100,
+                eta_min=1e-6,
+                warmup_epochs=5,
+                warmup_lr=1e-6
+            ),
+            augmentation=AugmentationConfig(
+                enabled=True,
+                random_flip=True,
+                random_flip_prob=0.5,
+                color_jitter=True,
+                brightness=0.2,
+                contrast=0.2,
+                saturation=0.2,
+                hue=0.1
+            ),
+            preprocessing=PreprocessConfig(
+                image_size=224,
+                resize_mode="resize_crop"
+            ),
+            validation=ValidationConfig(
+                enabled=True,
+                val_interval=1,
+                save_best=True,
+                metrics=["accuracy", "precision", "recall", "f1"],
+                early_stopping=True,
+                early_stopping_patience=10
+            ),
+            mixed_precision=True
+        ),
+
+        "aggressive": TrainingConfigAdvanced(
+            optimizer=OptimizerConfig(
+                type="adamw",
+                learning_rate=1e-3,
+                weight_decay=0.05
+            ),
+            scheduler=SchedulerConfig(
+                type="cosine_warm_restarts",
+                T_0=10,
+                T_mult=2,
+                warmup_epochs=3
+            ),
+            augmentation=AugmentationConfig(
+                enabled=True,
+                random_flip=True,
+                random_rotation=True,
+                rotation_degrees=15,
+                random_crop=True,
+                crop_scale=(0.7, 1.0),
+                color_jitter=True,
+                brightness=0.3,
+                contrast=0.3,
+                saturation=0.3,
+                hue=0.15,
+                random_erasing=True,
+                erasing_prob=0.5,
+                mixup=True,
+                mixup_alpha=0.2,
+                cutmix=True,
+                cutmix_alpha=1.0
+            ),
+            preprocessing=PreprocessConfig(
+                image_size=224,
+                resize_mode="resize_crop"
+            ),
+            validation=ValidationConfig(
+                enabled=True,
+                val_interval=1,
+                save_best=True,
+                metrics=["accuracy", "precision", "recall", "f1"],
+                early_stopping=True,
+                early_stopping_patience=15
+            ),
+            mixed_precision=True,
+            gradient_clip_value=1.0
+        ),
+
+        "fine_tuning": TrainingConfigAdvanced(
+            optimizer=OptimizerConfig(
+                type="sgd",
+                learning_rate=1e-4,
+                momentum=0.9,
+                weight_decay=1e-4,
+                nesterov=True
+            ),
+            scheduler=SchedulerConfig(
+                type="step",
+                step_size=10,
+                gamma=0.1
+            ),
+            augmentation=AugmentationConfig(
+                enabled=True,
+                random_flip=True,
+                random_flip_prob=0.5,
+                color_jitter=True,
+                brightness=0.1,
+                contrast=0.1,
+                saturation=0.1
+            ),
+            preprocessing=PreprocessConfig(
+                image_size=224,
+                resize_mode="resize"
+            ),
+            validation=ValidationConfig(
+                enabled=True,
+                val_interval=1,
+                save_best=True,
+                save_best_metric="accuracy",
+                metrics=["accuracy"],
+                early_stopping=True,
+                early_stopping_patience=5,
+                early_stopping_min_delta=0.001
+            )
+        )
+    }
+
+    return {
+        name: preset.model_dump()
+        for name, preset in presets.items()
+    }
+
+
+@router.post("/config/validate")
+async def validate_config(config: training.TrainingConfigAdvanced):
+    """
+    Validate an advanced training configuration.
+
+    Validates the provided configuration against the schema and returns
+    validation results and any warnings.
+
+    Args:
+        config: Advanced training configuration to validate
+
+    Returns:
+        Dictionary with validation status and any warnings/suggestions
+    """
+    from pydantic import ValidationError
+
+    warnings = []
+    suggestions = []
+
+    # Check for common issues
+    if config.optimizer.learning_rate > 0.1:
+        warnings.append("Learning rate is very high (>0.1). Consider using a lower value.")
+
+    if config.optimizer.learning_rate < 1e-6:
+        warnings.append("Learning rate is very low (<1e-6). Training may be very slow.")
+
+    if config.scheduler.type != "none" and config.scheduler.warmup_epochs > 0:
+        if config.scheduler.warmup_lr >= config.optimizer.learning_rate:
+            warnings.append("Warmup LR is higher than or equal to initial LR. Warmup may not work as expected.")
+
+    if config.augmentation.enabled:
+        aug_count = sum([
+            config.augmentation.random_flip,
+            config.augmentation.random_rotation,
+            config.augmentation.random_crop,
+            config.augmentation.color_jitter,
+            config.augmentation.random_erasing,
+            config.augmentation.mixup,
+            config.augmentation.cutmix,
+            config.augmentation.autoaugment
+        ])
+
+        if aug_count == 0:
+            warnings.append("Augmentation is enabled but no augmentation techniques are selected.")
+        elif aug_count > 6:
+            suggestions.append("Many augmentation techniques are enabled. This may slow down training significantly.")
+
+    if config.validation.early_stopping and config.validation.early_stopping_patience < 3:
+        suggestions.append("Early stopping patience is very low (<3). Training may stop prematurely.")
+
+    if config.mixed_precision and config.gradient_clip_value and config.gradient_clip_value > 10:
+        suggestions.append("Gradient clipping value is high (>10) with mixed precision. Consider using a lower value.")
+
+    return {
+        "valid": True,
+        "warnings": warnings,
+        "suggestions": suggestions,
+        "config": config.model_dump()
+    }

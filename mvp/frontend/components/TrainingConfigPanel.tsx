@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, CheckIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import AdvancedConfigPanel from './training/AdvancedConfigPanel'
 
 // Helper: Infer task type from dataset format
 const getTaskTypeFromFormat = (format: string): string => {
@@ -59,6 +60,10 @@ export default function TrainingConfigPanel({
   const [epochs, setEpochs] = useState(initialConfig?.epochs || 50)
   const [batchSize, setBatchSize] = useState(initialConfig?.batch_size || 32)
   const [learningRate, setLearningRate] = useState(initialConfig?.learning_rate || 0.001)
+
+  // Advanced Configuration
+  const [advancedConfig, setAdvancedConfig] = useState<any>(null)
+  const [showAdvancedConfig, setShowAdvancedConfig] = useState(false)
 
   // Framework options
   const frameworks = [
@@ -222,6 +227,7 @@ export default function TrainingConfigPanel({
         epochs,
         batch_size: batchSize,
         learning_rate: learningRate,
+        advanced_config: advancedConfig || undefined,
       }
 
       const requestBody: any = { config }
@@ -651,6 +657,36 @@ export default function TrainingConfigPanel({
                 </p>
               </div>
 
+              {/* Advanced Configuration Button */}
+              <div className="border-t border-gray-200 pt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedConfig(true)}
+                  className={cn(
+                    'w-full flex items-center justify-center gap-2 px-4 py-3',
+                    'border-2 border-dashed rounded-lg transition-colors',
+                    advancedConfig
+                      ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
+                      : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:bg-gray-50'
+                  )}
+                >
+                  <Settings className="w-5 h-5" />
+                  <span className="font-medium">
+                    {advancedConfig ? 'Advanced 설정 수정하기' : 'Advanced 설정 (선택사항)'}
+                  </span>
+                  {advancedConfig && (
+                    <span className="ml-auto px-2 py-1 bg-violet-200 text-violet-800 rounded text-xs font-semibold">
+                      설정됨
+                    </span>
+                  )}
+                </button>
+                {advancedConfig && (
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    Optimizer, Scheduler, Augmentation 등이 설정되었습니다
+                  </p>
+                )}
+              </div>
+
               {/* Summary */}
               <div className="p-4 bg-gray-50 rounded-lg">
                 <h3 className="text-sm font-semibold text-gray-900 mb-3">설정 요약</h3>
@@ -740,6 +776,18 @@ export default function TrainingConfigPanel({
           )}
         </div>
       </div>
+
+      {/* Advanced Configuration Modal */}
+      {showAdvancedConfig && (
+        <AdvancedConfigPanel
+          config={advancedConfig}
+          onChange={(newConfig) => {
+            setAdvancedConfig(newConfig)
+            setShowAdvancedConfig(false)
+          }}
+          onClose={() => setShowAdvancedConfig(false)}
+        />
+      )}
     </div>
   )
 }

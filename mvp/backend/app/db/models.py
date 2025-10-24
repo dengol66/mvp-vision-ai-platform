@@ -135,6 +135,9 @@ class TrainingJob(Base):
     batch_size = Column(Integer, nullable=False)
     learning_rate = Column(Float, nullable=False)
 
+    # Advanced configuration (JSON field for optimizer, scheduler, augmentation, etc.)
+    advanced_config = Column(JSON, nullable=True)
+
     status = Column(String(20), nullable=False, default="pending")
     error_message = Column(Text, nullable=True)
     process_id = Column(Integer, nullable=True)
