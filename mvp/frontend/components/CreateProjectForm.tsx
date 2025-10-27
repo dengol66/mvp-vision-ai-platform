@@ -39,10 +39,16 @@ export default function CreateProjectForm({
     setError(null)
 
     try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        throw new Error('로그인이 필요합니다. 다시 로그인해주세요.')
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: name.trim(),
@@ -53,6 +59,11 @@ export default function CreateProjectForm({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
+
+        // Handle authentication error
+        if (response.status === 401) {
+          throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.')
+        }
 
         // Handle duplicate project name (400 error)
         if (response.status === 400 && errorData.detail?.includes('already exists')) {

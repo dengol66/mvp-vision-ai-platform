@@ -691,3 +691,53 @@ async def validate_config(config: training.TrainingConfigAdvanced):
         "suggestions": suggestions,
         "config": config.model_dump()
     }
+
+
+@router.get("/config-schema")
+async def get_config_schema(framework: str, task_type: str = None):
+    """
+    Get configuration schema for a specific framework and task type.
+
+    This endpoint returns the configuration schema that can be used to dynamically
+    generate UI forms for advanced training configuration.
+
+    Args:
+        framework: Framework name ('timm', 'ultralytics', etc.)
+        task_type: Optional task type for framework-specific schemas
+
+    Returns:
+        Configuration schema with fields, types, defaults, and presets
+    """
+    try:
+        # Import adapters
+        from training.adapters.timm_adapter import TimmAdapter
+        from training.adapters.ultralytics_adapter import UltralyticsAdapter
+
+        # Map framework name to adapter class
+        adapter_map = {
+            'timm': TimmAdapter,
+            'ultralytics': UltralyticsAdapter,
+        }
+
+        # Get adapter class
+        adapter_class = adapter_map.get(framework.lower())
+        if not adapter_class:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Framework '{framework}' not supported. Available: {list(adapter_map.keys())}"
+            )
+
+        # Get configuration schema
+        schema = adapter_class.get_config_schema()
+
+        return {
+            "framework": framework,
+            "task_type": task_type,
+            "schema": schema.to_dict()
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get configuration schema: {str(e)}"
+        )

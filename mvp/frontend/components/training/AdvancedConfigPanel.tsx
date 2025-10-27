@@ -1,63 +1,26 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Settings, AlertTriangle, CheckCircle, Sparkles } from 'lucide-react'
-import OptimizerConfigPanel from './OptimizerConfigPanel'
-import SchedulerConfigPanel from './SchedulerConfigPanel'
-import AugmentationConfigPanel from './AugmentationConfigPanel'
+import { useState } from 'react'
+import { Settings, CheckCircle, AlertTriangle } from 'lucide-react'
+import DynamicConfigPanel from './DynamicConfigPanel'
 
 interface AdvancedConfigPanelProps {
+  framework: string
+  taskType?: string
   config: any | null
   onChange: (config: any) => void
   onClose: () => void
 }
 
 export default function AdvancedConfigPanel({
+  framework,
+  taskType,
   config,
   onChange,
   onClose
 }: AdvancedConfigPanelProps) {
-  const [currentConfig, setCurrentConfig] = useState<any>(null)
-  const [presets, setPresets] = useState<any>(null)
+  const [currentConfig, setCurrentConfig] = useState<any>(config || {})
   const [validation, setValidation] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-
-  // Load defaults and presets
-  useEffect(() => {
-    const loadDefaults = async () => {
-      try {
-        const [defaultsRes, presetsRes] = await Promise.all([
-          fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/config/defaults`),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/config/presets`)
-        ])
-
-        const defaults = await defaultsRes.json()
-        const presets = await presetsRes.json()
-
-        setPresets(presets)
-
-        // Use provided config or defaults
-        if (config) {
-          setCurrentConfig(config)
-        } else {
-          setCurrentConfig(defaults.complete)
-        }
-      } catch (error) {
-        console.error('Failed to load config defaults:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadDefaults()
-  }, [])
-
-  // Apply preset
-  const applyPreset = (presetName: string) => {
-    if (presets && presets[presetName]) {
-      setCurrentConfig(presets[presetName])
-    }
-  }
 
   // Validate config
   const validateConfig = async () => {
@@ -78,25 +41,13 @@ export default function AdvancedConfigPanel({
 
   // Save and close
   const handleSave = () => {
-    if (currentConfig) {
-      onChange(currentConfig)
-      onClose()
-    }
-  }
-
-  if (loading || !currentConfig) {
-    return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-gray-900 rounded-lg p-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-500"></div>
-        </div>
-      </div>
-    )
+    onChange(currentConfig)
+    onClose()
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="bg-gray-900 rounded-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-6 border-b border-gray-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -105,7 +56,10 @@ export default function AdvancedConfigPanel({
             </div>
             <div>
               <h2 className="text-xl font-bold text-white">Advanced Training Configuration</h2>
-              <p className="text-sm text-gray-400">Optimizer, Scheduler, Augmentation 등 고급 설정</p>
+              <p className="text-sm text-gray-400">
+                {framework === 'timm' && 'Classification 전용 설정 (Mixup, CutMix 등)'}
+                {framework === 'ultralytics' && 'Detection 전용 설정 (Mosaic, Copy-Paste 등)'}
+              </p>
             </div>
           </div>
           <button
@@ -116,47 +70,17 @@ export default function AdvancedConfigPanel({
           </button>
         </div>
 
-        {/* Presets */}
-        <div className="p-6 border-b border-gray-800">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="w-5 h-5 text-yellow-400" />
-            <h3 className="text-sm font-semibold text-white">프리셋 선택</h3>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {presets && Object.keys(presets).map((presetName) => (
-              <button
-                key={presetName}
-                onClick={() => applyPreset(presetName)}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors"
-              >
-                {presetName === 'basic' && 'Basic'}
-                {presetName === 'standard' && 'Standard'}
-                {presetName === 'aggressive' && 'Aggressive'}
-                {presetName === 'fine_tuning' && 'Fine-tuning'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Config Panels */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <OptimizerConfigPanel
-            config={currentConfig.optimizer}
-            onChange={(optimizer) => setCurrentConfig({ ...currentConfig, optimizer })}
+        {/* Dynamic Config Panel */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <DynamicConfigPanel
+            framework={framework}
+            taskType={taskType}
+            config={currentConfig}
+            onChange={setCurrentConfig}
           />
 
-          <SchedulerConfigPanel
-            config={currentConfig.scheduler}
-            onChange={(scheduler) => setCurrentConfig({ ...currentConfig, scheduler })}
-          />
-
-          <AugmentationConfigPanel
-            config={currentConfig.augmentation}
-            onChange={(augmentation) => setCurrentConfig({ ...currentConfig, augmentation })}
-          />
-
-          {/* Simple configs inline */}
-          <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+          {/* Additional Settings */}
+          <div className="mt-4 bg-gray-800 rounded-lg p-4 space-y-3">
             <h3 className="text-lg font-semibold text-white">기타 설정</h3>
 
             <div className="grid grid-cols-2 gap-4">
@@ -168,7 +92,7 @@ export default function AdvancedConfigPanel({
                   <input
                     type="checkbox"
                     id="mixed-precision"
-                    checked={currentConfig.mixed_precision}
+                    checked={currentConfig.mixed_precision || false}
                     onChange={(e) => setCurrentConfig({ ...currentConfig, mixed_precision: e.target.checked })}
                     className="w-4 h-4 text-violet-600 bg-gray-700 border-gray-600 rounded focus:ring-violet-500"
                   />
@@ -200,7 +124,7 @@ export default function AdvancedConfigPanel({
 
           {/* Validation Results */}
           {validation && (
-            <div className="bg-gray-800 rounded-lg p-4">
+            <div className="mt-4 bg-gray-800 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle className="w-5 h-5 text-green-400" />
                 <h3 className="text-sm font-semibold text-white">검증 결과</h3>

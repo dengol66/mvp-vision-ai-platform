@@ -3,7 +3,7 @@
 import os
 import yaml
 from typing import List, Dict, Any
-from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat
+from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
 
 class UltralyticsAdapter(TrainingAdapter):
@@ -24,6 +24,341 @@ class UltralyticsAdapter(TrainingAdapter):
         TaskType.POSE_ESTIMATION: "-pose",
         TaskType.IMAGE_CLASSIFICATION: "-cls",
     }
+
+    @classmethod
+    def get_config_schema(cls) -> ConfigSchema:
+        """Return configuration schema for YOLO models (object detection, segmentation, pose)."""
+        fields = [
+            # ========== Optimizer Settings ==========
+            ConfigField(
+                name="optimizer_type",
+                type="select",
+                default="Adam",
+                options=["Adam", "AdamW", "SGD", "RMSprop"],
+                description="Optimizer algorithm",
+                group="optimizer",
+                required=False
+            ),
+            ConfigField(
+                name="weight_decay",
+                type="float",
+                default=0.0005,
+                min=0.0,
+                max=0.01,
+                step=0.0001,
+                description="Weight decay (L2 regularization)",
+                group="optimizer",
+                advanced=True
+            ),
+            ConfigField(
+                name="momentum",
+                type="float",
+                default=0.937,
+                min=0.0,
+                max=1.0,
+                step=0.001,
+                description="Momentum for SGD",
+                group="optimizer",
+                advanced=True
+            ),
+
+            # ========== Scheduler Settings ==========
+            ConfigField(
+                name="cos_lr",
+                type="bool",
+                default=True,
+                description="Use cosine learning rate scheduler",
+                group="scheduler",
+                required=False
+            ),
+            ConfigField(
+                name="lrf",
+                type="float",
+                default=0.01,
+                min=0.0,
+                max=1.0,
+                step=0.01,
+                description="Final learning rate (lr0 * lrf)",
+                group="scheduler",
+                advanced=False
+            ),
+            ConfigField(
+                name="warmup_epochs",
+                type="int",
+                default=3,
+                min=0,
+                max=20,
+                step=1,
+                description="Number of warmup epochs",
+                group="scheduler",
+                advanced=False
+            ),
+            ConfigField(
+                name="warmup_momentum",
+                type="float",
+                default=0.8,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Warmup initial momentum",
+                group="scheduler",
+                advanced=True
+            ),
+            ConfigField(
+                name="warmup_bias_lr",
+                type="float",
+                default=0.1,
+                min=0.0,
+                max=1.0,
+                step=0.01,
+                description="Warmup initial bias learning rate",
+                group="scheduler",
+                advanced=True
+            ),
+
+            # ========== Augmentation Settings (YOLO-specific) ==========
+            ConfigField(
+                name="aug_enabled",
+                type="bool",
+                default=True,
+                description="Enable data augmentation",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="mosaic",
+                type="float",
+                default=1.0,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Mosaic augmentation probability (4-image blend)",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="mixup",
+                type="float",
+                default=0.0,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="MixUp augmentation probability",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="copy_paste",
+                type="float",
+                default=0.0,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Copy-Paste augmentation probability",
+                group="augmentation",
+                advanced=True
+            ),
+            ConfigField(
+                name="fliplr",
+                type="float",
+                default=0.5,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Horizontal flip probability",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="flipud",
+                type="float",
+                default=0.0,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Vertical flip probability",
+                group="augmentation",
+                advanced=True
+            ),
+            ConfigField(
+                name="degrees",
+                type="float",
+                default=0.0,
+                min=0.0,
+                max=180.0,
+                step=5.0,
+                description="Rotation range in degrees",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="translate",
+                type="float",
+                default=0.1,
+                min=0.0,
+                max=0.9,
+                step=0.05,
+                description="Translation fraction",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="scale",
+                type="float",
+                default=0.5,
+                min=0.0,
+                max=0.9,
+                step=0.1,
+                description="Scaling gain",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="shear",
+                type="float",
+                default=0.0,
+                min=0.0,
+                max=10.0,
+                step=0.5,
+                description="Shear angle in degrees",
+                group="augmentation",
+                advanced=True
+            ),
+            ConfigField(
+                name="perspective",
+                type="float",
+                default=0.0,
+                min=0.0,
+                max=0.001,
+                step=0.0001,
+                description="Perspective transformation",
+                group="augmentation",
+                advanced=True
+            ),
+
+            # HSV Augmentation (Color space)
+            ConfigField(
+                name="hsv_h",
+                type="float",
+                default=0.015,
+                min=0.0,
+                max=1.0,
+                step=0.005,
+                description="HSV-Hue augmentation",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="hsv_s",
+                type="float",
+                default=0.7,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="HSV-Saturation augmentation",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="hsv_v",
+                type="float",
+                default=0.4,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="HSV-Value (brightness) augmentation",
+                group="augmentation",
+                advanced=False
+            ),
+
+            # ========== Training Optimization ==========
+            ConfigField(
+                name="amp",
+                type="bool",
+                default=True,
+                description="Automatic Mixed Precision training",
+                group="optimization",
+                required=False
+            ),
+            ConfigField(
+                name="close_mosaic",
+                type="int",
+                default=10,
+                min=0,
+                max=50,
+                step=1,
+                description="Disable mosaic in last N epochs",
+                group="optimization",
+                advanced=True
+            ),
+
+            # ========== Validation Settings ==========
+            ConfigField(
+                name="val_interval",
+                type="int",
+                default=1,
+                min=1,
+                max=10,
+                step=1,
+                description="Validate every N epochs",
+                group="validation",
+                required=False
+            ),
+        ]
+
+        presets = {
+            "easy": {
+                "optimizer_type": "Adam",
+                "cos_lr": True,
+                "aug_enabled": True,
+                "mosaic": 1.0,
+                "fliplr": 0.5,
+                "amp": True,
+            },
+            "medium": {
+                "optimizer_type": "AdamW",
+                "weight_decay": 0.0005,
+                "cos_lr": True,
+                "warmup_epochs": 3,
+                "aug_enabled": True,
+                "mosaic": 1.0,
+                "mixup": 0.1,
+                "fliplr": 0.5,
+                "degrees": 0.0,
+                "translate": 0.1,
+                "scale": 0.5,
+                "hsv_h": 0.015,
+                "hsv_s": 0.7,
+                "hsv_v": 0.4,
+                "amp": True,
+            },
+            "advanced": {
+                "optimizer_type": "AdamW",
+                "weight_decay": 0.001,
+                "momentum": 0.937,
+                "cos_lr": True,
+                "warmup_epochs": 5,
+                "lrf": 0.01,
+                "aug_enabled": True,
+                "mosaic": 1.0,
+                "mixup": 0.15,
+                "copy_paste": 0.1,
+                "fliplr": 0.5,
+                "flipud": 0.0,
+                "degrees": 10.0,
+                "translate": 0.2,
+                "scale": 0.9,
+                "shear": 2.0,
+                "perspective": 0.0001,
+                "hsv_h": 0.02,
+                "hsv_s": 0.8,
+                "hsv_v": 0.5,
+                "amp": True,
+                "close_mosaic": 10,
+            }
+        }
+
+        return ConfigSchema(fields=fields, presets=presets)
 
     def prepare_model(self):
         """Initialize YOLO model."""

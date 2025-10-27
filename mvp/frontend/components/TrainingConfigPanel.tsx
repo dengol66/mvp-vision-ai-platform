@@ -780,6 +780,8 @@ export default function TrainingConfigPanel({
       {/* Advanced Configuration Modal */}
       {showAdvancedConfig && (
         <AdvancedConfigPanel
+          framework={framework}
+          taskType={taskType}
           config={advancedConfig}
           onChange={(newConfig) => {
             setAdvancedConfig(newConfig)

@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from typing import List
 
-from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat
+from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
 
 class TimmAdapter(TrainingAdapter):
@@ -18,6 +18,306 @@ class TimmAdapter(TrainingAdapter):
     Supported tasks:
     - Image Classification (ResNet, EfficientNet, ViT, etc.)
     """
+
+    @classmethod
+    def get_config_schema(cls) -> ConfigSchema:
+        """Return configuration schema for timm models (image classification)."""
+        fields = [
+            # ========== Optimizer Settings ==========
+            ConfigField(
+                name="optimizer_type",
+                type="select",
+                default="adam",
+                options=["adam", "adamw", "sgd", "rmsprop"],
+                description="Optimizer algorithm",
+                group="optimizer",
+                required=False
+            ),
+            ConfigField(
+                name="weight_decay",
+                type="float",
+                default=0.0001,
+                min=0.0,
+                max=0.1,
+                step=0.0001,
+                description="L2 regularization (weight decay)",
+                group="optimizer",
+                advanced=True
+            ),
+            ConfigField(
+                name="momentum",
+                type="float",
+                default=0.9,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Momentum for SGD optimizer",
+                group="optimizer",
+                advanced=True
+            ),
+
+            # ========== Scheduler Settings ==========
+            ConfigField(
+                name="scheduler_type",
+                type="select",
+                default="cosine",
+                options=["none", "step", "cosine", "plateau", "exponential"],
+                description="Learning rate scheduler",
+                group="scheduler",
+                required=False
+            ),
+            ConfigField(
+                name="warmup_epochs",
+                type="int",
+                default=5,
+                min=0,
+                max=50,
+                step=1,
+                description="Number of warmup epochs",
+                group="scheduler",
+                advanced=False
+            ),
+            ConfigField(
+                name="step_size",
+                type="int",
+                default=30,
+                min=1,
+                max=100,
+                step=1,
+                description="Step size for StepLR scheduler",
+                group="scheduler",
+                advanced=True
+            ),
+            ConfigField(
+                name="gamma",
+                type="float",
+                default=0.1,
+                min=0.01,
+                max=1.0,
+                step=0.01,
+                description="Multiplicative factor of learning rate decay",
+                group="scheduler",
+                advanced=True
+            ),
+            ConfigField(
+                name="eta_min",
+                type="float",
+                default=0.000001,
+                min=0.0,
+                max=0.01,
+                step=0.000001,
+                description="Minimum learning rate for CosineAnnealingLR",
+                group="scheduler",
+                advanced=True
+            ),
+
+            # ========== Augmentation Settings ==========
+            ConfigField(
+                name="aug_enabled",
+                type="bool",
+                default=True,
+                description="Enable data augmentation",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="random_flip",
+                type="bool",
+                default=True,
+                description="Random horizontal flip",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="random_flip_prob",
+                type="float",
+                default=0.5,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Probability of random flip",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="random_rotation",
+                type="bool",
+                default=False,
+                description="Random rotation",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="rotation_degrees",
+                type="int",
+                default=15,
+                min=0,
+                max=180,
+                step=5,
+                description="Maximum rotation degrees",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="random_crop",
+                type="bool",
+                default=True,
+                description="Random crop with resize",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="color_jitter",
+                type="bool",
+                default=False,
+                description="Random color jitter",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="brightness",
+                type="float",
+                default=0.2,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Brightness variation",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="contrast",
+                type="float",
+                default=0.2,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Contrast variation",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="saturation",
+                type="float",
+                default=0.2,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Saturation variation",
+                group="augmentation",
+                advanced=True
+            ),
+            ConfigField(
+                name="hue",
+                type="float",
+                default=0.1,
+                min=0.0,
+                max=0.5,
+                step=0.05,
+                description="Hue variation",
+                group="augmentation",
+                advanced=True
+            ),
+            ConfigField(
+                name="random_erasing",
+                type="bool",
+                default=False,
+                description="Random erasing augmentation",
+                group="augmentation",
+                advanced=True
+            ),
+            ConfigField(
+                name="mixup",
+                type="bool",
+                default=False,
+                description="Mixup augmentation (image blending)",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="mixup_alpha",
+                type="float",
+                default=0.2,
+                min=0.0,
+                max=1.0,
+                step=0.1,
+                description="Mixup alpha parameter",
+                group="augmentation",
+                advanced=False
+            ),
+            ConfigField(
+                name="cutmix",
+                type="bool",
+                default=False,
+                description="CutMix augmentation (region blending)",
+                group="augmentation",
+                required=False
+            ),
+            ConfigField(
+                name="cutmix_alpha",
+                type="float",
+                default=1.0,
+                min=0.0,
+                max=2.0,
+                step=0.1,
+                description="CutMix alpha parameter",
+                group="augmentation",
+                advanced=False
+            ),
+
+            # ========== Validation Settings ==========
+            ConfigField(
+                name="val_interval",
+                type="int",
+                default=1,
+                min=1,
+                max=10,
+                step=1,
+                description="Validate every N epochs",
+                group="validation",
+                required=False
+            ),
+        ]
+
+        presets = {
+            "easy": {
+                "optimizer_type": "adam",
+                "scheduler_type": "cosine",
+                "aug_enabled": True,
+                "random_flip": True,
+                "mixup": False,
+                "cutmix": False,
+            },
+            "medium": {
+                "optimizer_type": "adamw",
+                "weight_decay": 0.0001,
+                "scheduler_type": "cosine",
+                "warmup_epochs": 5,
+                "aug_enabled": True,
+                "random_flip": True,
+                "color_jitter": True,
+                "mixup": True,
+                "mixup_alpha": 0.2,
+            },
+            "advanced": {
+                "optimizer_type": "adamw",
+                "weight_decay": 0.0005,
+                "scheduler_type": "cosine",
+                "warmup_epochs": 10,
+                "eta_min": 0.000001,
+                "aug_enabled": True,
+                "random_flip": True,
+                "random_rotation": True,
+                "color_jitter": True,
+                "random_erasing": True,
+                "mixup": True,
+                "mixup_alpha": 0.4,
+                "cutmix": True,
+                "cutmix_alpha": 1.0,
+            }
+        }
+
+        return ConfigSchema(fields=fields, presets=presets)
 
     def prepare_model(self):
         """Initialize timm model."""

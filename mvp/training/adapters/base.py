@@ -42,6 +42,58 @@ class DatasetFormat(Enum):
 
 
 @dataclass
+class ConfigField:
+    """Describes a single configuration field for dynamic UI generation."""
+    name: str
+    type: str  # 'int', 'float', 'str', 'bool', 'select', 'multiselect'
+    default: Any
+    description: str
+    required: bool = False
+
+    # For select/multiselect
+    options: Optional[List[str]] = None
+
+    # For numeric types
+    min: Optional[float] = None
+    max: Optional[float] = None
+    step: Optional[float] = None
+
+    # UI organization
+    group: Optional[str] = None  # 'optimizer', 'scheduler', 'augmentation', etc.
+    advanced: bool = False  # Show in advanced settings only
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'name': self.name,
+            'type': self.type,
+            'default': self.default,
+            'description': self.description,
+            'required': self.required,
+            'options': self.options,
+            'min': self.min,
+            'max': self.max,
+            'step': self.step,
+            'group': self.group,
+            'advanced': self.advanced
+        }
+
+
+@dataclass
+class ConfigSchema:
+    """Model's complete configuration schema."""
+    fields: List[ConfigField] = field(default_factory=list)
+    presets: Optional[Dict[str, Dict[str, Any]]] = None  # 'easy', 'medium', 'advanced'
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'fields': [f.to_dict() for f in self.fields],
+            'presets': self.presets
+        }
+
+
+@dataclass
 class ModelConfig:
     """Model configuration."""
     framework: str  # 'timm', 'ultralytics', 'transformers'
@@ -126,6 +178,22 @@ class TrainingAdapter(ABC):
         self.model = None
         self.train_loader = None
         self.val_loader = None
+
+    # ========== Configuration Schema ==========
+
+    @classmethod
+    def get_config_schema(cls) -> ConfigSchema:
+        """
+        Return configuration schema for this adapter.
+
+        Override in subclasses to provide framework-specific configuration options.
+
+        Returns:
+            ConfigSchema with fields for dynamic UI generation
+        """
+        # Default implementation returns empty schema
+        # Subclasses should override this method
+        return ConfigSchema(fields=[], presets=None)
 
     # ========== Required Methods ==========
 
