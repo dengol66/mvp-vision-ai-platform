@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils/cn'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import MLflowMetricsTable from './training/MLflowMetricsTable'
 import MLflowBestModel from './training/MLflowBestModel'
+import DatabaseMetricsTable from './training/DatabaseMetricsTable'
+import ResumeDialog from './training/ResumeDialog'
 
 interface TrainingJob {
   id: number
@@ -25,13 +27,22 @@ interface TrainingJob {
 }
 
 interface TrainingMetric {
+  id: number
+  job_id: number
   epoch: number
-  loss: number
-  accuracy: number
-  extra_metrics: {
-    train_loss: number
-    train_accuracy: number
+  step?: number
+  loss?: number
+  accuracy?: number
+  learning_rate?: number
+  checkpoint_path?: string
+  extra_metrics?: {
+    train_loss?: number
+    train_accuracy?: number
+    val_loss?: number
+    val_accuracy?: number
+    [key: string]: any
   }
+  created_at: string
 }
 
 interface TrainingLog {
@@ -52,6 +63,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [logs, setLogs] = useState<TrainingLog[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showConfigDetails, setShowConfigDetails] = useState(false)
+  const [resumeDialogMode, setResumeDialogMode] = useState<'start' | 'restart' | null>(null)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch training job details
@@ -90,7 +102,14 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
         )
         if (response.ok) {
           const data = await response.json()
+          console.log('[DEBUG] Fetched metrics:', data)
+          console.log('[DEBUG] Metrics count:', data.length)
+          if (data.length > 0) {
+            console.log('[DEBUG] First metric:', data[0])
+          }
           setMetrics(data)
+        } else {
+          console.error('[DEBUG] Failed to fetch metrics, status:', response.status)
         }
       } catch (error) {
         console.error('Error fetching metrics:', error)
@@ -143,7 +162,26 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const startTraining = async () => {
     if (!trainingJobId) return
 
+    // Check if there are any checkpoints
+    const latestCheckpoint = metrics
+      .slice()
+      .reverse()
+      .find((m) => m.checkpoint_path)
+
+    if (latestCheckpoint) {
+      // Show resume dialog if checkpoints exist
+      setResumeDialogMode('start')
+    } else {
+      // Start from scratch if no checkpoints
+      await startTrainingFromScratch()
+    }
+  }
+
+  const startTrainingFromScratch = async () => {
+    if (!trainingJobId) return
+
     setIsLoading(true)
+    setResumeDialogMode(null)
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`,
@@ -159,6 +197,45 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     } catch (error) {
       console.error('Error starting training:', error)
       alert('학습 시작 실패')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const startTrainingWithResume = async () => {
+    if (!trainingJobId) return
+
+    // Find the latest checkpoint
+    const latestCheckpoint = metrics
+      .slice()
+      .reverse()
+      .find((m) => m.checkpoint_path)
+
+    if (!latestCheckpoint?.checkpoint_path) {
+      alert('체크포인트를 찾을 수 없습니다')
+      return
+    }
+
+    setIsLoading(true)
+    setResumeDialogMode(null)
+    try {
+      const url = new URL(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`
+      )
+      url.searchParams.append('checkpoint_path', latestCheckpoint.checkpoint_path)
+      url.searchParams.append('resume', 'true')
+
+      const response = await fetch(url.toString(), { method: 'POST' })
+
+      if (response.ok) {
+        const data = await response.json()
+        setJob(data)
+      } else {
+        alert('학습 재개 실패')
+      }
+    } catch (error) {
+      console.error('Error resuming training:', error)
+      alert('학습 재개 실패')
     } finally {
       setIsLoading(false)
     }
@@ -188,6 +265,124 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     }
   }
 
+  const restartTraining = async () => {
+    if (!trainingJobId) return
+
+    // Check if there are any checkpoints
+    const latestCheckpoint = metrics
+      .slice()
+      .reverse()
+      .find((m) => m.checkpoint_path)
+
+    if (latestCheckpoint) {
+      // Show resume dialog if checkpoints exist
+      setResumeDialogMode('restart')
+    } else {
+      // No checkpoints - just restart from scratch
+      await restartTrainingFromScratch()
+    }
+  }
+
+  const restartTrainingFromScratch = async () => {
+    if (!trainingJobId) return
+
+    setIsLoading(true)
+    setResumeDialogMode(null)
+    try {
+      // First reset the job
+      const restartResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/restart`,
+        { method: 'POST' }
+      )
+
+      if (!restartResponse.ok) {
+        alert('학습 재시작 실패')
+        return
+      }
+
+      const restartData = await restartResponse.json()
+      setJob(restartData)
+      setMetrics([])
+      setLogs([])
+
+      // Then start training
+      const startResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`,
+        { method: 'POST' }
+      )
+
+      if (startResponse.ok) {
+        const startData = await startResponse.json()
+        setJob(startData)
+      } else {
+        alert('학습 시작 실패')
+      }
+    } catch (error) {
+      console.error('Error restarting training:', error)
+      alert('학습 재시작 실패')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const restartTrainingWithResume = async () => {
+    if (!trainingJobId) return
+
+    // Find the latest checkpoint
+    const latestCheckpoint = metrics
+      .slice()
+      .reverse()
+      .find((m) => m.checkpoint_path)
+
+    if (!latestCheckpoint?.checkpoint_path) {
+      alert('체크포인트를 찾을 수 없습니다')
+      return
+    }
+
+    setIsLoading(true)
+    setResumeDialogMode(null)
+    try {
+      // First reset the job to pending state
+      const restartResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/restart`,
+        { method: 'POST' }
+      )
+
+      if (!restartResponse.ok) {
+        alert('학습 재시작 실패')
+        return
+      }
+
+      const restartData = await restartResponse.json()
+      setJob(restartData)
+
+      // Don't clear metrics/logs when resuming - we need them!
+      // setMetrics([])
+      // setLogs([])
+
+      // Then start training with checkpoint
+      const url = new URL(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`
+      )
+      url.searchParams.append('checkpoint_path', latestCheckpoint.checkpoint_path)
+      url.searchParams.append('resume', 'true')
+
+      const startResponse = await fetch(url.toString(), { method: 'POST' })
+
+      if (startResponse.ok) {
+        const startData = await startResponse.json()
+        setJob(startData)
+      } else {
+        alert('학습 재개 실패')
+      }
+    } catch (error) {
+      console.error('Error resuming training:', error)
+      alert('학습 재개 실패')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   // Calculate current epoch and iteration progress
   const getCurrentProgress = () => {
     if (!job || metrics.length === 0) {
@@ -196,17 +391,28 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
     // Get latest metric
     const latestMetric = metrics[metrics.length - 1]
-    const currentEpoch = latestMetric.epoch || 0
-    const totalEpochs = job.epochs
+    const currentEpoch = latestMetric?.epoch || 0
+    const totalEpochs = job?.epochs || 0
 
     // Get iteration info from extra_metrics if available
-    const currentIteration = latestMetric.extra_metrics?.batch || 0
-    const totalIterations = latestMetric.extra_metrics?.total_batches || 0
+    const currentIteration = latestMetric?.extra_metrics?.batch || 0
+    const totalIterations = latestMetric?.extra_metrics?.total_batches || 0
 
     return { currentEpoch, totalEpochs, currentIteration, totalIterations }
   }
 
   const progress = getCurrentProgress()
+
+  // Calculate progress percentage safely
+  const epochProgressPercent = progress.totalEpochs > 0
+    ? Math.round((progress.currentEpoch / progress.totalEpochs) * 100)
+    : 0
+
+  // Debug logging
+  console.log('[DEBUG] Progress:', progress)
+  console.log('[DEBUG] Job status:', job?.status)
+  console.log('[DEBUG] Metrics length:', metrics.length)
+  console.log('[DEBUG] Epoch progress percent:', epochProgressPercent)
 
   const getStatusBadge = (status: string) => {
     const styles = {
@@ -285,78 +491,100 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
         {/* Action Buttons and Progress */}
         <div className="space-y-3">
-          <div className="flex gap-2">
-            {job.status === 'pending' && (
-              <button
-                onClick={startTraining}
-                disabled={isLoading}
-                className={cn(
-                  'px-4 py-2.5',
-                  'bg-violet-600 hover:bg-violet-700',
-                  'text-white font-semibold',
-                  'rounded-lg shadow-md',
-                  'transition-all duration-200',
-                  'disabled:opacity-40',
-                  'flex items-center gap-2'
-                )}
-              >
-                <Play className="w-4 h-4" />
-                학습 시작
-              </button>
-            )}
+          {/* Buttons and Epoch Progress in one row */}
+          <div className="flex items-center gap-4">
+            {/* Action Buttons */}
+            <div className="flex gap-2">
+              {job.status === 'pending' && (
+                <button
+                  onClick={startTraining}
+                  disabled={isLoading}
+                  className={cn(
+                    'px-4 py-2.5',
+                    'bg-violet-600 hover:bg-violet-700',
+                    'text-white font-semibold',
+                    'rounded-lg shadow-md',
+                    'transition-all duration-200',
+                    'disabled:opacity-40',
+                    'flex items-center gap-2'
+                  )}
+                >
+                  <Play className="w-4 h-4" />
+                  학습 시작
+                </button>
+              )}
 
-            {job.status === 'running' && (
-              <button
-                onClick={cancelTraining}
-                disabled={isLoading}
-                className={cn(
-                  'px-4 py-2.5',
-                  'bg-red-600 hover:bg-red-700',
-                  'text-white font-semibold',
-                  'rounded-lg',
-                  'transition-all duration-200',
-                  'disabled:opacity-40',
-                  'flex items-center gap-2'
-                )}
-              >
-                <Square className="w-4 h-4" />
-                중단
-              </button>
-            )}
-          </div>
+              {job.status === 'running' && (
+                <button
+                  onClick={cancelTraining}
+                  disabled={isLoading}
+                  className={cn(
+                    'px-4 py-2.5',
+                    'bg-red-600 hover:bg-red-700',
+                    'text-white font-semibold',
+                    'rounded-lg',
+                    'transition-all duration-200',
+                    'disabled:opacity-40',
+                    'flex items-center gap-2'
+                  )}
+                >
+                  <Square className="w-4 h-4" />
+                  중단
+                </button>
+              )}
 
-          {/* Progress Bars - Show only when training is running */}
-          {job.status === 'running' && metrics.length > 0 && (
-            <div className="space-y-2">
-              {/* Epoch Progress */}
-              <div>
+              {(job.status === 'completed' || job.status === 'cancelled' || job.status === 'failed') && (
+                <button
+                  onClick={restartTraining}
+                  disabled={isLoading}
+                  className={cn(
+                    'px-4 py-2.5',
+                    'bg-violet-600 hover:bg-violet-700',
+                    'text-white font-semibold',
+                    'rounded-lg shadow-md',
+                    'transition-all duration-200',
+                    'disabled:opacity-40',
+                    'flex items-center gap-2'
+                  )}
+                >
+                  <Play className="w-4 h-4" />
+                  재학습
+                </button>
+              )}
+            </div>
+
+            {/* Epoch Progress - Show when training has started */}
+            {job.status !== 'pending' && metrics.length > 0 && (
+              <div className="flex-1">
                 <div className="flex justify-between text-xs text-gray-600 mb-1">
-                  <span>Epoch Progress</span>
-                  <span>{progress.currentEpoch} / {progress.totalEpochs}</span>
+                  <span className="font-medium">Epoch {progress.currentEpoch} / {progress.totalEpochs}</span>
+                  <span className="text-gray-500">
+                    {epochProgressPercent}%
+                  </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
                   <div
                     className="bg-violet-600 h-2.5 rounded-full transition-all duration-300"
-                    style={{ width: `${(progress.currentEpoch / progress.totalEpochs) * 100}%` }}
+                    style={{ width: `${epochProgressPercent}%` }}
                   />
                 </div>
               </div>
+            )}
+          </div>
 
-              {/* Iteration Progress */}
-              {progress.totalIterations > 0 && (
-                <div>
-                  <div className="flex justify-between text-xs text-gray-600 mb-1">
-                    <span>Iteration Progress (Current Epoch)</span>
-                    <span>{progress.currentIteration} / {progress.totalIterations}</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div
-                      className="bg-emerald-500 h-2.5 rounded-full transition-all duration-300"
-                      style={{ width: `${(progress.currentIteration / progress.totalIterations) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )}
+          {/* Iteration Progress - Show only when training is running */}
+          {job.status === 'running' && progress.totalIterations > 0 && (
+            <div>
+              <div className="flex justify-between text-xs text-gray-600 mb-1">
+                <span>Iteration Progress (Current Epoch)</span>
+                <span>{progress.currentIteration} / {progress.totalIterations}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className="bg-emerald-500 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${(progress.currentIteration / progress.totalIterations) * 100}%` }}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -538,7 +766,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {/* External Monitoring Links */}
-        {(job.status === 'running' || job.status === 'completed') && (
+        {job.status !== 'pending' && (
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <h3 className="text-sm font-semibold text-gray-900 mb-3">모니터링 대시보드</h3>
             <div className="flex gap-3">
@@ -564,8 +792,8 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
           </div>
         )}
 
-        {/* MLflow Metrics and Best Model - Show when training is running or completed */}
-        {(job.status === 'running' || job.status === 'completed') && (
+        {/* MLflow Metrics and Best Model - Show after training starts */}
+        {job.status !== 'pending' && (
           <>
             {/* Best Model Info */}
             <MLflowBestModel jobId={job.id} />
@@ -580,7 +808,13 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
             {/* Metrics Table */}
             <div>
-              <MLflowMetricsTable jobId={job.id} />
+              <DatabaseMetricsTable
+                metrics={metrics}
+                onCheckpointSelect={(checkpointPath, epoch) => {
+                  console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
+                  // Will implement resume dialog in next step
+                }}
+              />
             </div>
           </>
         )}
@@ -635,6 +869,28 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
           )}
         </div>
       </div>
+
+      {/* Resume Dialog */}
+      <ResumeDialog
+        isOpen={resumeDialogMode !== null}
+        onClose={() => setResumeDialogMode(null)}
+        onStartFromScratch={
+          resumeDialogMode === 'restart'
+            ? restartTrainingFromScratch
+            : startTrainingFromScratch
+        }
+        onResume={
+          resumeDialogMode === 'restart'
+            ? restartTrainingWithResume
+            : startTrainingWithResume
+        }
+        latestCheckpointEpoch={
+          metrics
+            .slice()
+            .reverse()
+            .find((m) => m.checkpoint_path)?.epoch
+        }
+      />
     </div>
   )
 }

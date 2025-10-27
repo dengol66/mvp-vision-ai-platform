@@ -106,6 +106,7 @@ class TrainingMetricResponse(BaseModel):
     accuracy: Optional[float] = None
     learning_rate: Optional[float] = None
     extra_metrics: Optional[dict] = None
+    checkpoint_path: Optional[str] = None
     created_at: datetime
 
     class Config:

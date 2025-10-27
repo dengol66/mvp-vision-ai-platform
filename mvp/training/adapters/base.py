@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
+import json
 
 
 class TaskType(Enum):
@@ -497,17 +498,23 @@ class TrainingAdapter(ABC):
 
     # ========== Common Methods (can be overridden) ==========
 
-    def train(self) -> List[MetricsResult]:
+    def train(self, start_epoch: int = 0, checkpoint_path: str = None, resume_training: bool = False) -> List[MetricsResult]:
         """
         Full training process.
 
         1. Prepare model
         2. Prepare dataset
-        3. For each epoch:
+        3. Load checkpoint (if provided)
+        4. For each epoch:
            - Train
            - Validate
            - Log metrics (MLflow)
            - Save checkpoint
+
+        Args:
+            start_epoch: Starting epoch number (for resuming training)
+            checkpoint_path: Path to checkpoint file to load
+            resume_training: If True, restore optimizer/scheduler state
 
         Returns:
             List[MetricsResult]: All metrics history
@@ -517,6 +524,21 @@ class TrainingAdapter(ABC):
         # 1. Setup
         self.prepare_model()
         self.prepare_dataset()
+
+        # 2. Load checkpoint if provided
+        if checkpoint_path:
+            try:
+                checkpoint_epoch = self.load_checkpoint(checkpoint_path, resume_training=resume_training)
+                if resume_training:
+                    start_epoch = checkpoint_epoch + 1
+                    print(f"[INFO] Resuming training from epoch {start_epoch + 1}")
+                else:
+                    print(f"[INFO] Loaded model weights only, starting from epoch 1")
+            except Exception as e:
+                print(f"[ERROR] Failed to load checkpoint: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
 
         all_metrics = []
 
@@ -534,7 +556,7 @@ class TrainingAdapter(ABC):
             })
 
             # 3. Training loop
-            for epoch in range(self.training_config.epochs):
+            for epoch in range(start_epoch, self.training_config.epochs):
                 print(f"\n[Epoch {epoch + 1}/{self.training_config.epochs}]")
 
                 # Train
@@ -561,9 +583,22 @@ class TrainingAdapter(ABC):
                 self.log_metrics_to_mlflow(combined_metrics)
 
                 # Save checkpoint periodically
+                checkpoint_path = None
                 if epoch % 5 == 0 or epoch == self.training_config.epochs - 1:
                     checkpoint_path = self.save_checkpoint(epoch, combined_metrics)
                     print(f"Checkpoint saved: {checkpoint_path}")
+
+                # Output metrics for backend parsing
+                metrics_json = {
+                    "epoch": epoch + 1,
+                    "train_loss": combined_metrics.train_loss,
+                    "train_accuracy": combined_metrics.metrics.get('train_accuracy', 0) / 100.0,  # Convert to 0-1 range
+                    "val_loss": combined_metrics.val_loss,
+                    "val_accuracy": combined_metrics.metrics.get('val_accuracy', 0) / 100.0 if 'val_accuracy' in combined_metrics.metrics else None,
+                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "checkpoint_path": checkpoint_path,
+                }
+                print(f"[METRICS] {json.dumps(metrics_json)}", flush=True)
 
         return all_metrics
 

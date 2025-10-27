@@ -77,6 +77,12 @@ def parse_args():
     parser.add_argument('--job_id', type=int, required=True,
                         help='Training job ID')
 
+    # Checkpoint arguments
+    parser.add_argument('--checkpoint_path', type=str, default=None,
+                        help='Path to checkpoint to resume from')
+    parser.add_argument('--resume', action='store_true', default=False,
+                        help='Resume training from checkpoint (restore optimizer/scheduler state)')
+
     return parser.parse_args()
 
 
@@ -238,13 +244,39 @@ def main():
         job_id=args.job_id
     )
 
+    # Load checkpoint if provided
+    start_epoch = 0
+    checkpoint_to_load = None
+    resume_training = False
+
+    if args.checkpoint_path:
+        if not os.path.exists(args.checkpoint_path):
+            print(f"[ERROR] Checkpoint not found: {args.checkpoint_path}")
+            sys.exit(1)
+
+        print(f"\n[INFO] Will load checkpoint from: {args.checkpoint_path}")
+        print(f"[INFO] Resume training: {args.resume}")
+
+        checkpoint_to_load = args.checkpoint_path
+        resume_training = args.resume
+
     # Train
     try:
         print("\n" + "="*80)
-        print("STARTING TRAINING")
+        if checkpoint_to_load:
+            if resume_training:
+                print("RESUMING TRAINING FROM CHECKPOINT")
+            else:
+                print("STARTING TRAINING WITH PRETRAINED WEIGHTS")
+        else:
+            print("STARTING TRAINING")
         print("="*80 + "\n")
 
-        metrics = adapter.train()
+        metrics = adapter.train(
+            start_epoch=start_epoch,
+            checkpoint_path=checkpoint_to_load,
+            resume_training=resume_training
+        )
 
         print("\n" + "="*80)
         print("Training Completed Successfully!")

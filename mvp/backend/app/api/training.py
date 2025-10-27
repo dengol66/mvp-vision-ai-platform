@@ -185,11 +185,22 @@ async def get_training_metrics(
 
 
 @router.post("/jobs/{job_id}/start", response_model=training.TrainingJobResponse)
-async def start_training_job(job_id: int, db: Session = Depends(get_db)):
+async def start_training_job(
+    job_id: int,
+    checkpoint_path: str = None,
+    resume: bool = False,
+    db: Session = Depends(get_db)
+):
     """
     Start a training job.
 
     This endpoint starts the actual training process using subprocess.
+
+    Args:
+        job_id: Training job ID
+        checkpoint_path: Optional path to checkpoint file to load
+        resume: If True, resume training from checkpoint (restore optimizer/scheduler state).
+                If False, only load model weights.
     """
     global training_manager
 
@@ -207,8 +218,15 @@ async def start_training_job(job_id: int, db: Session = Depends(get_db)):
             detail=f"Cannot start job with status '{job.status}'",
         )
 
+    # Validate checkpoint path if provided
+    if checkpoint_path and not os.path.exists(checkpoint_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Checkpoint file not found: {checkpoint_path}"
+        )
+
     # Start training subprocess
-    success = training_manager.start_training(job_id)
+    success = training_manager.start_training(job_id, checkpoint_path=checkpoint_path, resume=resume)
 
     if not success:
         raise HTTPException(
@@ -248,6 +266,51 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(job)
         return job
+
+
+@router.post("/jobs/{job_id}/restart", response_model=training.TrainingJobResponse)
+async def restart_training_job(job_id: int, db: Session = Depends(get_db)):
+    """
+    Restart a completed or cancelled training job.
+
+    Resets the job status to 'pending' and clears previous training data.
+    The job configuration remains the same.
+    """
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    if job.status not in ["completed", "cancelled", "failed"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot restart job with status '{job.status}'. Only completed, cancelled, or failed jobs can be restarted.",
+        )
+
+    # Reset job status
+    job.status = "pending"
+    job.started_at = None
+    job.completed_at = None
+    job.error_message = None
+    job.final_accuracy = None
+    job.process_id = None
+    job.mlflow_run_id = None
+
+    # Clear previous metrics
+    db.query(models.TrainingMetric).filter(models.TrainingMetric.job_id == job_id).delete()
+
+    # Clear previous logs
+    db.query(models.TrainingLog).filter(models.TrainingLog.job_id == job_id).delete()
+
+    db.commit()
+    db.refresh(job)
+
+    # Add project_name for breadcrumb navigation
+    if job.project_id and job.project:
+        job.project_name = job.project.name
+    else:
+        job.project_name = None
+
+    return job
 
 
 @router.get("/jobs/{job_id}/logs", response_model=list[training.TrainingLogResponse])

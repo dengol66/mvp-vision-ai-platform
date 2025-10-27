@@ -300,3 +300,49 @@ class TimmAdapter(TrainingAdapter):
             torch.save(self.model.state_dict(), best_path)
 
         return checkpoint_path
+
+    def load_checkpoint(self, checkpoint_path: str, resume_training: bool = True) -> int:
+        """
+        Load model checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint file
+            resume_training: If True, restore optimizer and scheduler states for resuming training
+
+        Returns:
+            Epoch number from the checkpoint
+        """
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        print(f"\n{'='*80}")
+        print(f"LOADING CHECKPOINT")
+        print(f"{'='*80}")
+        print(f"[CHECKPOINT] Path: {checkpoint_path}")
+
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+        # Load model state
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        print(f"[CHECKPOINT] Restored model state from epoch {checkpoint['epoch']}")
+
+        if resume_training:
+            # Load optimizer state
+            if 'optimizer_state_dict' in checkpoint:
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                print(f"[CHECKPOINT] Restored optimizer state")
+
+            # Load scheduler state if it exists
+            if self.scheduler and 'scheduler_state_dict' in checkpoint:
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                print(f"[CHECKPOINT] Restored scheduler state")
+
+            # Update best_val_acc if available
+            if 'metrics' in checkpoint and 'best_val_accuracy' in checkpoint['metrics']:
+                self.best_val_acc = checkpoint['metrics']['best_val_accuracy']
+                print(f"[CHECKPOINT] Restored best validation accuracy: {self.best_val_acc:.2f}%")
+        else:
+            print("[CHECKPOINT] Only model weights loaded (optimizer and scheduler states not restored)")
+
+        print(f"{'='*80}\n")
+        return checkpoint['epoch']

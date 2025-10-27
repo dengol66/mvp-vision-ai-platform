@@ -172,6 +172,7 @@ class TrainingMetric(Base):
     learning_rate = Column(Float, nullable=True)
 
     extra_metrics = Column(JSON, nullable=True)
+    checkpoint_path = Column(String(500), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

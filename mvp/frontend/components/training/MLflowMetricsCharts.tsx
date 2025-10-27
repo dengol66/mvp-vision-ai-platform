@@ -84,7 +84,7 @@ export default function MLflowMetricsCharts({
   const hasAccuracy = metrics.train_accuracy && metrics.train_accuracy.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Loss Chart */}
       {hasLoss && (
         <div className="bg-white rounded-lg border border-gray-200 p-4">

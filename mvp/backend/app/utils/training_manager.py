@@ -26,12 +26,14 @@ class TrainingManager:
         self.db = db
         self.processes = {}  # job_id -> process
 
-    def start_training(self, job_id: int) -> bool:
+    def start_training(self, job_id: int, checkpoint_path: Optional[str] = None, resume: bool = False) -> bool:
         """
         Start training for a job.
 
         Args:
             job_id: Training job ID
+            checkpoint_path: Optional path to checkpoint to load
+            resume: If True, resume training from checkpoint (restore optimizer/scheduler state)
 
         Returns:
             True if training started successfully
@@ -76,6 +78,12 @@ class TrainingManager:
         # Add num_classes only if it's set (required for classification tasks)
         if job.num_classes is not None:
             cmd.extend(["--num_classes", str(job.num_classes)])
+
+        # Add checkpoint parameters if provided
+        if checkpoint_path:
+            cmd.extend(["--checkpoint_path", checkpoint_path])
+            if resume:
+                cmd.append("--resume")
 
         try:
             # Debug logging
@@ -284,18 +292,24 @@ class TrainingManager:
                 json_str = line[json_start:]
                 metrics_data = json.loads(json_str)
 
+                print(f"[DEBUG] Parsed metrics: {metrics_data}")
+
                 # Use val_loss/val_accuracy if available, otherwise use train_loss/train_accuracy
                 loss = metrics_data.get("val_loss") or metrics_data.get("train_loss")
                 accuracy = metrics_data.get("val_accuracy") or metrics_data.get("train_accuracy")
 
+                print(f"[DEBUG] Loss: {loss}, Accuracy: {accuracy}")
+
                 # Save to database (only if we have a loss value)
                 if loss is not None:
+                    print(f"[DEBUG] Saving metric to database for job {job_id}, epoch {metrics_data.get('epoch')}")
                     metric = models.TrainingMetric(
                         job_id=job_id,
                         epoch=metrics_data.get("epoch"),
                         loss=loss,
                         accuracy=accuracy,
                         learning_rate=metrics_data.get("learning_rate"),
+                        checkpoint_path=metrics_data.get("checkpoint_path"),
                         extra_metrics={
                             "train_loss": metrics_data.get("train_loss"),
                             "train_accuracy": metrics_data.get("train_accuracy"),
@@ -308,6 +322,9 @@ class TrainingManager:
                     )
                     db.add(metric)
                     db.commit()
+                    print(f"[DEBUG] Metric saved successfully!")
+                else:
+                    print(f"[DEBUG] Skipping metric save: loss is None")
 
                 # Export to Prometheus (if we have metrics to export)
                 if loss is not None:
@@ -325,10 +342,13 @@ class TrainingManager:
                         epoch=metrics_data.get("epoch"),
                     )
 
-            except json.JSONDecodeError:
-                pass  # Ignore lines that aren't valid JSON
+            except json.JSONDecodeError as e:
+                print(f"[DEBUG] JSON decode error: {e}")
+                print(f"[DEBUG] Tried to parse: {line}")
             except Exception as e:
-                print(f"Error parsing metrics: {e}")
+                print(f"[DEBUG] Error parsing/saving metrics: {e}")
+                import traceback
+                traceback.print_exc()
                 db.rollback()
             finally:
                 db.close()
