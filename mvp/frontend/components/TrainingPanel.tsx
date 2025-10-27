@@ -4,8 +4,6 @@ import { useState, useEffect, useRef } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
-import MLflowMetricsTable from './training/MLflowMetricsTable'
-import MLflowBestModel from './training/MLflowBestModel'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
 
@@ -64,6 +62,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [isLoading, setIsLoading] = useState(false)
   const [showConfigDetails, setShowConfigDetails] = useState(false)
   const [resumeDialogMode, setResumeDialogMode] = useState<'start' | 'restart' | null>(null)
+  const [showLogs, setShowLogs] = useState(false)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch training job details
@@ -765,44 +764,43 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* External Monitoring Links */}
-        {job.status !== 'pending' && (
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">모니터링 대시보드</h3>
-            <div className="flex gap-3">
-              <a
-                href="http://localhost:3001"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-medium rounded-lg hover:from-orange-600 hover:to-red-600 transition-all"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Grafana 대시보드
-              </a>
-              <a
-                href={`http://localhost:5000/#/experiments/1/runs?searchFilter=tags.mlflow.runName%20%3D%20%22job-${job.id}%22`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium rounded-lg hover:from-blue-600 hover:to-cyan-600 transition-all"
-              >
-                <ExternalLink className="w-4 h-4" />
-                MLflow 실험 추적
-              </a>
-            </div>
+        {/* Show message if not started yet */}
+        {job.status === 'pending' && (
+          <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
+            <p className="text-sm text-gray-500">학습을 시작하면 메트릭과 실험 정보가 표시됩니다</p>
           </div>
         )}
 
-        {/* MLflow Metrics and Best Model - Show after training starts */}
+        {/* Metrics Section - Show after training starts */}
         {job.status !== 'pending' && (
           <>
-            {/* Best Model Info */}
-            <MLflowBestModel jobId={job.id} />
-
             {/* Metrics Charts */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                학습 메트릭 차트
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900">
+                  학습 메트릭 차트
+                </h3>
+                <div className="flex items-center gap-3">
+                  <a
+                    href="http://localhost:3001"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-orange-600 hover:text-orange-700 hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Grafana
+                  </a>
+                  <a
+                    href={`http://localhost:5000/#/experiments/1/runs?searchFilter=tags.mlflow.runName%20%3D%20%22job-${job.id}%22`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    MLflow
+                  </a>
+                </div>
+              </div>
               <MLflowMetricsCharts jobId={job.id} />
             </div>
 
@@ -816,55 +814,62 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                 }}
               />
             </div>
+
+            {/* Final Accuracy */}
+            {job.final_accuracy !== null && (
+              <div className="p-4 bg-violet-50 rounded-lg border border-violet-200">
+                <p className="text-sm font-semibold text-violet-900">
+                  최종 정확도: {(job.final_accuracy * 100).toFixed(2)}%
+                </p>
+              </div>
+            )}
           </>
         )}
 
-        {/* Show message if not started yet */}
-        {job.status === 'pending' && (
-          <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
-            <p className="text-sm text-gray-500">학습을 시작하면 메트릭과 실험 정보가 표시됩니다</p>
-          </div>
-        )}
-
-        {/* Final Accuracy */}
-        {job.final_accuracy !== null && (
-          <div className="p-4 bg-violet-50 rounded-lg border border-violet-200">
-            <p className="text-sm font-semibold text-violet-900">
-              최종 정확도: {job.final_accuracy.toFixed(2)}%
-            </p>
-          </div>
-        )}
-
-        {/* Logs */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900">학습 로그</h3>
-            {logs.length > 0 && (
-              <span className="text-xs text-gray-500">
-                최근 {logs.length}개 로그 표시 중 (자동 스크롤)
-              </span>
+        {/* Logs Section - Collapsible */}
+        <div className="bg-white rounded-lg border border-gray-200">
+          <button
+            onClick={() => setShowLogs(!showLogs)}
+            className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">학습 로그</h3>
+              {logs.length > 0 && (
+                <span className="text-xs text-gray-500">
+                  ({logs.length}개)
+                </span>
+              )}
+            </div>
+            {showLogs ? (
+              <ChevronUp className="w-4 h-4 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-gray-500" />
             )}
-          </div>
+          </button>
 
-          {logs.length === 0 ? (
-            <p className="text-sm text-gray-500">학습을 시작하면 로그가 표시됩니다</p>
-          ) : (
-            <div
-              ref={logsContainerRef}
-              className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto"
-              style={{ maxHeight: '600px' }}
-            >
-              {logs.map((log) => (
+          {showLogs && (
+            <div className="border-t border-gray-200 p-4">
+              {logs.length === 0 ? (
+                <p className="text-sm text-gray-500">학습을 시작하면 로그가 표시됩니다</p>
+              ) : (
                 <div
-                  key={log.id}
-                  className={cn(
-                    'mb-1 whitespace-pre-wrap break-words',
-                    log.log_type === 'stderr' ? 'text-red-400' : 'text-green-400'
-                  )}
+                  ref={logsContainerRef}
+                  className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto"
+                  style={{ maxHeight: '600px' }}
                 >
-                  {log.content}
+                  {logs.map((log) => (
+                    <div
+                      key={log.id}
+                      className={cn(
+                        'mb-1 whitespace-pre-wrap break-words',
+                        log.log_type === 'stderr' ? 'text-red-400' : 'text-green-400'
+                      )}
+                    >
+                      {log.content}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>

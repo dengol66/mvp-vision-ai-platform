@@ -626,7 +626,7 @@ export default function ProjectDetail({
                         <>
                           <span>•</span>
                           <span className="text-emerald-600 font-medium">
-                            Accuracy: {(exp.final_accuracy).toFixed(2)}%
+                            Accuracy: {(exp.final_accuracy * 100).toFixed(2)}%
                           </span>
                         </>
                       )}
@@ -702,7 +702,7 @@ export default function ProjectDetail({
                     {exp.status === 'completed' && exp.final_accuracy && (
                       <div className="mt-4 p-3 bg-emerald-50 rounded-lg">
                         <p className="text-sm text-emerald-800">
-                          ✅ 학습 완료! 최종 정확도: <strong>{exp.final_accuracy.toFixed(2)}%</strong>
+                          ✅ 학습 완료! 최종 정확도: <strong>{(exp.final_accuracy * 100).toFixed(2)}%</strong>
                         </p>
                       </div>
                     )}
