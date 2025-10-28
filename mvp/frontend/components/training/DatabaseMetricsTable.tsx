@@ -1,7 +1,10 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle, Star } from "lucide-react";
+import useSWR from "swr";
+
+const fetcher = (url: string) => fetch(`http://localhost:8000/api/v1${url}`).then((res) => res.json());
 
 interface TrainingMetric {
   id: number;
@@ -16,17 +19,38 @@ interface TrainingMetric {
   created_at: string;
 }
 
+interface MetricSchema {
+  job_id: number;
+  framework: string;
+  task_type: string;
+  primary_metric: string;
+  primary_metric_mode: string;
+  available_metrics: string[];
+  metric_count: number;
+}
+
 interface DatabaseMetricsTableProps {
+  jobId: number;
   metrics: TrainingMetric[];
   onCheckpointSelect?: (checkpointPath: string, epoch: number) => void;
 }
 
 export default function DatabaseMetricsTable({
+  jobId,
   metrics,
   onCheckpointSelect,
 }: DatabaseMetricsTableProps) {
   console.log('[DatabaseMetricsTable] Received metrics:', metrics);
   console.log('[DatabaseMetricsTable] Metrics length:', metrics?.length);
+
+  // Fetch metric schema for dynamic columns
+  const { data: metricSchema } = useSWR<MetricSchema>(
+    jobId ? `/training/jobs/${jobId}/metric-schema` : null,
+    fetcher,
+    { refreshInterval: 0 } // Only fetch once
+  );
+
+  console.log('[DatabaseMetricsTable] Metric schema:', metricSchema);
 
   if (!metrics || metrics.length === 0) {
     console.log('[DatabaseMetricsTable] No metrics, showing empty state');
@@ -43,35 +67,134 @@ export default function DatabaseMetricsTable({
   const recentMetrics = metrics.slice(-10).reverse();
   console.log('[DatabaseMetricsTable] Recent metrics count:', recentMetrics.length);
 
+  // Get metric columns from schema, or fallback to default
+  const metricColumns = metricSchema?.available_metrics || [
+    'loss',
+    'accuracy',
+    'train_loss',
+    'train_accuracy',
+    'val_loss',
+    'val_accuracy',
+    'learning_rate',
+  ];
+
+  const primaryMetric = metricSchema?.primary_metric || 'loss';
+  const primaryMetricMode = metricSchema?.primary_metric_mode || 'min';
+
+  // Helper function to format metric display name
+  const formatMetricName = (key: string): string => {
+    // Convert snake_case or camelCase to Title Case
+    return key
+      .replace(/_/g, ' ')
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
+  };
+
+  // Helper function to format metric value
+  const formatMetricValue = (key: string, value: any): string => {
+    if (value === undefined || value === null) return '-';
+
+    // Percentage metrics (accuracy, recall, precision, mAP, etc.)
+    if (
+      key.toLowerCase().includes('accuracy') ||
+      key.toLowerCase().includes('acc') ||
+      key.toLowerCase().includes('precision') ||
+      key.toLowerCase().includes('recall') ||
+      key.toLowerCase().includes('map') ||
+      key.toLowerCase().includes('iou')
+    ) {
+      // If value is already > 1, assume it's already in percentage
+      if (value > 1) {
+        return `${value.toFixed(2)}%`;
+      }
+      // Otherwise convert to percentage
+      return `${(value * 100).toFixed(2)}%`;
+    }
+
+    // Loss metrics - 4 decimal places
+    if (key.toLowerCase().includes('loss')) {
+      return value.toFixed(4);
+    }
+
+    // Learning rate - 6 decimal places
+    if (key.toLowerCase().includes('lr') || key.toLowerCase().includes('learning')) {
+      return value.toFixed(6);
+    }
+
+    // Default - 4 decimal places
+    if (typeof value === 'number') {
+      return value.toFixed(4);
+    }
+
+    return String(value);
+  };
+
+  // Helper function to get metric value from metric object
+  const getMetricValue = (metric: TrainingMetric, key: string): any => {
+    // Check standard fields first
+    if (key === 'loss' && metric.loss !== undefined) return metric.loss;
+    if (key === 'accuracy' && metric.accuracy !== undefined) return metric.accuracy;
+    if (
+      (key === 'learning_rate' || key === 'lr') &&
+      metric.learning_rate !== undefined
+    )
+      return metric.learning_rate;
+
+    // Check extra_metrics
+    if (metric.extra_metrics && metric.extra_metrics[key] !== undefined) {
+      return metric.extra_metrics[key];
+    }
+
+    return undefined;
+  };
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
         <h4 className="text-sm font-semibold text-gray-900">
           학습 메트릭 (최근 {recentMetrics.length} Epochs)
         </h4>
+        {metricSchema && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">Primary Metric:</span>
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">
+              <Star className="w-3 h-3" fill="currentColor" />
+              {formatMetricName(primaryMetric)}
+              <span className="text-[10px] opacity-75">
+                ({primaryMetricMode === 'max' ? '↑' : '↓'})
+              </span>
+            </div>
+          </div>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-3 py-1.5 text-left font-semibold text-gray-700">
+              <th className="px-3 py-1.5 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10">
                 Epoch
               </th>
-              <th className="px-3 py-1.5 text-right font-semibold text-gray-700">
-                Train Loss
-              </th>
-              <th className="px-3 py-1.5 text-right font-semibold text-gray-700">
-                Train Acc
-              </th>
-              <th className="px-3 py-1.5 text-right font-semibold text-gray-700">
-                Val Loss
-              </th>
-              <th className="px-3 py-1.5 text-right font-semibold text-gray-700">
-                Val Acc
-              </th>
-              <th className="px-3 py-1.5 text-right font-semibold text-gray-700">
-                LR
-              </th>
+              {metricColumns.map((col) => {
+                const isPrimary = col === primaryMetric;
+                return (
+                  <th
+                    key={col}
+                    className={`px-3 py-1.5 text-right font-semibold ${
+                      isPrimary
+                        ? 'bg-blue-50 text-blue-900'
+                        : 'text-gray-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      {isPrimary && (
+                        <Star className="w-3 h-3 text-blue-600" fill="currentColor" />
+                      )}
+                      {formatMetricName(col)}
+                    </div>
+                  </th>
+                );
+              })}
               <th className="px-3 py-1.5 text-center font-semibold text-gray-700">
                 Checkpoint
               </th>
@@ -79,17 +202,12 @@ export default function DatabaseMetricsTable({
           </thead>
           <tbody className="divide-y divide-gray-100">
             {recentMetrics.map((metric, index) => {
-              const trainLoss = metric.extra_metrics?.train_loss;
-              const trainAcc = metric.extra_metrics?.train_accuracy;
-              const valLoss = metric.extra_metrics?.val_loss;
-              const valAcc = metric.extra_metrics?.val_accuracy;
-
               return (
                 <tr
                   key={metric.id}
                   className={index === 0 ? "bg-violet-50" : "hover:bg-gray-50"}
                 >
-                  <td className="px-3 py-1.5 font-medium text-gray-900">
+                  <td className="px-3 py-1.5 font-medium text-gray-900 sticky left-0 bg-inherit z-10">
                     {metric.epoch}
                     {index === 0 && (
                       <span className="ml-1.5 text-[10px] text-violet-600 font-semibold">
@@ -97,32 +215,22 @@ export default function DatabaseMetricsTable({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 text-right text-gray-700 font-mono">
-                    {trainLoss !== undefined && trainLoss !== null
-                      ? trainLoss.toFixed(4)
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-gray-700 font-mono">
-                    {trainAcc !== undefined && trainAcc !== null
-                      ? `${(trainAcc * 100).toFixed(2)}%`
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-gray-700 font-mono">
-                    {valLoss !== undefined && valLoss !== null
-                      ? valLoss.toFixed(4)
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-gray-700 font-mono">
-                    {valAcc !== undefined && valAcc !== null
-                      ? `${(valAcc * 100).toFixed(2)}%`
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-gray-700 font-mono">
-                    {metric.learning_rate !== undefined &&
-                    metric.learning_rate !== null
-                      ? metric.learning_rate.toFixed(6)
-                      : "-"}
-                  </td>
+                  {metricColumns.map((col) => {
+                    const value = getMetricValue(metric, col);
+                    const isPrimary = col === primaryMetric;
+                    return (
+                      <td
+                        key={col}
+                        className={`px-3 py-1.5 text-right font-mono ${
+                          isPrimary
+                            ? 'bg-blue-50/50 text-blue-900 font-semibold'
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        {formatMetricValue(col, value)}
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-1.5 text-center">
                     {metric.checkpoint_path ? (
                       <div className="flex items-center justify-center gap-1.5">

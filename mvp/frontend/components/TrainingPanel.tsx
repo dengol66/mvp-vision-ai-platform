@@ -876,6 +876,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
             {/* Metrics Table */}
             <div>
               <DatabaseMetricsTable
+                jobId={job.id}
                 metrics={metrics}
                 onCheckpointSelect={(checkpointPath, epoch) => {
                   console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
