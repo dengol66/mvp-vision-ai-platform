@@ -55,6 +55,8 @@ export default function TrainingConfigPanel({
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [datasetInfo, setDatasetInfo] = useState<any | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
 
   // Step 3: Hyperparameters
   const [epochs, setEpochs] = useState(initialConfig?.epochs || 50)
@@ -203,41 +205,23 @@ export default function TrainingConfigPanel({
     }
   }, [taskType])
 
-  // Folder selection handler using File System Access API
-  const handleBrowseFolder = async () => {
+  // Fetch available datasets on mount
+  useEffect(() => {
+    fetchAvailableDatasets()
+  }, [])
+
+  const fetchAvailableDatasets = async () => {
+    setIsLoadingDatasets(true)
     try {
-      // Check if File System Access API is supported
-      if ('showDirectoryPicker' in window) {
-        // @ts-ignore - showDirectoryPicker is not in TypeScript types yet
-        const dirHandle = await window.showDirectoryPicker()
-
-        // Note: For security, browsers don't expose absolute paths
-        // We can only get the folder name
-        // User will need to provide the full path or use a known location
-        const folderName = dirHandle.name
-
-        // Show dialog asking user to provide full path
-        const fullPath = prompt(
-          `선택한 폴더: "${folderName}"\n\n전체 경로를 입력하세요 (예: C:\\datasets\\${folderName}):`,
-          datasetPath || `C:\\datasets\\${folderName}`
-        )
-
-        if (fullPath) {
-          setDatasetPath(fullPath)
-          setDatasetInfo(null)
-          setAnalysisError(null)
-        }
-      } else {
-        // Fallback: show instruction
-        alert(
-          '폴더 선택 기능을 지원하지 않는 브라우저입니다.\n\n' +
-          '데이터셋 폴더의 전체 경로를 직접 입력해주세요.\n' +
-          '(Windows: C:\\datasets\\..., Linux/Mac: /home/user/datasets/...)'
-        )
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/datasets/list`)
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableDatasets(data.datasets || [])
       }
     } catch (error) {
-      // User cancelled or error occurred
-      console.log('Folder selection cancelled or failed:', error)
+      console.error('Failed to fetch datasets:', error)
+    } finally {
+      setIsLoadingDatasets(false)
     }
   }
 
@@ -537,16 +521,6 @@ export default function TrainingConfigPanel({
                     )}
                   />
                   <button
-                    onClick={handleBrowseFolder}
-                    className={cn(
-                      'px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg',
-                      'hover:bg-gray-200 transition-colors',
-                      'text-sm font-medium whitespace-nowrap border border-gray-300'
-                    )}
-                  >
-                    📁 찾아보기
-                  </button>
-                  <button
                     onClick={handleAnalyzeDataset}
                     disabled={isAnalyzing || !datasetPath.trim()}
                     className={cn(
@@ -560,8 +534,60 @@ export default function TrainingConfigPanel({
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  절대 경로를 입력하거나 📁 찾아보기 버튼으로 폴더를 선택하세요
+                  절대 경로를 입력하거나 아래 목록에서 데이터셋을 선택하세요
                 </p>
+              </div>
+
+              {/* Available Datasets List */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  사용 가능한 데이터셋
+                </label>
+                {isLoadingDatasets ? (
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">데이터셋 목록을 불러오는 중...</p>
+                  </div>
+                ) : availableDatasets.length === 0 ? (
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">사용 가능한 데이터셋이 없습니다</p>
+                    <p className="text-xs text-gray-400 mt-1">C:\datasets 폴더에 데이터셋을 추가하세요</p>
+                  </div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+                    {availableDatasets.map((dataset) => (
+                      <button
+                        key={dataset.path}
+                        onClick={() => {
+                          setDatasetPath(dataset.path)
+                          setDatasetInfo(null)
+                          setAnalysisError(null)
+                        }}
+                        className={cn(
+                          'w-full px-4 py-3 text-left border-b border-gray-100 last:border-b-0',
+                          'hover:bg-gray-50 transition-colors',
+                          datasetPath === dataset.path && 'bg-violet-50 hover:bg-violet-100'
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {dataset.name}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">{dataset.path}</p>
+                          </div>
+                          <div className="ml-4 flex-shrink-0 text-xs text-gray-400">
+                            {dataset.num_items && (
+                              <span className="mr-2">{dataset.num_items.toLocaleString()} images</span>
+                            )}
+                            {dataset.size_mb && (
+                              <span>{dataset.size_mb.toFixed(1)} MB</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Analysis Error */}
