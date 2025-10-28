@@ -85,3 +85,19 @@ yarn-error.log*
 *.tmp
 *.temp
 nul
+
+# MLflow tracking data
+runs/
+mlruns/
+mvp/backend/mlruns
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+*.pb
+
+# Backup files
+*.backup
+*_old.py
+*.bak
