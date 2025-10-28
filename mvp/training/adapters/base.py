@@ -391,6 +391,126 @@ class TrainingAdapter(ABC):
         """
         pass
 
+    def _save_validation_result(self, epoch: int, validation_metrics: 'ValidationMetrics') -> None:
+        """
+        Save validation result to database.
+
+        This is a common method used by all adapters to store detailed validation
+        metrics in the validation_results table. Adapters should call this method
+        from their validate() implementation.
+
+        Args:
+            epoch: Current epoch number (1-indexed)
+            validation_metrics: ValidationMetrics object from ValidationMetricsCalculator
+
+        Example:
+            # In adapter's validate() method:
+            val_metrics = ValidationMetricsCalculator.compute_metrics(
+                task_type=TaskType.CLASSIFICATION,
+                predictions=all_preds,
+                labels=all_labels,
+                class_names=self.class_names
+            )
+            self._save_validation_result(epoch, val_metrics)
+        """
+        try:
+            import sqlite3
+            import json
+            from pathlib import Path
+            from datetime import datetime
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[WARNING] Database not found at {db_path}, skipping validation result save")
+                return
+
+            # Get task-specific metrics
+            task_metrics = validation_metrics.get_task_metrics()
+
+            # Prepare common fields
+            task_type = validation_metrics.task_type.value
+            primary_metric_name = validation_metrics.primary_metric_name
+            primary_metric_value = validation_metrics.primary_metric_value
+            overall_loss = validation_metrics.overall_loss
+
+            # Prepare task-specific fields
+            metrics_json = json.dumps(task_metrics.to_dict())
+            per_class_metrics_json = None
+            confusion_matrix_json = None
+            pr_curves_json = None
+            class_names_json = None
+
+            # Classification-specific
+            if validation_metrics.classification:
+                clf = validation_metrics.classification
+                per_class_metrics_json = json.dumps(clf.per_class_to_dict())
+                confusion_matrix_json = json.dumps(clf.confusion_matrix_to_list())
+                if clf.class_names:
+                    class_names_json = json.dumps(clf.class_names)
+
+            # Detection/Segmentation-specific
+            elif validation_metrics.detection:
+                det = validation_metrics.detection
+                if det.per_class_ap:
+                    per_class_metrics_json = json.dumps(det.per_class_ap)
+                if det.pr_curves:
+                    pr_curves_json = json.dumps(det.pr_curves)
+
+            elif validation_metrics.segmentation:
+                seg = validation_metrics.segmentation
+                if seg.per_class_iou:
+                    per_class_metrics_json = json.dumps(seg.per_class_iou)
+
+            elif validation_metrics.pose:
+                pose = validation_metrics.pose
+                if pose.per_keypoint_pck:
+                    per_class_metrics_json = json.dumps(pose.per_keypoint_pck)
+
+            # Insert into database
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                INSERT INTO validation_results
+                (job_id, epoch, task_type, primary_metric_value, primary_metric_name,
+                 overall_loss, metrics, per_class_metrics, confusion_matrix, pr_curves,
+                 class_names, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    self.job_id,
+                    epoch,
+                    task_type,
+                    primary_metric_value,
+                    primary_metric_name,
+                    overall_loss,
+                    metrics_json,
+                    per_class_metrics_json,
+                    confusion_matrix_json,
+                    pr_curves_json,
+                    class_names_json,
+                    datetime.utcnow().isoformat()
+                )
+            )
+
+            validation_result_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+
+            print(f"[Validation] Saved validation result to database (epoch {epoch}, id={validation_result_id})")
+            print(f"  Task: {task_type}")
+            print(f"  Primary metric: {primary_metric_name}={primary_metric_value:.4f}")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to save validation result to database: {e}")
+            import traceback
+            traceback.print_exc()
+
     @abstractmethod
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
         """

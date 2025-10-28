@@ -1151,7 +1151,20 @@ class UltralyticsAdapter(TrainingAdapter):
         pass
 
     def validate(self, epoch: int) -> MetricsResult:
-        """Not used - YOLO handles validation internally."""
+        """
+        Not used - YOLO handles validation internally.
+
+        TODO: Integrate validation result saving into _convert_yolo_results()
+        by calling self._save_validation_result() for each epoch.
+
+        YOLO automatically computes detection metrics (mAP, precision, recall)
+        and saves them to results.csv. We should parse those results and save
+        them to the validation_results table using ValidationMetricsCalculator
+        or by directly creating ValidationResult entries.
+
+        For now, YOLO validation metrics are only logged to TrainingMetric table
+        via callbacks in _convert_yolo_results().
+        """
         pass
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:

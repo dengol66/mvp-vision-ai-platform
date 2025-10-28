@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils/cn'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
+import { ValidationDashboard } from './training/validation/ValidationDashboard'
 
 interface TrainingJob {
   id: number
@@ -936,6 +937,19 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                 }}
               />
             </div>
+
+            {/* Validation Metrics Dashboard */}
+            {metrics.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                  검증 메트릭 (Validation Metrics)
+                </h3>
+                <ValidationDashboard
+                  jobId={job.id}
+                  currentEpoch={metrics[metrics.length - 1]?.epoch}
+                />
+              </div>
+            )}
 
             {/* Final Metric */}
             {job.final_accuracy !== null && (

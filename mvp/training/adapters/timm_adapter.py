@@ -521,11 +521,17 @@ class TimmAdapter(TrainingAdapter):
         )
 
     def validate(self, epoch: int) -> MetricsResult:
-        """Run validation."""
+        """Run validation with comprehensive metrics calculation."""
+        import numpy as np
+        from validators import ValidationMetricsCalculator, TaskType as ValidatorTaskType
+
         self.model.eval()
         running_loss = 0.0
-        correct = 0
-        total = 0
+
+        # Collect all predictions and labels for comprehensive metrics
+        all_predictions = []
+        all_labels = []
+        all_probabilities = []
 
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc=f"Epoch {epoch + 1} [Val]")
@@ -535,15 +541,47 @@ class TimmAdapter(TrainingAdapter):
                 # Forward pass
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
-
-                # Calculate accuracy
-                _, predicted = outputs.max(1)
-                total += targets.size(0)
-                correct += predicted.eq(targets).sum().item()
                 running_loss += loss.item()
 
+                # Get predictions and probabilities
+                probabilities = torch.softmax(outputs, dim=1)
+                _, predicted = outputs.max(1)
+
+                # Collect for metrics calculation
+                all_predictions.extend(predicted.cpu().numpy())
+                all_labels.extend(targets.cpu().numpy())
+                all_probabilities.append(probabilities.cpu().numpy())
+
+        # Convert to numpy arrays
+        all_predictions = np.array(all_predictions)
+        all_labels = np.array(all_labels)
+        all_probabilities = np.vstack(all_probabilities)
+
         avg_loss = running_loss / len(self.val_loader)
-        accuracy = 100. * correct / total
+
+        # Get class names from dataset if available
+        class_names = None
+        if hasattr(self.val_loader.dataset, 'classes'):
+            class_names = self.val_loader.dataset.classes
+        elif hasattr(self.val_loader.dataset, 'dataset') and hasattr(self.val_loader.dataset.dataset, 'classes'):
+            class_names = self.val_loader.dataset.dataset.classes
+
+        # Compute comprehensive validation metrics using ValidationMetricsCalculator
+        validation_metrics = ValidationMetricsCalculator.compute_metrics(
+            task_type=ValidatorTaskType.CLASSIFICATION,
+            predictions=all_predictions,
+            labels=all_labels,
+            class_names=class_names,
+            loss=avg_loss,
+            probabilities=all_probabilities
+        )
+
+        # Save validation result to database
+        self._save_validation_result(epoch, validation_metrics)
+
+        # Extract metrics for return
+        clf_metrics = validation_metrics.classification
+        accuracy = clf_metrics.accuracy * 100.0  # Convert to percentage for consistency
 
         # Update scheduler if it exists
         if self.scheduler:
@@ -564,14 +602,23 @@ class TimmAdapter(TrainingAdapter):
         if accuracy > self.best_val_acc:
             self.best_val_acc = accuracy
 
+        # Build metrics dict for return
+        metrics_dict = {
+            'val_accuracy': accuracy,
+            'val_precision': clf_metrics.precision * 100.0,
+            'val_recall': clf_metrics.recall * 100.0,
+            'val_f1_score': clf_metrics.f1_score * 100.0,
+            'best_val_accuracy': self.best_val_acc,
+        }
+
+        if clf_metrics.top5_accuracy is not None:
+            metrics_dict['val_top5_accuracy'] = clf_metrics.top5_accuracy * 100.0
+
         return MetricsResult(
             epoch=epoch,
             step=epoch * len(self.val_loader),
             train_loss=avg_loss,  # Using train_loss field for val_loss
-            metrics={
-                'val_accuracy': accuracy,
-                'best_val_accuracy': self.best_val_acc,
-            }
+            metrics=metrics_dict
         )
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
