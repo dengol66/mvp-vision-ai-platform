@@ -61,6 +61,10 @@ export default function TrainingConfigPanel({
   const [batchSize, setBatchSize] = useState(initialConfig?.batch_size || 32)
   const [learningRate, setLearningRate] = useState(initialConfig?.learning_rate || 0.001)
 
+  // Primary Metric Selection
+  const [primaryMetric, setPrimaryMetric] = useState<string>('')
+  const [primaryMetricMode, setPrimaryMetricMode] = useState<'max' | 'min'>('max')
+
   // Advanced Configuration
   const [advancedConfig, setAdvancedConfig] = useState<any>(null)
   const [showAdvancedConfig, setShowAdvancedConfig] = useState(false)
@@ -129,6 +133,41 @@ export default function TrainingConfigPanel({
     { value: 'coco', label: 'COCO Format' },
   ]
 
+  // Primary metric options based on task type
+  const getMetricOptions = () => {
+    const metricsByTask: Record<string, Array<{ value: string; label: string; mode: 'max' | 'min'; description: string }>> = {
+      'image_classification': [
+        { value: 'accuracy', label: 'Accuracy (정확도)', mode: 'max', description: '전체 예측의 정확도' },
+        { value: 'loss', label: 'Loss (손실)', mode: 'min', description: '학습 손실 값' },
+        { value: 'val_accuracy', label: 'Validation Accuracy', mode: 'max', description: '검증 데이터 정확도' },
+        { value: 'val_loss', label: 'Validation Loss', mode: 'min', description: '검증 손실 값' },
+      ],
+      'object_detection': [
+        { value: 'mAP50', label: 'mAP@0.5 (평균 정밀도)', mode: 'max', description: 'IoU 0.5 기준 평균 정밀도' },
+        { value: 'mAP50-95', label: 'mAP@0.5:0.95', mode: 'max', description: 'COCO 표준 mAP' },
+        { value: 'precision', label: 'Precision (정밀도)', mode: 'max', description: '탐지 정밀도' },
+        { value: 'recall', label: 'Recall (재현율)', mode: 'max', description: '탐지 재현율' },
+        { value: 'loss', label: 'Loss (손실)', mode: 'min', description: '학습 손실 값' },
+      ],
+      'instance_segmentation': [
+        { value: 'mAP50', label: 'mAP@0.5 (평균 정밀도)', mode: 'max', description: 'IoU 0.5 기준 평균 정밀도' },
+        { value: 'mAP50-95', label: 'mAP@0.5:0.95', mode: 'max', description: 'COCO 표준 mAP' },
+        { value: 'precision', label: 'Precision (정밀도)', mode: 'max', description: '분할 정밀도' },
+        { value: 'recall', label: 'Recall (재현율)', mode: 'max', description: '분할 재현율' },
+        { value: 'loss', label: 'Loss (손실)', mode: 'min', description: '학습 손실 값' },
+      ],
+      'pose_estimation': [
+        { value: 'mAP50', label: 'mAP@0.5 (평균 정밀도)', mode: 'max', description: 'IoU 0.5 기준 평균 정밀도' },
+        { value: 'mAP50-95', label: 'mAP@0.5:0.95', mode: 'max', description: 'COCO 표준 mAP' },
+        { value: 'precision', label: 'Precision (정밀도)', mode: 'max', description: '키포인트 정밀도' },
+        { value: 'recall', label: 'Recall (재현율)', mode: 'max', description: '키포인트 재현율' },
+        { value: 'loss', label: 'Loss (손실)', mode: 'min', description: '학습 손실 값' },
+      ],
+    }
+
+    return metricsByTask[taskType] || metricsByTask['image_classification']
+  }
+
   // Update model when framework changes
   useEffect(() => {
     const models = getModelOptions()
@@ -148,6 +187,21 @@ export default function TrainingConfigPanel({
       }
     }
   }, [modelName, framework])
+
+  // Update primary metric when task type changes
+  useEffect(() => {
+    const metricOptions = getMetricOptions()
+    // Auto-select first metric as default if not set
+    if (!primaryMetric && metricOptions.length > 0) {
+      setPrimaryMetric(metricOptions[0].value)
+      setPrimaryMetricMode(metricOptions[0].mode)
+    }
+    // If current metric is not available for new task, reset to first option
+    else if (primaryMetric && !metricOptions.find(m => m.value === primaryMetric)) {
+      setPrimaryMetric(metricOptions[0].value)
+      setPrimaryMetricMode(metricOptions[0].mode)
+    }
+  }, [taskType])
 
   // Dataset analysis function
   const handleAnalyzeDataset = async () => {
@@ -227,6 +281,8 @@ export default function TrainingConfigPanel({
         epochs,
         batch_size: batchSize,
         learning_rate: learningRate,
+        primary_metric: primaryMetric || undefined,
+        primary_metric_mode: primaryMetricMode,
         advanced_config: advancedConfig || undefined,
       }
 
@@ -655,6 +711,45 @@ export default function TrainingConfigPanel({
                 <p className="text-xs text-gray-500 mt-1">
                   학습 속도 (0.0001-1.0, 일반적으로 0.001)
                 </p>
+              </div>
+
+              {/* Primary Metric Selection */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <label className="block text-sm font-semibold text-blue-900 mb-2">
+                  Primary Metric (주요 평가 지표)
+                </label>
+                <select
+                  value={primaryMetric}
+                  onChange={(e) => {
+                    const selected = getMetricOptions().find(m => m.value === e.target.value)
+                    if (selected) {
+                      setPrimaryMetric(selected.value)
+                      setPrimaryMetricMode(selected.mode)
+                    }
+                  }}
+                  className={cn(
+                    'w-full px-4 py-2.5 border border-blue-300 rounded-lg',
+                    'focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent',
+                    'text-sm bg-white'
+                  )}
+                >
+                  {getMetricOptions().map((metric) => (
+                    <option key={metric.value} value={metric.value}>
+                      {metric.label} {metric.mode === 'max' ? '↑' : '↓'}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 text-xs text-blue-700">
+                  <p className="font-medium">
+                    선택된 메트릭: <span className="font-mono">{primaryMetric}</span>
+                    <span className="ml-2 px-1.5 py-0.5 bg-blue-200 rounded">
+                      {primaryMetricMode === 'max' ? '최대화 ↑' : '최소화 ↓'}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-blue-600">
+                    {getMetricOptions().find(m => m.value === primaryMetric)?.description || ''}
+                  </p>
+                </div>
               </div>
 
               {/* Advanced Configuration Button */}
