@@ -79,6 +79,26 @@ async def create_training_job(
     )
     os.makedirs(job_output_dir, exist_ok=True)
 
+    # Determine primary metric based on framework/task if not provided
+    primary_metric = config.primary_metric
+    primary_metric_mode = config.primary_metric_mode or "max"
+
+    if not primary_metric:
+        # Framework-specific defaults
+        if config.task_type == "image_classification":
+            primary_metric = "accuracy"
+            primary_metric_mode = "max"
+        elif config.task_type in ["object_detection", "instance_segmentation"]:
+            primary_metric = "mAP50"
+            primary_metric_mode = "max"
+        elif config.task_type == "pose_estimation":
+            primary_metric = "mAP50"
+            primary_metric_mode = "max"
+        else:
+            # Fallback to loss
+            primary_metric = "loss"
+            primary_metric_mode = "min"
+
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
@@ -97,6 +117,8 @@ async def create_training_job(
         batch_size=job_request.config.batch_size,
         learning_rate=job_request.config.learning_rate,
         advanced_config=job_request.config.advanced_config.model_dump() if job_request.config.advanced_config else None,
+        primary_metric=primary_metric,
+        primary_metric_mode=primary_metric_mode,
         status="pending",
     )
 
@@ -185,6 +207,55 @@ async def get_training_metrics(
     )
 
     return metrics
+
+
+@router.get("/jobs/{job_id}/metric-schema")
+async def get_metric_schema(job_id: int, db: Session = Depends(get_db)):
+    """
+    Get available metric columns for a training job.
+
+    Returns a schema describing available metrics, their types,
+    and the primary metric configuration.
+    """
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    # Get a sample metric to extract available columns
+    sample_metric = (
+        db.query(models.TrainingMetric)
+        .filter(models.TrainingMetric.job_id == job_id)
+        .order_by(models.TrainingMetric.created_at.desc())
+        .first()
+    )
+
+    available_metrics = []
+
+    if sample_metric and sample_metric.extra_metrics:
+        # Extract all metric names from extra_metrics
+        for key in sample_metric.extra_metrics.keys():
+            # Skip internal/debugging metrics
+            if key not in ['batch', 'total_batches', 'epoch_time']:
+                available_metrics.append(key)
+
+    # Add standard columns if they have values
+    if sample_metric:
+        if sample_metric.loss is not None:
+            available_metrics.insert(0, 'loss')
+        if sample_metric.accuracy is not None:
+            available_metrics.insert(1, 'accuracy')
+        if sample_metric.learning_rate is not None:
+            available_metrics.append('learning_rate')
+
+    return {
+        "job_id": job_id,
+        "framework": job.framework,
+        "task_type": job.task_type,
+        "primary_metric": job.primary_metric or "loss",
+        "primary_metric_mode": job.primary_metric_mode or "min",
+        "available_metrics": available_metrics,
+        "metric_count": len(available_metrics)
+    }
 
 
 @router.post("/jobs/{job_id}/start", response_model=training.TrainingJobResponse)

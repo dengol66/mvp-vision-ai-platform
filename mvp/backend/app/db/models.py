@@ -146,6 +146,10 @@ class TrainingJob(Base):
     final_accuracy = Column(Float, nullable=True)
     best_checkpoint_path = Column(String(500), nullable=True)
 
+    # Primary metric configuration
+    primary_metric = Column(String(100), nullable=True, default="loss")  # Metric name to optimize (e.g., 'accuracy', 'mAP50', 'f1_score')
+    primary_metric_mode = Column(String(10), nullable=True, default="min")  # 'min' or 'max'
+
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)

@@ -34,6 +34,16 @@ class TrainingConfig(BaseModel):
         description="Advanced training configuration (optimizer, scheduler, augmentation, etc.)"
     )
 
+    # Primary metric configuration
+    primary_metric: Optional[str] = Field(
+        None,
+        description="Primary metric to optimize (e.g., 'accuracy', 'mAP50', 'f1_score'). If None, uses framework default."
+    )
+    primary_metric_mode: Optional[str] = Field(
+        "max",
+        description="Optimization mode: 'max' to maximize metric, 'min' to minimize"
+    )
+
     class Config:
         protected_namespaces = ()  # Allow model_name field
 
@@ -85,6 +95,10 @@ class TrainingJobResponse(BaseModel):
 
     final_accuracy: Optional[float] = None
     best_checkpoint_path: Optional[str] = None
+
+    # Primary metric configuration
+    primary_metric: Optional[str] = None
+    primary_metric_mode: Optional[str] = None
 
     created_at: datetime
     started_at: Optional[datetime] = None
