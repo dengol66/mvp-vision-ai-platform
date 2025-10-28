@@ -941,7 +941,6 @@ class UltralyticsAdapter(TrainingAdapter):
                     step=epoch - 1,
                     train_loss=train_loss,
                     val_loss=val_loss,
-                    accuracy=mAP50,  # Use mAP50 as accuracy for detection
                     metrics=metrics_dict
                 )
                 metrics_list.append(metrics)
