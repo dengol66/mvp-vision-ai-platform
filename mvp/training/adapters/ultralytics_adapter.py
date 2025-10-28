@@ -931,7 +931,8 @@ class UltralyticsAdapter(TrainingAdapter):
                     'mAP50-95': mAP50_95,
                 }
 
-                # Report to callbacks for unified MLflow logging
+                # Report to callbacks for unified metric collection
+                # Callbacks will handle both MLflow and database logging
                 if callbacks:
                     callbacks.on_epoch_end(epoch - 1, metrics_dict)  # epoch is 1-indexed in CSV
 

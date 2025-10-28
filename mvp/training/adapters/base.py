@@ -791,7 +791,7 @@ class TrainingAdapter(ABC):
 
                 all_metrics.append(combined_metrics)
 
-                # Report metrics to callbacks (handles MLflow logging)
+                # Report metrics to callbacks (handles both MLflow and database logging)
                 callbacks.on_epoch_end(epoch, combined_metrics.metrics)
 
                 # Save checkpoint periodically
@@ -803,18 +803,6 @@ class TrainingAdapter(ABC):
                     # Log checkpoint to MLflow
                     if checkpoint_path:
                         callbacks.log_artifact(checkpoint_path, "checkpoints")
-
-                # Output metrics for backend parsing
-                metrics_json = {
-                    "epoch": epoch + 1,
-                    "train_loss": combined_metrics.train_loss,
-                    "train_accuracy": combined_metrics.metrics.get('train_accuracy', 0) / 100.0,  # Convert to 0-1 range
-                    "val_loss": combined_metrics.val_loss,
-                    "val_accuracy": combined_metrics.metrics.get('val_accuracy', 0) / 100.0 if 'val_accuracy' in combined_metrics.metrics else None,
-                    "learning_rate": self.optimizer.param_groups[0]['lr'] if hasattr(self, 'optimizer') else None,
-                    "checkpoint_path": checkpoint_path,
-                }
-                print(f"[METRICS] {json.dumps(metrics_json)}", flush=True)
 
             # End training
             final_metrics = all_metrics[-1].metrics if all_metrics else {}
@@ -1045,16 +1033,16 @@ class TrainingCallbacks:
                 mlflow.log_metric(key, value, step=epoch)
 
         # Log to database
+        # Extract common metrics
+        train_loss = metrics.get('train_loss') or metrics.get('loss')
+        val_loss = metrics.get('val_loss')
+        accuracy = metrics.get('accuracy') or metrics.get('mAP50')  # mAP50 for detection
+        lr = metrics.get('learning_rate') or metrics.get('lr')
+
         if self.db_session:
             from app.db import models
 
-            # Extract common metrics
-            train_loss = metrics.get('train_loss') or metrics.get('loss')
-            val_loss = metrics.get('val_loss')
-            accuracy = metrics.get('accuracy') or metrics.get('mAP50')  # mAP50 for detection
-            lr = metrics.get('learning_rate') or metrics.get('lr')
-
-            # Store in database
+            # Store in database using SQLAlchemy
             metric_record = models.TrainingMetric(
                 job_id=self.job_id,
                 epoch=epoch,
@@ -1066,6 +1054,45 @@ class TrainingCallbacks:
             )
             self.db_session.add(metric_record)
             self.db_session.commit()
+        else:
+            # Fallback: Use direct SQLite connection when no db_session available
+            try:
+                import sqlite3
+                import json
+                from pathlib import Path
+
+                # Get database path
+                training_dir = Path(__file__).parent.parent
+                mvp_dir = training_dir.parent
+                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+                if db_path.exists():
+                    conn = sqlite3.connect(str(db_path))
+                    cursor = conn.cursor()
+
+                    # Insert metric using direct SQL
+                    cursor.execute(
+                        """
+                        INSERT INTO training_metrics
+                        (job_id, epoch, step, loss, accuracy, learning_rate, extra_metrics)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            self.job_id,
+                            epoch,
+                            epoch,
+                            train_loss,
+                            accuracy,
+                            lr,
+                            json.dumps(metrics)
+                        )
+                    )
+                    conn.commit()
+                    conn.close()
+
+                    print(f"[Callbacks] Saved metric to database (epoch {epoch})")
+            except Exception as e:
+                print(f"[Callbacks WARNING] Failed to save metric to database: {e}")
 
         # Console output
         print(f"[Callbacks] Epoch {epoch}: ", end="")
