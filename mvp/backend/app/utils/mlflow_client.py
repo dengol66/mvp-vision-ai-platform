@@ -25,28 +25,29 @@ class MLflowClientWrapper:
         mlflow.set_tracking_uri(tracking_uri)
         self.client = MlflowClient(tracking_uri=tracking_uri)
 
-    def get_run_by_job_id(self, job_id: int, experiment_name: str = "vision-ai-training") -> Optional[Any]:
+    def get_run_by_job_id(self, job_id: int) -> Optional[Any]:
         """
         Get MLflow run for a training job.
 
         Args:
             job_id: Training job ID
-            experiment_name: MLflow experiment name
 
         Returns:
             MLflow run object or None if not found
         """
         try:
+            # Experiment name matches the one created in TrainingCallbacks
+            experiment_name = f"job_{job_id}"
+
             # Get experiment
             experiment = self.client.get_experiment_by_name(experiment_name)
             if not experiment:
                 return None
 
-            # Search for run with matching name
-            run_name = f"job_{job_id}"
+            # Search for runs in this experiment (most recent first)
             runs = self.client.search_runs(
                 experiment_ids=[experiment.experiment_id],
-                filter_string=f"tags.mlflow.runName = '{run_name}'",
+                order_by=["start_time DESC"],
                 max_results=1,
             )
 

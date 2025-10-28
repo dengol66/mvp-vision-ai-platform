@@ -519,7 +519,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   disabled={isLoading}
                   className={cn(
                     'px-4 py-2.5',
-                    'bg-red-600 hover:bg-red-700',
+                    'animate-gradient-rotate shadow-lg shadow-red-500/50',
                     'text-white font-semibold',
                     'rounded-lg',
                     'transition-all duration-200',
@@ -527,7 +527,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                     'flex items-center gap-2'
                   )}
                 >
-                  <Square className="w-4 h-4" />
+                  <Square className="w-4 h-4 animate-pulse" />
                   중단
                 </button>
               )}
@@ -682,37 +682,37 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   <h4 className="text-xs font-semibold text-gray-700 mb-2">고급 설정</h4>
                   <div className="space-y-3">
                     {/* Optimizer */}
-                    {job.advanced_config.optimizer_type && (
+                    {job.advanced_config.optimizer?.type && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-semibold text-gray-700">Optimizer</span>
                           <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">
-                            {job.advanced_config.optimizer_type.toUpperCase()}
+                            {job.advanced_config.optimizer?.type.toUpperCase()}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                          {job.advanced_config.weight_decay !== undefined && (
-                            <div>Weight Decay: <span className="font-medium">{job.advanced_config.weight_decay}</span></div>
+                          {job.advanced_config.optimizer.weight_decay !== undefined && (
+                            <div>Weight Decay: <span className="font-medium">{job.advanced_config.optimizer.weight_decay}</span></div>
                           )}
-                          {job.advanced_config.momentum !== undefined && (
-                            <div>Momentum: <span className="font-medium">{job.advanced_config.momentum}</span></div>
+                          {job.advanced_config.optimizer.momentum !== undefined && (
+                            <div>Momentum: <span className="font-medium">{job.advanced_config.optimizer.momentum}</span></div>
                           )}
                         </div>
                       </div>
                     )}
 
                     {/* Scheduler */}
-                    {job.advanced_config.scheduler_type && job.advanced_config.scheduler_type !== 'none' && (
+                    {job.advanced_config.scheduler?.type && job.advanced_config.scheduler?.type !== 'none' && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-semibold text-gray-700">LR Scheduler</span>
                           <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
-                            {job.advanced_config.scheduler_type.toUpperCase()}
+                            {job.advanced_config.scheduler?.type.toUpperCase()}
                           </span>
                         </div>
                         <div className="text-xs text-gray-600">
-                          {job.advanced_config.warmup_epochs !== undefined && (
-                            <div>Warmup: {job.advanced_config.warmup_epochs} epochs</div>
+                          {job.advanced_config.scheduler.warmup_epochs !== undefined && (
+                            <div>Warmup: {job.advanced_config.scheduler.warmup_epochs} epochs</div>
                           )}
                         </div>
                       </div>
@@ -725,40 +725,40 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                             {job.advanced_config.cos_lr ? 'COSINE' : 'CONSTANT'}
                           </span>
                         </div>
-                        {job.advanced_config.warmup_epochs !== undefined && (
+                        {job.advanced_config.scheduler.warmup_epochs !== undefined && (
                           <div className="text-xs text-gray-600">
-                            Warmup: {job.advanced_config.warmup_epochs} epochs
+                            Warmup: {job.advanced_config.scheduler.warmup_epochs} epochs
                           </div>
                         )}
                       </div>
                     )}
 
                     {/* Augmentation - Classification (timm) */}
-                    {(job.advanced_config.aug_enabled || job.advanced_config.random_flip || job.advanced_config.mixup || job.advanced_config.cutmix) && (
+                    {(job.advanced_config.augmentation?.enabled || job.advanced_config.augmentation?.random_flip || job.advanced_config.augmentation?.mixup || job.advanced_config.augmentation?.cutmix) && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-semibold text-gray-700">Data Augmentation</span>
                           <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                            {job.advanced_config.aug_enabled ? '활성화' : '부분 활성화'}
+                            {job.advanced_config.augmentation?.enabled ? '활성화' : '부분 활성화'}
                           </span>
                         </div>
                         <div className="flex gap-1 flex-wrap">
-                          {job.advanced_config.random_flip && (
+                          {job.advanced_config.augmentation?.random_flip && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Flip</span>
                           )}
-                          {job.advanced_config.random_rotation && (
+                          {job.advanced_config.augmentation.random_rotation && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Rotation</span>
                           )}
-                          {job.advanced_config.color_jitter && (
+                          {job.advanced_config.augmentation.color_jitter && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Color Jitter</span>
                           )}
-                          {job.advanced_config.mixup && (
+                          {job.advanced_config.augmentation?.mixup && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Mixup</span>
                           )}
-                          {job.advanced_config.cutmix && (
+                          {job.advanced_config.augmentation?.cutmix && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">CutMix</span>
                           )}
-                          {job.advanced_config.random_erasing && (
+                          {job.advanced_config.augmentation.random_erasing && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Random Erasing</span>
                           )}
                         </div>
@@ -780,9 +780,9 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                               Mosaic ({(job.advanced_config.mosaic * 100).toFixed(0)}%)
                             </span>
                           )}
-                          {job.advanced_config.mixup > 0 && (
+                          {job.advanced_config.augmentation?.mixup > 0 && (
                             <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
-                              Mixup ({(job.advanced_config.mixup * 100).toFixed(0)}%)
+                              Mixup ({(job.advanced_config.augmentation?.mixup * 100).toFixed(0)}%)
                             </span>
                           )}
                           {job.advanced_config.copy_paste > 0 && (

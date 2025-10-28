@@ -781,7 +781,6 @@ class TrainingAdapter(ABC):
                     step=train_metrics.step,
                     train_loss=train_metrics.train_loss,
                     val_loss=val_metrics.train_loss if val_metrics else None,
-                    accuracy=val_metrics.metrics.get('val_accuracy') if val_metrics else train_metrics.metrics.get('train_accuracy'),
                     metrics={
                         'train_loss': train_metrics.train_loss,
                         **train_metrics.metrics,
@@ -965,6 +964,35 @@ class TrainingCallbacks:
                 job.mlflow_run_id = self.mlflow_run_id
                 self.db_session.commit()
                 print(f"[Callbacks] Updated DB with MLflow IDs")
+        else:
+            # If no db_session provided, use direct SQLite connection
+            try:
+                import sqlite3
+                from pathlib import Path
+
+                # Get database path
+                training_dir = Path(__file__).parent.parent
+                mvp_dir = training_dir.parent
+                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+                if db_path.exists():
+                    conn = sqlite3.connect(str(db_path))
+                    cursor = conn.cursor()
+
+                    # Update MLflow IDs using direct SQL
+                    cursor.execute(
+                        "UPDATE training_jobs SET mlflow_experiment_id = ?, mlflow_run_id = ? WHERE id = ?",
+                        (self.mlflow_experiment_id, self.mlflow_run_id, self.job_id)
+                    )
+                    conn.commit()
+                    conn.close()
+
+                    print(f"[Callbacks] Updated DB with MLflow IDs")
+                    print(f"  Job ID: {self.job_id}")
+                    print(f"  Experiment ID: {self.mlflow_experiment_id}")
+                    print(f"  Run ID: {self.mlflow_run_id}")
+            except Exception as e:
+                print(f"[Callbacks WARNING] Failed to update DB with MLflow IDs: {e}")
 
     def on_epoch_begin(self, epoch: int):
         """
