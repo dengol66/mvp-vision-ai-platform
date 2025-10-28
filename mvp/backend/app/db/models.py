@@ -121,7 +121,8 @@ class TrainingJob(Base):
     experiment_name = Column(String(200), nullable=True)
     tags = Column(JSON, nullable=True)
     notes = Column(Text, nullable=True)
-    mlflow_run_id = Column(String(100), nullable=True)
+    mlflow_experiment_id = Column(String(100), nullable=True)  # MLflow experiment ID
+    mlflow_run_id = Column(String(100), nullable=True)  # MLflow run ID for this training
 
     framework = Column(String(50), nullable=False, default="timm")
     model_name = Column(String(100), nullable=False)
@@ -135,12 +136,19 @@ class TrainingJob(Base):
     batch_size = Column(Integer, nullable=False)
     learning_rate = Column(Float, nullable=False)
 
+    # Advanced configuration (JSON field for optimizer, scheduler, augmentation, etc.)
+    advanced_config = Column(JSON, nullable=True)
+
     status = Column(String(20), nullable=False, default="pending")
     error_message = Column(Text, nullable=True)
     process_id = Column(Integer, nullable=True)
 
     final_accuracy = Column(Float, nullable=True)
     best_checkpoint_path = Column(String(500), nullable=True)
+
+    # Primary metric configuration
+    primary_metric = Column(String(100), nullable=True, default="loss")  # Metric name to optimize (e.g., 'accuracy', 'mAP50', 'f1_score')
+    primary_metric_mode = Column(String(10), nullable=True, default="min")  # 'min' or 'max'
 
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
@@ -169,6 +177,7 @@ class TrainingMetric(Base):
     learning_rate = Column(Float, nullable=True)
 
     extra_metrics = Column(JSON, nullable=True)
+    checkpoint_path = Column(String(500), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

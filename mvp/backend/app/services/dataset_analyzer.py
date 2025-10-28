@@ -153,7 +153,8 @@ class DatasetAnalyzer:
         labels_dir = path / "labels"
 
         if images_dir.exists() and labels_dir.exists():
-            has_txt_labels = any(labels_dir.glob("*.txt"))
+            # Check for .txt files recursively (supports labels/train/*.txt structure)
+            has_txt_labels = any(labels_dir.rglob("*.txt"))
             return has_txt_labels
         return False
 
@@ -355,8 +356,22 @@ class DatasetAnalyzer:
         else:
             warnings.append("No images/ directory found")
 
+        # If no class names from data.yaml, try to infer from label files
         if not class_names:
-            warnings.append("Could not determine class names - check data.yaml format")
+            warnings.append("No data.yaml found - inferring class info from label files")
+            class_ids = self._extract_class_ids_from_labels(path)
+
+            if class_ids:
+                num_classes = len(class_ids)
+                # Create generic class names: class_0, class_1, etc.
+                class_names = [f"class_{i}" for i in sorted(class_ids)]
+                warnings.append(
+                    f"Inferred {num_classes} classes from labels. "
+                    "Class names are generic (class_0, class_1, ...). "
+                    "Add data.yaml with 'names' field for actual class names."
+                )
+            else:
+                warnings.append("Could not determine class names - no data.yaml and no label files found")
 
         return {
             "format": "yolo",  # lowercase for consistency
@@ -368,6 +383,43 @@ class DatasetAnalyzer:
             "image_counts": image_counts,
             "warnings": warnings,
         }
+
+    def _extract_class_ids_from_labels(self, path: Path) -> set:
+        """
+        Extract unique class IDs from YOLO label files.
+
+        Args:
+            path: Dataset root path
+
+        Returns:
+            Set of unique class IDs found in label files
+        """
+        class_ids = set()
+        labels_dir = path / "labels"
+
+        if not labels_dir.exists():
+            return class_ids
+
+        # Find all .txt label files recursively
+        label_files = list(labels_dir.rglob("*.txt"))
+
+        # Limit to first 100 files for performance
+        for label_file in label_files[:100]:
+            try:
+                with open(label_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            # YOLO format: class_id x_center y_center width height
+                            parts = line.split()
+                            if parts:
+                                class_id = int(parts[0])
+                                class_ids.add(class_id)
+            except (ValueError, IOError) as e:
+                logger.debug(f"Error reading label file {label_file}: {e}")
+                continue
+
+        return class_ids
 
     def _analyze_unlabeled(self, path: Path) -> Dict:
         """Analyze unlabeled image directory."""

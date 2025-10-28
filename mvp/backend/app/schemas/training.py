@@ -3,6 +3,14 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Optional
+from .configs import (
+    OptimizerConfig,
+    SchedulerConfig,
+    AugmentationConfig,
+    PreprocessConfig,
+    ValidationConfig,
+    TrainingConfigAdvanced,
+)
 
 
 class TrainingConfig(BaseModel):
@@ -15,9 +23,26 @@ class TrainingConfig(BaseModel):
     dataset_path: str = Field(..., description="Path to dataset")
     dataset_format: str = Field("imagefolder", description="Dataset format (imagefolder, coco, yolo, etc.)")
 
+    # Basic training parameters (backward compatible)
     epochs: int = Field(50, ge=1, le=1000, description="Number of epochs")
     batch_size: int = Field(32, ge=1, le=512, description="Batch size")
     learning_rate: float = Field(0.001, gt=0, lt=1, description="Learning rate")
+
+    # Advanced configurations (optional)
+    advanced_config: Optional[TrainingConfigAdvanced] = Field(
+        None,
+        description="Advanced training configuration (optimizer, scheduler, augmentation, etc.)"
+    )
+
+    # Primary metric configuration
+    primary_metric: Optional[str] = Field(
+        None,
+        description="Primary metric to optimize (e.g., 'accuracy', 'mAP50', 'f1_score'). If None, uses framework default."
+    )
+    primary_metric_mode: Optional[str] = Field(
+        "max",
+        description="Optimization mode: 'max' to maximize metric, 'min' to minimize"
+    )
 
     class Config:
         protected_namespaces = ()  # Allow model_name field
@@ -56,9 +81,13 @@ class TrainingJobResponse(BaseModel):
     dataset_format: str
     output_dir: str
 
+    # Basic training parameters
     epochs: int
     batch_size: int
     learning_rate: float
+
+    # Advanced configurations (optional)
+    advanced_config: Optional[TrainingConfigAdvanced] = None
 
     status: str
     error_message: Optional[str] = None
@@ -66,6 +95,10 @@ class TrainingJobResponse(BaseModel):
 
     final_accuracy: Optional[float] = None
     best_checkpoint_path: Optional[str] = None
+
+    # Primary metric configuration
+    primary_metric: Optional[str] = None
+    primary_metric_mode: Optional[str] = None
 
     created_at: datetime
     started_at: Optional[datetime] = None
@@ -87,6 +120,7 @@ class TrainingMetricResponse(BaseModel):
     accuracy: Optional[float] = None
     learning_rate: Optional[float] = None
     extra_metrics: Optional[dict] = None
+    checkpoint_path: Optional[str] = None
     created_at: datetime
 
     class Config:

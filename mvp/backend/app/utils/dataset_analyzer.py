@@ -106,7 +106,7 @@ class DatasetAnalyzer:
     def _is_yolo(self) -> bool:
         """
         Check if dataset follows YOLO structure.
-        Structure: images/*.jpg + labels/*.txt
+        Structure: images/*.jpg + labels/*.txt (supports subdirectories like train/val)
         """
         try:
             images_dir = self.path / 'images'
@@ -115,9 +115,9 @@ class DatasetAnalyzer:
             if not (images_dir.exists() and labels_dir.exists()):
                 return False
 
-            # Check for matching image and label files
+            # Check for matching image and label files (recursive to support train/val structure)
             images = self._find_images(images_dir)
-            labels = list(labels_dir.glob('*.txt'))
+            labels = list(labels_dir.rglob('*.txt'))  # Changed to rglob for recursive search
 
             if len(images) == 0 or len(labels) == 0:
                 return False
@@ -316,7 +316,7 @@ class DatasetAnalyzer:
             labels_dir = self.path / 'labels'
 
             images = self._find_images(images_dir)
-            labels = list(labels_dir.glob('*.txt'))
+            labels = list(labels_dir.rglob('*.txt'))  # Changed to rglob for recursive search
 
             # Parse class IDs from labels
             class_ids = set()
@@ -330,6 +330,11 @@ class DatasetAnalyzer:
                 except:
                     continue
 
+            # Check for train/val splits in images and labels directories
+            has_train_split = (images_dir / 'train').exists() or (labels_dir / 'train').exists()
+            has_val_split = (images_dir / 'val').exists() or (labels_dir / 'val').exists()
+            has_test_split = (images_dir / 'test').exists() or (labels_dir / 'test').exists()
+
             total_size_bytes = sum(img.stat().st_size for img in images[:100] if img.exists())
             total_size_mb = total_size_bytes / (1024 * 1024)
 
@@ -338,9 +343,9 @@ class DatasetAnalyzer:
                     'num_classes': len(class_ids),
                     'class_names': [f"class_{i}" for i in sorted(class_ids)],
                     'num_samples': len(images),
-                    'has_train_split': (self.path / 'train').exists(),
-                    'has_val_split': (self.path / 'val').exists(),
-                    'has_test_split': (self.path / 'test').exists()
+                    'has_train_split': has_train_split,
+                    'has_val_split': has_val_split,
+                    'has_test_split': has_test_split
                 },
                 'statistics': {
                     'total_size_mb': round(total_size_mb, 2),
