@@ -245,6 +245,15 @@ async def get_validation_images(
         }
         images_data.append(validation_schemas.ValidationImageResultResponse(**img_dict))
 
+    # Get class names from validation result
+    class_names = None
+    if validation_result.class_names:
+        if isinstance(validation_result.class_names, str):
+            import json
+            class_names = json.loads(validation_result.class_names)
+        elif isinstance(validation_result.class_names, list):
+            class_names = validation_result.class_names
+
     return validation_schemas.ValidationImageResultListResponse(
         validation_result_id=validation_result.id,
         job_id=job_id,
@@ -252,6 +261,7 @@ async def get_validation_images(
         total_count=total_count,
         correct_count=correct_count,
         incorrect_count=incorrect_count,
+        class_names=class_names,
         images=images_data
     )
 

@@ -176,6 +176,7 @@ class ValidationImageResultListResponse(BaseModel):
     total_count: int
     correct_count: int
     incorrect_count: int
+    class_names: Optional[List[str]] = None
     images: List[ValidationImageResultResponse]
 
 

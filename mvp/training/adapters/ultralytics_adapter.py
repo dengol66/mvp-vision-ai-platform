@@ -3,6 +3,7 @@
 import os
 import sys
 import yaml
+from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
@@ -931,6 +932,8 @@ class UltralyticsAdapter(TrainingAdapter):
                                     if hasattr(box_metrics, 'nt_per_class') and box_metrics.nt_per_class is not None:
                                         import numpy as np
                                         nt_per_class = box_metrics.nt_per_class
+                                        print(f"[YOLO Callback DEBUG] nt_per_class type: {type(nt_per_class)}, value: {nt_per_class}")
+                                        sys.stdout.flush()
                                         if isinstance(nt_per_class, np.ndarray) and len(nt_per_class) > 0:
                                             for i, count in enumerate(nt_per_class):
                                                 if count > 0:
@@ -938,32 +941,62 @@ class UltralyticsAdapter(TrainingAdapter):
                                         elif isinstance(nt_per_class, dict):
                                             per_class_count = {int(k): int(v) for k, v in nt_per_class.items()}
 
-                                    # 2. If still empty, try confusion matrix (row sums = ground truth counts)
+                                    # 2. Try stats from validator
+                                    if not per_class_count and hasattr(validator, 'stats') and validator.stats is not None:
+                                        try:
+                                            import numpy as np
+                                            stats = validator.stats
+                                            print(f"[YOLO Callback DEBUG] validator.stats available, len: {len(stats) if hasattr(stats, '__len__') else 'N/A'}")
+                                            sys.stdout.flush()
+                                            # stats is usually a list of arrays, each containing detection info per image
+                                            # We need to count how many ground truth objects per class
+                                            if isinstance(stats, list) and len(stats) > 0:
+                                                class_gt_counts = {}
+                                                for stat in stats:
+                                                    if isinstance(stat, tuple) and len(stat) > 1:
+                                                        # stat typically contains (tp, conf, pred_cls, target_cls)
+                                                        target_cls = stat[3] if len(stat) > 3 else stat[-1]
+                                                        if isinstance(target_cls, np.ndarray):
+                                                            for cls_id in target_cls:
+                                                                cls_id = int(cls_id)
+                                                                class_gt_counts[cls_id] = class_gt_counts.get(cls_id, 0) + 1
+                                                per_class_count = class_gt_counts
+                                                print(f"[YOLO Callback] Extracted counts from validator.stats: {per_class_count}")
+                                                sys.stdout.flush()
+                                        except Exception as e:
+                                            print(f"[YOLO Callback] Failed to extract from stats: {e}")
+                                            import traceback
+                                            traceback.print_exc()
+                                            sys.stdout.flush()
+
+                                    # 3. Try confusion matrix (row sums = ground truth counts)
                                     if not per_class_count and hasattr(validator, 'confusion_matrix') and validator.confusion_matrix is not None:
                                         try:
                                             import numpy as np
                                             cm = validator.confusion_matrix
+                                            print(f"[YOLO Callback DEBUG] confusion_matrix available: {hasattr(cm, 'matrix')}")
+                                            sys.stdout.flush()
                                             if hasattr(cm, 'matrix') and cm.matrix is not None:
                                                 matrix = cm.matrix
+                                                print(f"[YOLO Callback DEBUG] matrix shape: {matrix.shape}")
+                                                sys.stdout.flush()
                                                 if isinstance(matrix, np.ndarray) and matrix.shape[0] > 0:
                                                     # Sum each row to get ground truth count per class
-                                                    # Exclude background class if present (last row/col)
-                                                    for i in range(min(matrix.shape[0], len(class_names) if class_names else matrix.shape[0])):
-                                                        row_sum = int(matrix[i, :].sum())
+                                                    # Row i = ground truth class i
+                                                    for i in range(min(matrix.shape[0] - 1, len(class_names) if class_names else matrix.shape[0])):
+                                                        # Exclude last column if it's background
+                                                        row_sum = int(matrix[i, :-1].sum()) if matrix.shape[1] > len(class_names) else int(matrix[i, :].sum())
                                                         if row_sum > 0:
                                                             per_class_count[i] = row_sum
-                                                    print(f"[YOLO Callback] Extracted counts from confusion matrix")
+                                                    print(f"[YOLO Callback] Extracted counts from confusion matrix: {per_class_count}")
                                                     sys.stdout.flush()
                                         except Exception as e:
                                             print(f"[YOLO Callback] Failed to extract from confusion matrix: {e}")
+                                            import traceback
+                                            traceback.print_exc()
                                             sys.stdout.flush()
 
-                                    # 3. If still empty, try stats
-                                    if not per_class_count and hasattr(val_metrics, 'box') and hasattr(val_metrics.box, 'all_ap'):
-                                        # Some YOLO versions store it differently
-                                        pass
-
-                                    print(f"[YOLO Callback] Per-class counts: {per_class_count}")
+                                    print(f"[YOLO Callback] Final per-class counts: {per_class_count}")
                                     sys.stdout.flush()
 
                                     # Build per-class metrics dict
@@ -1030,14 +1063,24 @@ class UltralyticsAdapter(TrainingAdapter):
                         sys.stdout.flush()
 
                         # Save per-image detection results with bbox info
+                        print(f"[YOLO Callback] Checking image results save: validation_result_id={validation_result_id}, has_validator={hasattr(trainer, 'validator')}, validator_not_none={trainer.validator is not None if hasattr(trainer, 'validator') else False}")
+                        sys.stdout.flush()
+
                         if validation_result_id and hasattr(trainer, 'validator') and trainer.validator is not None:
                             try:
+                                print(f"[YOLO Callback] Attempting to save image results...")
+                                sys.stdout.flush()
                                 self._save_yolo_image_results(validation_result_id, epoch_num, trainer.validator, class_names)
+                                print(f"[YOLO Callback] Successfully saved image results")
+                                sys.stdout.flush()
                             except Exception as e:
                                 print(f"[YOLO Callback WARNING] Failed to save image results: {e}")
                                 import traceback
                                 traceback.print_exc()
                                 sys.stdout.flush()
+                        else:
+                            print(f"[YOLO Callback] Skipping image results save (validation_result_id: {validation_result_id}, validator: {trainer.validator is not None if hasattr(trainer, 'validator') else 'no attr'})")
+                            sys.stdout.flush()
                     except Exception as e:
                         print(f"[YOLO Callback WARNING] Failed to save validation result: {e}")
                         import traceback

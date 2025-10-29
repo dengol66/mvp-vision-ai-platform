@@ -276,7 +276,7 @@ export const DetectionMetricsView: React.FC<DetectionMetricsViewProps> = ({
           isOpen={isPanelOpen}
           onClose={() => setIsPanelOpen(false)}
           title={`클래스: ${selectedClass.name}`}
-          width="xl"
+          width="lg"
         >
           {/* Bbox Toggle Controls */}
           <div className="border-b border-gray-200 bg-gray-50 px-6 py-3">
