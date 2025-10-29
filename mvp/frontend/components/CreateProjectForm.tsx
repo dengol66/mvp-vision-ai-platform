@@ -15,17 +15,8 @@ export default function CreateProjectForm({
 }: CreateProjectFormProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [taskType, setTaskType] = useState<string>('image_classification')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const taskTypes = [
-    { value: 'image_classification', label: '이미지 분류 (Image Classification)' },
-    { value: 'object_detection', label: '객체 탐지 (Object Detection)' },
-    { value: 'semantic_segmentation', label: '의미론적 분할 (Semantic Segmentation)' },
-    { value: 'instance_segmentation', label: '인스턴스 분할 (Instance Segmentation)' },
-    { value: 'pose_estimation', label: '포즈 추정 (Pose Estimation)' },
-  ]
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -53,7 +44,7 @@ export default function CreateProjectForm({
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || null,
-          task_type: taskType,
+          task_type: null,
         }),
       })
 
@@ -161,33 +152,6 @@ export default function CreateProjectForm({
             />
             <p className="text-xs text-gray-500 mt-1">
               {description.length}/500 자
-            </p>
-          </div>
-
-          {/* Task Type */}
-          <div>
-            <label htmlFor="taskType" className="block text-sm font-medium text-gray-700 mb-2">
-              주요 작업 유형 (선택)
-            </label>
-            <select
-              id="taskType"
-              value={taskType}
-              onChange={(e) => setTaskType(e.target.value)}
-              className={cn(
-                'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
-                'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                'text-sm bg-white'
-              )}
-              disabled={isSubmitting}
-            >
-              {taskTypes.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">
-              프로젝트의 주요 작업 유형입니다. 다른 유형의 실험도 추가할 수 있습니다.
             </p>
           </div>
 
