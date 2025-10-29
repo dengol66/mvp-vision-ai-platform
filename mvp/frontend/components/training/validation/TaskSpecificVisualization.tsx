@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { ClassificationMetricsView } from './ClassificationMetricsView';
+import { DetectionMetricsView } from './DetectionMetricsView';
 
 interface ValidationResult {
   id: number;
@@ -51,33 +52,10 @@ export const TaskSpecificVisualization: React.FC<TaskSpecificVisualizationProps>
 
     case 'object_detection':
       return (
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">
-            Object Detection Metrics
-          </h3>
-          <div className="text-gray-400">
-            Detection metrics visualization coming soon.
-          </div>
-          {/* TODO: Implement DetectionMetricsView */}
-          <div className="mt-4 space-y-2">
-            <div className="text-sm">
-              <span className="text-gray-400">mAP@0.5:</span>{' '}
-              <span className="text-white">{validationResult.metrics?.['mAP@0.5'] || 'N/A'}</span>
-            </div>
-            <div className="text-sm">
-              <span className="text-gray-400">mAP@0.5:0.95:</span>{' '}
-              <span className="text-white">{validationResult.metrics?.['mAP@0.5:0.95'] || 'N/A'}</span>
-            </div>
-            <div className="text-sm">
-              <span className="text-gray-400">Precision:</span>{' '}
-              <span className="text-white">{validationResult.metrics?.precision || 'N/A'}</span>
-            </div>
-            <div className="text-sm">
-              <span className="text-gray-400">Recall:</span>{' '}
-              <span className="text-white">{validationResult.metrics?.recall || 'N/A'}</span>
-            </div>
-          </div>
-        </div>
+        <DetectionMetricsView
+          validationResult={validationResult}
+          jobId={jobId}
+        />
       );
 
     case 'instance_segmentation':

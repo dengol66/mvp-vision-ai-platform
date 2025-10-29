@@ -350,29 +350,33 @@ class ValidationMetricsCalculator:
         """
         Compute object detection metrics.
 
-        TODO: Implement full detection metrics calculation.
-        For now, returns stub metrics.
+        For YOLO models, metrics are pre-computed by the framework.
+        Pass them via kwargs: map_50, map_50_95, precision, recall
 
         Args:
-            predictions: Predicted bounding boxes
-            labels: Ground truth bounding boxes
+            predictions: Predicted bounding boxes (not used if metrics provided)
+            labels: Ground truth bounding boxes (not used if metrics provided)
             class_names: List of class names
             loss: Validation loss
+            **kwargs: Pre-computed metrics from YOLO (map_50, map_50_95, precision, recall)
         """
-        # Stub implementation for Week 1
-        # Full implementation will be added when YOLO validation is integrated
+        # Extract pre-computed metrics from kwargs
+        map_50 = kwargs.get('map_50', 0.0)
+        map_50_95 = kwargs.get('map_50_95', 0.0)
+        precision = kwargs.get('precision', 0.0)
+        recall = kwargs.get('recall', 0.0)
 
         detection_metrics = DetectionMetrics(
-            map_50=0.0,
-            map_50_95=0.0,
-            precision=0.0,
-            recall=0.0,
+            map_50=map_50,
+            map_50_95=map_50_95,
+            precision=precision,
+            recall=recall,
         )
 
         return ValidationMetrics(
             task_type=TaskType.DETECTION,
             primary_metric_name="mAP@0.5",
-            primary_metric_value=0.0,
+            primary_metric_value=map_50,
             overall_loss=loss,
             detection=detection_metrics,
         )

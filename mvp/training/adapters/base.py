@@ -462,6 +462,9 @@ class TrainingAdapter(ABC):
                     per_class_metrics_json = json.dumps(det.per_class_ap)
                 if det.pr_curves:
                     pr_curves_json = json.dumps(det.pr_curves)
+                # Store class_names from validation_metrics (set by adapter)
+                if hasattr(validation_metrics, '_class_names') and validation_metrics._class_names:
+                    class_names_json = json.dumps(validation_metrics._class_names)
 
             elif validation_metrics.segmentation:
                 seg = validation_metrics.segmentation

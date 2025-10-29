@@ -67,13 +67,6 @@ export default function Sidebar({
   useEffect(() => {
     if (isAuthenticated) {
       fetchRecentProjects()
-
-      // Poll every 30 seconds to update experiment counts
-      const interval = setInterval(() => {
-        fetchRecentProjects()
-      }, 30000)
-
-      return () => clearInterval(interval)
     } else {
       setProjects([])
     }
