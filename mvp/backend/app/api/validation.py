@@ -5,9 +5,11 @@ Provides access to validation results, metrics, and image-level results.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
+from pathlib import Path
 
 from app.db.database import get_db
 from app.db import models
@@ -141,6 +143,8 @@ async def get_validation_images(
     job_id: int,
     epoch: int,
     correct_only: Optional[bool] = Query(None, description="Filter by correctness: true=correct, false=incorrect, null=all"),
+    true_label_id: Optional[int] = Query(None, description="Filter by true label ID"),
+    predicted_label_id: Optional[int] = Query(None, description="Filter by predicted label ID"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
@@ -155,6 +159,8 @@ async def get_validation_images(
         job_id: Training job ID
         epoch: Epoch number
         correct_only: Filter by correctness (true/false/null for all)
+        true_label_id: Filter by true label ID (null for all)
+        predicted_label_id: Filter by predicted label ID (null for all)
         skip: Number of results to skip (pagination)
         limit: Maximum number of results to return
         db: Database session
@@ -183,6 +189,13 @@ async def get_validation_images(
     if correct_only is not None:
         query = query.filter(models.ValidationImageResult.is_correct == correct_only)
 
+    # Apply label filters if specified
+    if true_label_id is not None:
+        query = query.filter(models.ValidationImageResult.true_label_id == true_label_id)
+
+    if predicted_label_id is not None:
+        query = query.filter(models.ValidationImageResult.predicted_label_id == predicted_label_id)
+
     # Count results
     total_count = query.count()
     correct_count = db.query(models.ValidationImageResult).filter(
@@ -197,6 +210,13 @@ async def get_validation_images(
     # SQLAlchemy JSON type already deserializes, no need for json.loads()
     images_data = []
     for img_result in image_results:
+        # Handle legacy top5_predictions format (list of ints -> list of dicts)
+        top5_predictions = img_result.top5_predictions
+        if top5_predictions and len(top5_predictions) > 0:
+            if isinstance(top5_predictions[0], int):
+                # Legacy format: [0, 4, 3, 9, 1] -> convert to new format
+                top5_predictions = [{"label_id": idx, "confidence": None} for idx in top5_predictions]
+
         img_dict = {
             "id": img_result.id,
             "validation_result_id": img_result.validation_result_id,
@@ -210,7 +230,7 @@ async def get_validation_images(
             "predicted_label": img_result.predicted_label,
             "predicted_label_id": img_result.predicted_label_id,
             "confidence": img_result.confidence,
-            "top5_predictions": img_result.top5_predictions,
+            "top5_predictions": top5_predictions,
             "true_boxes": img_result.true_boxes,
             "predicted_boxes": img_result.predicted_boxes,
             "true_mask_path": img_result.true_mask_path,
@@ -297,4 +317,59 @@ async def get_validation_summary(
         best_metric_value=best_result.primary_metric_value,
         best_metric_name=best_result.primary_metric_name,
         epoch_metrics=epoch_metrics
+    )
+
+
+@router.get("/images/{image_result_id}")
+async def get_validation_image(
+    image_result_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Serve validation image file.
+
+    Returns the actual image file for a validation result.
+
+    Args:
+        image_result_id: ValidationImageResult ID
+        db: Database session
+
+    Returns:
+        FileResponse with the image file
+    """
+    # Get image result
+    image_result = db.query(models.ValidationImageResult).filter(
+        models.ValidationImageResult.id == image_result_id
+    ).first()
+
+    if not image_result:
+        raise HTTPException(status_code=404, detail=f"Image result {image_result_id} not found")
+
+    if not image_result.image_path:
+        raise HTTPException(status_code=404, detail=f"Image path not available for result {image_result_id}")
+
+    # Check if file exists
+    image_path = Path(image_result.image_path)
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Image file not found: {image_result.image_path}"
+        )
+
+    # Determine media type based on extension
+    extension = image_path.suffix.lower()
+    media_type_map = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.bmp': 'image/bmp',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp'
+    }
+    media_type = media_type_map.get(extension, 'application/octet-stream')
+
+    return FileResponse(
+        path=str(image_path),
+        media_type=media_type,
+        filename=image_result.image_name
     )

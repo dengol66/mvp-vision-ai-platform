@@ -29,12 +29,14 @@ interface TaskSpecificVisualizationProps {
   taskType: string;
   validationResult: ValidationResult;
   jobId: number;
+  onConfusionMatrixCellClick?: (trueLabelId: number, predictedLabelId: number, trueLabel: string, predictedLabel: string) => void;
 }
 
 export const TaskSpecificVisualization: React.FC<TaskSpecificVisualizationProps> = ({
   taskType,
   validationResult,
-  jobId
+  jobId,
+  onConfusionMatrixCellClick
 }) => {
   // Route to appropriate visualization based on task type
   switch (taskType) {
@@ -43,6 +45,7 @@ export const TaskSpecificVisualization: React.FC<TaskSpecificVisualizationProps>
         <ClassificationMetricsView
           validationResult={validationResult}
           jobId={jobId}
+          onConfusionMatrixCellClick={onConfusionMatrixCellClick}
         />
       );
 

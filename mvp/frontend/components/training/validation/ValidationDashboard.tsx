@@ -7,6 +7,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { TaskSpecificVisualization } from './TaskSpecificVisualization';
+import { SlidePanel } from '../../SlidePanel';
+import { ImageViewer } from './ImageViewer';
 
 interface ValidationResult {
   id: number;
@@ -49,6 +51,15 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Slide panel state for image viewer
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<{
+    trueLabelId: number;
+    predictedLabelId: number;
+    trueLabel: string;
+    predictedLabel: string;
+  } | null>(null);
 
   // Fetch validation summary on mount
   useEffect(() => {
@@ -150,59 +161,67 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
     );
   }
 
+  const formatMetricName = (name: string) => {
+    return name.replace('_', ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+
+  // Handle confusion matrix cell click
+  const handleCellClick = (trueLabelId: number, predictedLabelId: number, trueLabel: string, predictedLabel: string) => {
+    setSelectedCell({ trueLabelId, predictedLabelId, trueLabel, predictedLabel });
+    setIsPanelOpen(true);
+  };
+
+  // Handle panel close
+  const handlePanelClose = () => {
+    setIsPanelOpen(false);
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Summary Header */}
-      <div className="bg-gray-800 rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">Validation Results</h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-sm text-gray-400">Task Type</div>
-            <div className="text-lg font-medium text-white mt-1">
-              {summary.task_type.replace('_', ' ').toUpperCase()}
-            </div>
-          </div>
-
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-sm text-gray-400">Total Epochs</div>
-            <div className="text-lg font-medium text-white mt-1">
-              {summary.total_epochs}
-            </div>
-          </div>
-
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-sm text-gray-400">Best Epoch</div>
-            <div className="text-lg font-medium text-white mt-1">
-              {summary.best_epoch || 'N/A'}
-            </div>
-          </div>
-
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-sm text-gray-400">
-              Best {summary.best_metric_name}
-            </div>
-            <div className="text-lg font-medium text-white mt-1">
-              {summary.best_metric_value?.toFixed(4) || 'N/A'}
-            </div>
+    <div className="space-y-4">
+      {/* Header with Epoch Selector - Compact */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">검증 결과</h3>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-600">Epoch:</span>
+            <select
+              value={selectedEpoch || ''}
+              onChange={(e) => setSelectedEpoch(Number(e.target.value))}
+              className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500"
+            >
+              {summary.epoch_metrics.map((epochData) => (
+                <option key={epochData.epoch} value={epochData.epoch}>
+                  Epoch {epochData.epoch} - {summary.best_metric_name}: {epochData.primary_metric?.toFixed(4)}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
-      </div>
 
-      {/* Epoch Selector */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <label className="text-sm text-gray-400 mb-2 block">Select Epoch</label>
-        <select
-          value={selectedEpoch || ''}
-          onChange={(e) => setSelectedEpoch(Number(e.target.value))}
-          className="w-full bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {summary.epoch_metrics.map((epochData) => (
-            <option key={epochData.epoch} value={epochData.epoch}>
-              Epoch {epochData.epoch} - {summary.best_metric_name}: {epochData.primary_metric?.toFixed(4)}
-            </option>
-          ))}
-        </select>
+        {/* Summary Metrics - Inline Bar */}
+        <div className="px-4 py-2 bg-gray-50 flex items-center gap-6 text-xs overflow-x-auto">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-600">Task:</span>
+            <span className="font-medium text-gray-900">{formatMetricName(summary.task_type)}</span>
+          </div>
+          <div className="w-px h-4 bg-gray-300" />
+          <div className="flex items-center gap-2">
+            <span className="text-gray-600">Total Epochs:</span>
+            <span className="font-medium text-gray-900">{summary.total_epochs}</span>
+          </div>
+          <div className="w-px h-4 bg-gray-300" />
+          <div className="flex items-center gap-2">
+            <span className="text-gray-600">Best Epoch:</span>
+            <span className="font-medium text-violet-600">{summary.best_epoch ?? 'N/A'}</span>
+          </div>
+          <div className="w-px h-4 bg-gray-300" />
+          <div className="flex items-center gap-2">
+            <span className="text-gray-600">Best {formatMetricName(summary.best_metric_name || '')}:</span>
+            <span className="font-semibold text-violet-600">
+              {summary.best_metric_value ? `${(summary.best_metric_value * 100).toFixed(2)}%` : 'N/A'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Task-Specific Visualization */}
@@ -210,7 +229,27 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
         taskType={validationResult.task_type}
         validationResult={validationResult}
         jobId={jobId}
+        onConfusionMatrixCellClick={handleCellClick}
       />
+
+      {/* Slide Panel for Image Viewer */}
+      {selectedCell && selectedEpoch !== null && (
+        <SlidePanel
+          isOpen={isPanelOpen}
+          onClose={handlePanelClose}
+          title="Validation Images"
+          width="md"
+        >
+          <ImageViewer
+            jobId={jobId}
+            epoch={selectedEpoch}
+            trueLabelId={selectedCell.trueLabelId}
+            predictedLabelId={selectedCell.predictedLabelId}
+            trueLabel={selectedCell.trueLabel}
+            predictedLabel={selectedCell.predictedLabel}
+          />
+        </SlidePanel>
+      )}
     </div>
   );
 };

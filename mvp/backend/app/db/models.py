@@ -257,7 +257,7 @@ class ValidationImageResult(Base):
     epoch = Column(Integer, nullable=False, index=True)
 
     # Image information
-    image_path = Column(String(500), nullable=False)
+    image_path = Column(String(500), nullable=True)  # Made nullable - path may not be available during training
     image_name = Column(String(200), nullable=False, index=True)
     image_index = Column(Integer, nullable=True)
 

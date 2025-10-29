@@ -391,7 +391,7 @@ class TrainingAdapter(ABC):
         """
         pass
 
-    def _save_validation_result(self, epoch: int, validation_metrics: 'ValidationMetrics') -> None:
+    def _save_validation_result(self, epoch: int, validation_metrics: 'ValidationMetrics') -> Optional[int]:
         """
         Save validation result to database.
 
@@ -403,6 +403,9 @@ class TrainingAdapter(ABC):
             epoch: Current epoch number (1-indexed)
             validation_metrics: ValidationMetrics object from ValidationMetricsCalculator
 
+        Returns:
+            Optional[int]: Validation result ID if saved successfully, None otherwise
+
         Example:
             # In adapter's validate() method:
             val_metrics = ValidationMetricsCalculator.compute_metrics(
@@ -411,7 +414,7 @@ class TrainingAdapter(ABC):
                 labels=all_labels,
                 class_names=self.class_names
             )
-            self._save_validation_result(epoch, val_metrics)
+            val_result_id = self._save_validation_result(epoch, val_metrics)
         """
         try:
             import sqlite3
@@ -506,8 +509,158 @@ class TrainingAdapter(ABC):
             print(f"  Task: {task_type}")
             print(f"  Primary metric: {primary_metric_name}={primary_metric_value:.4f}")
 
+            return validation_result_id
+
         except Exception as e:
             print(f"[WARNING] Failed to save validation result to database: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _save_validation_image_results(
+        self,
+        validation_result_id: int,
+        epoch: int,
+        image_results: List[Dict],
+        class_names: Optional[List[str]] = None
+    ) -> None:
+        """
+        Save per-image validation results to database.
+
+        Args:
+            validation_result_id: ID of the validation result
+            epoch: Current epoch number
+            image_results: List of per-image result dictionaries
+            class_names: List of class names for label mapping
+        """
+        try:
+            import sqlite3
+            import json
+            from pathlib import Path
+            from datetime import datetime
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[WARNING] Database not found at {db_path}, skipping image results save")
+                return
+
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Prepare batch insert
+            records = []
+            for img_result in image_results:
+                true_label = class_names[img_result['true_label_id']] if class_names else str(img_result['true_label_id'])
+                predicted_label = class_names[img_result['predicted_label_id']] if class_names else str(img_result['predicted_label_id'])
+
+                # Use actual image_path if available, otherwise None (nullable)
+                image_path = img_result.get('image_path')
+                image_name = img_result.get('image_name', f"image_{img_result['image_index']}")
+
+                records.append((
+                    validation_result_id,
+                    self.job_id,
+                    epoch,
+                    image_path,
+                    image_name,
+                    img_result['image_index'],
+                    true_label,
+                    img_result['true_label_id'],
+                    predicted_label,
+                    img_result['predicted_label_id'],
+                    img_result['confidence'],
+                    json.dumps(img_result.get('top5_predictions')),
+                    None,  # true_boxes
+                    None,  # predicted_boxes
+                    None,  # true_mask_path
+                    None,  # predicted_mask_path
+                    None,  # true_keypoints
+                    None,  # predicted_keypoints
+                    img_result['is_correct'],
+                    None,  # iou
+                    None,  # oks
+                    None,  # extra_data
+                    datetime.utcnow().isoformat()
+                ))
+
+            # Batch insert
+            cursor.executemany(
+                """
+                INSERT INTO validation_image_results
+                (validation_result_id, job_id, epoch, image_path, image_name, image_index,
+                 true_label, true_label_id, predicted_label, predicted_label_id, confidence,
+                 top5_predictions, true_boxes, predicted_boxes, true_mask_path, predicted_mask_path,
+                 true_keypoints, predicted_keypoints, is_correct, iou, oks, extra_data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                records
+            )
+
+            conn.commit()
+            conn.close()
+
+            # Count how many have actual paths vs placeholders
+            with_paths = sum(1 for r in records if r[3] is not None)  # r[3] is image_path
+            print(f"[Validation] Saved {len(records)} image results to database (epoch {epoch})")
+            print(f"             - {with_paths} with actual image paths")
+            print(f"             - {len(records) - with_paths} with placeholder names only")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to save image results to database: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _clear_validation_results(self) -> None:
+        """
+        Clear all validation results for the current job_id.
+
+        This should be called when starting a new training (resume=False)
+        to remove old validation data from previous training runs.
+        """
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[WARNING] Database not found at {db_path}, skipping validation clear")
+                return
+
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Delete image results first (foreign key constraint)
+            cursor.execute(
+                "DELETE FROM validation_image_results WHERE job_id = ?",
+                (self.job_id,)
+            )
+            deleted_images = cursor.rowcount
+
+            # Delete validation results
+            cursor.execute(
+                "DELETE FROM validation_results WHERE job_id = ?",
+                (self.job_id,)
+            )
+            deleted_results = cursor.rowcount
+
+            conn.commit()
+            conn.close()
+
+            if deleted_results > 0 or deleted_images > 0:
+                print(f"[INFO] Cleared previous validation data for job {self.job_id}:")
+                print(f"       - {deleted_results} validation results")
+                print(f"       - {deleted_images} image results")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to clear validation results: {e}")
             import traceback
             traceback.print_exc()
 
@@ -855,6 +1008,13 @@ class TrainingAdapter(ABC):
         # 1. Setup
         self.prepare_model()
         self.prepare_dataset()
+
+        # 1.5. Clear previous validation data if not resuming
+        if not resume_training:
+            print("[INFO] Starting new training - clearing previous validation data")
+            self._clear_validation_results()
+        else:
+            print("[INFO] Resuming training - keeping previous validation data")
 
         # 2. Load checkpoint if provided
         if checkpoint_path:

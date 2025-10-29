@@ -10,52 +10,49 @@ import React from 'react';
 interface ConfusionMatrixViewProps {
   confusionMatrix: number[][];
   classNames: string[];
+  onCellClick?: (trueLabelId: number, predictedLabelId: number, trueLabel: string, predictedLabel: string) => void;
 }
 
 export const ConfusionMatrixView: React.FC<ConfusionMatrixViewProps> = ({
   confusionMatrix,
-  classNames
+  classNames,
+  onCellClick
 }) => {
-  // Find max value for normalization
-  const maxValue = Math.max(...confusionMatrix.flat());
+  // No color intensity needed - using fixed colors
 
-  // Get color intensity based on value (0-255)
-  const getColorIntensity = (value: number): string => {
-    const intensity = Math.floor((value / maxValue) * 255);
-    // Use blue color scale
-    return `rgb(${255 - intensity}, ${255 - intensity}, 255)`;
-  };
-
-  // Calculate cell size based on number of classes
+  // Calculate cell size based on number of classes - Compact
   const numClasses = classNames.length;
-  const cellSize = numClasses <= 5 ? 'w-20 h-20' : numClasses <= 10 ? 'w-16 h-16' : 'w-12 h-12';
-  const fontSize = numClasses <= 5 ? 'text-base' : numClasses <= 10 ? 'text-sm' : 'text-xs';
+  const cellSize = numClasses <= 5 ? 'w-10 h-10' : numClasses <= 10 ? 'w-8 h-8' : 'w-6 h-6';
+  const fontSize = numClasses <= 5 ? 'text-xs' : numClasses <= 10 ? 'text-[10px]' : 'text-[9px]';
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
-      <h3 className="text-lg font-semibold text-white mb-4">Confusion Matrix</h3>
+    <div className="bg-white rounded-lg border border-gray-200">
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+        <h4 className="text-xs font-semibold text-gray-900">Confusion Matrix</h4>
+      </div>
 
-      <div className="overflow-auto">
+      <div className="p-3 overflow-auto">
         <div className="inline-block min-w-full">
           {/* Matrix Table */}
           <table className="border-collapse">
             <thead>
               <tr>
-                <th className={`${cellSize} border border-gray-600`}></th>
+                <th className={`${cellSize} border border-gray-200`}></th>
+                <th className={`${cellSize} border border-gray-200`}></th>
                 <th
                   colSpan={numClasses}
-                  className="text-center text-sm text-gray-400 py-2 border border-gray-600"
+                  className="text-center text-[10px] text-gray-600 py-1 border border-gray-200"
                 >
                   Predicted
                 </th>
               </tr>
               <tr>
-                <th className={`${cellSize} border border-gray-600`}></th>
+                <th className={`${cellSize} border border-gray-200`}></th>
+                <th className={`${cellSize} border border-gray-200`}></th>
                 {classNames.map((className, idx) => (
                   <th
                     key={idx}
-                    className={`${cellSize} ${fontSize} text-gray-300 border border-gray-600 p-2`}
-                    title={className}
+                    className={`${cellSize} ${fontSize} text-gray-700 border border-gray-200 p-1 font-medium`}
                   >
                     <div className="truncate">{className}</div>
                   </th>
@@ -68,33 +65,42 @@ export const ConfusionMatrixView: React.FC<ConfusionMatrixViewProps> = ({
                   {rowIdx === 0 && (
                     <th
                       rowSpan={numClasses}
-                      className="text-center text-sm text-gray-400 px-2 border border-gray-600 align-middle"
+                      className="text-center text-[10px] text-gray-600 px-1 border border-gray-200 align-middle"
                       style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
                     >
                       Actual
                     </th>
                   )}
-                  {rowIdx > 0 && rowIdx === 0 && <th className={`${cellSize} border border-gray-600`}></th>}
                   <th
-                    className={`${cellSize} ${fontSize} text-gray-300 border border-gray-600 p-2`}
-                    title={classNames[rowIdx]}
+                    className={`${cellSize} ${fontSize} text-gray-700 border border-gray-200 p-1 font-medium`}
                   >
                     <div className="truncate">{classNames[rowIdx]}</div>
                   </th>
                   {row.map((value, colIdx) => {
                     const isCorrect = rowIdx === colIdx;
+                    const isZero = value === 0;
+
+                    // Determine text color
+                    let textColor = 'text-gray-900';
+                    if (isZero) {
+                      textColor = 'text-gray-300'; // Very light gray for zero values
+                    } else if (!isCorrect) {
+                      textColor = 'text-red-600'; // Red for incorrect predictions
+                    }
+
                     return (
                       <td
                         key={colIdx}
-                        className={`${cellSize} ${fontSize} border border-gray-600 text-center font-semibold relative`}
-                        style={{
-                          backgroundColor: isCorrect
-                            ? getColorIntensity(value)
-                            : `rgba(255, ${255 - (value / maxValue) * 200}, ${255 - (value / maxValue) * 200}, ${(value / maxValue) * 0.7})`
+                        className={`${cellSize} ${fontSize} border border-gray-200 text-center font-semibold relative ${
+                          isCorrect ? 'bg-green-100' : 'bg-white'
+                        } ${onCellClick ? 'cursor-pointer hover:ring-2 hover:ring-violet-400' : ''}`}
+                        onClick={() => {
+                          if (onCellClick && value > 0) {
+                            onCellClick(rowIdx, colIdx, classNames[rowIdx], classNames[colIdx]);
+                          }
                         }}
-                        title={`${classNames[rowIdx]} → ${classNames[colIdx]}: ${value}`}
                       >
-                        <div className="text-gray-900">{value}</div>
+                        <div className={textColor}>{value}</div>
                       </td>
                     );
                   })}
@@ -103,18 +109,17 @@ export const ConfusionMatrixView: React.FC<ConfusionMatrixViewProps> = ({
             </tbody>
           </table>
 
-          {/* Legend */}
-          <div className="mt-4 flex items-center justify-center space-x-6 text-sm text-gray-400">
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-blue-200 border border-gray-600"></div>
-              <span>Correct</span>
+          {/* Legend - Compact */}
+          <div className="mt-2 flex items-center justify-center gap-4 text-[10px] text-gray-600">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-green-100 border border-gray-300"></div>
+              <span>Correct predictions</span>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-red-200 border border-gray-600"></div>
-              <span>Incorrect</span>
-            </div>
-            <div className="text-xs">
-              (Color intensity = frequency)
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 border border-gray-300 flex items-center justify-center">
+                <span className="text-red-600 text-[8px] font-bold">0</span>
+              </div>
+              <span>Incorrect predictions</span>
             </div>
           </div>
         </div>

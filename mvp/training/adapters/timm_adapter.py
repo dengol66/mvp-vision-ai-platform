@@ -533,9 +533,37 @@ class TimmAdapter(TrainingAdapter):
         all_labels = []
         all_probabilities = []
 
+        # Collect per-image results for database storage
+        image_results = []
+        image_index = 0
+
+        # Get image paths if available from dataset
+        image_paths = None
+        dataset = self.val_loader.dataset
+        if hasattr(dataset, 'samples'):
+            # ImageFolder or similar - samples is list of (path, label)
+            image_paths = [path for path, _ in dataset.samples]
+            print(f"[Validation] Found {len(image_paths)} image paths from dataset.samples")
+        elif hasattr(dataset, 'imgs'):
+            # Some datasets use imgs instead of samples
+            image_paths = [path for path, _ in dataset.imgs]
+            print(f"[Validation] Found {len(image_paths)} image paths from dataset.imgs")
+        elif hasattr(dataset, 'dataset'):
+            # Subset wrapper - check underlying dataset
+            underlying = dataset.dataset
+            if hasattr(underlying, 'samples'):
+                image_paths = [underlying.samples[i][0] for i in dataset.indices]
+                print(f"[Validation] Found {len(image_paths)} image paths from Subset.dataset.samples")
+            elif hasattr(underlying, 'imgs'):
+                image_paths = [underlying.imgs[i][0] for i in dataset.indices]
+                print(f"[Validation] Found {len(image_paths)} image paths from Subset.dataset.imgs")
+
+        if not image_paths:
+            print(f"[Validation] WARNING: Could not extract image paths from dataset, will use placeholders")
+
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc=f"Epoch {epoch + 1} [Val]")
-            for inputs, targets in pbar:
+            for batch_idx, (inputs, targets) in enumerate(pbar):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 # Forward pass
@@ -551,6 +579,44 @@ class TimmAdapter(TrainingAdapter):
                 all_predictions.extend(predicted.cpu().numpy())
                 all_labels.extend(targets.cpu().numpy())
                 all_probabilities.append(probabilities.cpu().numpy())
+
+                # Collect per-image results
+                batch_probs = probabilities.cpu().numpy()
+                batch_preds = predicted.cpu().numpy()
+                batch_labels = targets.cpu().numpy()
+
+                for i in range(len(targets)):
+                    # Get actual image path and name if available
+                    image_path = None
+                    image_name = f'image_{image_index}'
+
+                    if image_paths and image_index < len(image_paths):
+                        from pathlib import Path
+                        full_path = image_paths[image_index]
+                        image_path = full_path
+                        image_name = Path(full_path).name
+
+                    # Get top-5 predictions with confidence scores
+                    top5_indices = batch_probs[i].argsort()[-5:][::-1]  # Top 5 class indices
+                    top5_predictions = [
+                        {
+                            'label_id': int(idx),
+                            'confidence': float(batch_probs[i][idx])
+                        }
+                        for idx in top5_indices
+                    ]
+
+                    image_results.append({
+                        'image_index': image_index,
+                        'image_name': image_name,
+                        'image_path': image_path,
+                        'true_label_id': int(batch_labels[i]),
+                        'predicted_label_id': int(batch_preds[i]),
+                        'confidence': float(batch_probs[i][batch_preds[i]]),
+                        'top5_predictions': top5_predictions,
+                        'is_correct': batch_preds[i] == batch_labels[i]
+                    })
+                    image_index += 1
 
         # Convert to numpy arrays
         all_predictions = np.array(all_predictions)
@@ -577,7 +643,11 @@ class TimmAdapter(TrainingAdapter):
         )
 
         # Save validation result to database
-        self._save_validation_result(epoch, validation_metrics)
+        validation_result_id = self._save_validation_result(epoch, validation_metrics)
+
+        # Save per-image results to database
+        if validation_result_id:
+            self._save_validation_image_results(validation_result_id, epoch, image_results, class_names)
 
         # Extract metrics for return
         clf_metrics = validation_metrics.classification

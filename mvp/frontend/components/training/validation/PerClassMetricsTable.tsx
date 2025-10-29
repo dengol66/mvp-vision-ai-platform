@@ -68,68 +68,70 @@ export const PerClassMetricsTable: React.FC<PerClassMetricsTableProps> = ({
   // Render sort icon
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) {
-      return <span className="text-gray-600 ml-1">⇅</span>;
+      return <span className="text-gray-400 ml-0.5 text-[9px]">⇅</span>;
     }
-    return <span className="ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
+    return <span className="ml-0.5 text-violet-600">{sortOrder === 'asc' ? '↑' : '↓'}</span>;
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
-      <h3 className="text-lg font-semibold text-white mb-4">Per-Class Metrics</h3>
+    <div className="bg-white rounded-lg border border-gray-200">
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+        <h4 className="text-xs font-semibold text-gray-900">Per-Class Metrics</h4>
+      </div>
 
-      <div className="overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-700 border-b border-gray-600">
+      <div className="overflow-auto max-h-[400px]">
+        <table className="w-full text-[10px]">
+          <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
             <tr>
               <th
-                className="text-left px-4 py-3 text-gray-300 font-medium cursor-pointer hover:bg-gray-600"
+                className="text-left px-2 py-1 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('class')}
               >
                 Class <SortIcon field="class" />
               </th>
               <th
-                className="text-right px-4 py-3 text-gray-300 font-medium cursor-pointer hover:bg-gray-600"
+                className="text-right px-2 py-1 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('precision')}
               >
-                Precision <SortIcon field="precision" />
+                Prec <SortIcon field="precision" />
               </th>
               <th
-                className="text-right px-4 py-3 text-gray-300 font-medium cursor-pointer hover:bg-gray-600"
+                className="text-right px-2 py-1 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('recall')}
               >
-                Recall <SortIcon field="recall" />
+                Rec <SortIcon field="recall" />
               </th>
               <th
-                className="text-right px-4 py-3 text-gray-300 font-medium cursor-pointer hover:bg-gray-600"
+                className="text-right px-2 py-1 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('f1_score')}
               >
-                F1-Score <SortIcon field="f1_score" />
+                F1 <SortIcon field="f1_score" />
               </th>
               <th
-                className="text-right px-4 py-3 text-gray-300 font-medium cursor-pointer hover:bg-gray-600"
+                className="text-right px-2 py-1 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('support')}
               >
-                Support <SortIcon field="support" />
+                N <SortIcon field="support" />
               </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-100">
             {sortedData.map((row, idx) => (
               <tr
                 key={row.class}
-                className={`border-b border-gray-700 ${idx % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'} hover:bg-gray-700`}
+                className="hover:bg-gray-50"
               >
-                <td className="px-4 py-3 text-white font-medium">{row.class}</td>
-                <td className="px-4 py-3 text-right text-gray-300">
+                <td className="px-2 py-1 text-gray-900 font-medium">{row.class}</td>
+                <td className="px-2 py-1 text-right text-gray-700 font-mono">
                   {formatPercent(row.precision)}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-300">
+                <td className="px-2 py-1 text-right text-gray-700 font-mono">
                   {formatPercent(row.recall)}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-300">
+                <td className="px-2 py-1 text-right text-gray-700 font-mono">
                   {formatPercent(row.f1_score)}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-300">
+                <td className="px-2 py-1 text-right text-gray-700 font-mono">
                   {row.support}
                 </td>
               </tr>
@@ -138,37 +140,40 @@ export const PerClassMetricsTable: React.FC<PerClassMetricsTableProps> = ({
         </table>
       </div>
 
-      {/* Summary Stats */}
-      <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-        <div>
-          <div className="text-gray-400">Avg Precision</div>
-          <div className="text-white font-medium">
+      {/* Summary Stats - Compact Footer */}
+      <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center gap-6 text-[10px] overflow-x-auto">
+        <div className="flex items-center gap-1.5">
+          <span className="text-gray-600">Avg Prec:</span>
+          <span className="font-semibold text-gray-900">
             {formatPercent(
               metricsArray.reduce((sum, row) => sum + row.precision, 0) / metricsArray.length
             )}
-          </div>
+          </span>
         </div>
-        <div>
-          <div className="text-gray-400">Avg Recall</div>
-          <div className="text-white font-medium">
+        <div className="w-px h-3 bg-gray-300" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-gray-600">Avg Rec:</span>
+          <span className="font-semibold text-gray-900">
             {formatPercent(
               metricsArray.reduce((sum, row) => sum + row.recall, 0) / metricsArray.length
             )}
-          </div>
+          </span>
         </div>
-        <div>
-          <div className="text-gray-400">Avg F1-Score</div>
-          <div className="text-white font-medium">
+        <div className="w-px h-3 bg-gray-300" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-gray-600">Avg F1:</span>
+          <span className="font-semibold text-gray-900">
             {formatPercent(
               metricsArray.reduce((sum, row) => sum + row.f1_score, 0) / metricsArray.length
             )}
-          </div>
+          </span>
         </div>
-        <div>
-          <div className="text-gray-400">Total Samples</div>
-          <div className="text-white font-medium">
+        <div className="w-px h-3 bg-gray-300" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-gray-600">Total:</span>
+          <span className="font-semibold text-gray-900">
             {metricsArray.reduce((sum, row) => sum + row.support, 0)}
-          </div>
+          </span>
         </div>
       </div>
     </div>

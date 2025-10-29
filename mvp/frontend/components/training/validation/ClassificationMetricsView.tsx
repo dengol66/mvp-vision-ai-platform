@@ -31,11 +31,13 @@ interface ValidationResult {
 interface ClassificationMetricsViewProps {
   validationResult: ValidationResult;
   jobId: number;
+  onConfusionMatrixCellClick?: (trueLabelId: number, predictedLabelId: number, trueLabel: string, predictedLabel: string) => void;
 }
 
 export const ClassificationMetricsView: React.FC<ClassificationMetricsViewProps> = ({
   validationResult,
-  jobId
+  jobId,
+  onConfusionMatrixCellClick
 }) => {
   const { metrics, per_class_metrics, confusion_matrix, class_names, overall_loss } = validationResult;
 
@@ -52,71 +54,57 @@ export const ClassificationMetricsView: React.FC<ClassificationMetricsViewProps>
   };
 
   return (
-    <div className="space-y-6">
-      {/* Overall Metrics */}
-      <div className="bg-gray-800 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Overall Metrics</h3>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {/* Accuracy */}
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Accuracy</div>
-            <div className="text-2xl font-bold text-white mt-1">
-              {formatPercent(metrics?.accuracy)}
-            </div>
-          </div>
-
-          {/* Precision */}
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Precision</div>
-            <div className="text-2xl font-bold text-white mt-1">
-              {formatPercent(metrics?.precision)}
-            </div>
-          </div>
-
-          {/* Recall */}
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Recall</div>
-            <div className="text-2xl font-bold text-white mt-1">
-              {formatPercent(metrics?.recall)}
-            </div>
-          </div>
-
-          {/* F1 Score */}
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">F1 Score</div>
-            <div className="text-2xl font-bold text-white mt-1">
-              {formatPercent(metrics?.f1_score)}
-            </div>
-          </div>
-
-          {/* Loss */}
-          <div className="bg-gray-700 rounded-lg p-4">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Val Loss</div>
-            <div className="text-2xl font-bold text-white mt-1">
-              {formatFloat(overall_loss)}
-            </div>
-          </div>
+    <div className="space-y-4">
+      {/* Overall Metrics - 2-Row Format */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
+          <h4 className="text-xs font-semibold text-gray-900">Overall Metrics</h4>
         </div>
-
-        {/* Top-5 Accuracy if available */}
-        {metrics?.top5_accuracy && (
-          <div className="mt-4 bg-gray-700 rounded-lg p-4 inline-block">
-            <div className="text-xs text-gray-400 uppercase tracking-wide">Top-5 Accuracy</div>
-            <div className="text-2xl font-bold text-white mt-1">
-              {formatPercent(metrics.top5_accuracy)}
-            </div>
+        <div className="px-4 py-3 flex items-start gap-6 text-xs overflow-x-auto">
+          <div className="flex flex-col items-center gap-1 min-w-[60px]">
+            <span className="text-gray-600">Accuracy</span>
+            <span className="font-semibold text-violet-600 text-sm">{formatPercent(metrics?.accuracy)}</span>
           </div>
-        )}
+          <div className="w-px h-10 bg-gray-300 self-center" />
+          <div className="flex flex-col items-center gap-1 min-w-[60px]">
+            <span className="text-gray-600">Precision</span>
+            <span className="font-semibold text-gray-900 text-sm">{formatPercent(metrics?.precision)}</span>
+          </div>
+          <div className="w-px h-10 bg-gray-300 self-center" />
+          <div className="flex flex-col items-center gap-1 min-w-[60px]">
+            <span className="text-gray-600">Recall</span>
+            <span className="font-semibold text-gray-900 text-sm">{formatPercent(metrics?.recall)}</span>
+          </div>
+          <div className="w-px h-10 bg-gray-300 self-center" />
+          <div className="flex flex-col items-center gap-1 min-w-[60px]">
+            <span className="text-gray-600">F1 Score</span>
+            <span className="font-semibold text-gray-900 text-sm">{formatPercent(metrics?.f1_score)}</span>
+          </div>
+          <div className="w-px h-10 bg-gray-300 self-center" />
+          <div className="flex flex-col items-center gap-1 min-w-[60px]">
+            <span className="text-gray-600">Val Loss</span>
+            <span className="font-semibold text-gray-900 text-sm">{formatFloat(overall_loss)}</span>
+          </div>
+          {metrics?.top5_accuracy && (
+            <>
+              <div className="w-px h-10 bg-gray-300 self-center" />
+              <div className="flex flex-col items-center gap-1 min-w-[60px]">
+                <span className="text-gray-600">Top-5 Acc</span>
+                <span className="font-semibold text-gray-900 text-sm">{formatPercent(metrics.top5_accuracy)}</span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Confusion Matrix and Per-Class Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Confusion Matrix and Per-Class Metrics - Stacked (2 rows, 1 column) */}
+      <div className="space-y-4">
         {/* Confusion Matrix */}
         {confusion_matrix && class_names && (
           <ConfusionMatrixView
             confusionMatrix={confusion_matrix}
             classNames={class_names}
+            onCellClick={onConfusionMatrixCellClick}
           />
         )}
 

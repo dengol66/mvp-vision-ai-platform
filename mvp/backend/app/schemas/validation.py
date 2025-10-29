@@ -130,7 +130,7 @@ class ValidationImageResultResponse(BaseModel):
     epoch: int
 
     # Image info
-    image_path: str
+    image_path: Optional[str] = None  # May be None if path not available during training
     image_name: str
     image_index: Optional[int] = None
 

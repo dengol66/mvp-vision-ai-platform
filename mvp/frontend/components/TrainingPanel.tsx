@@ -130,6 +130,26 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     }
   }, [trainingJobId, job?.status])
 
+  // Refetch metrics when switching to metrics tab
+  useEffect(() => {
+    if (activeTab === 'metrics' && trainingJobId) {
+      const refetchMetrics = async () => {
+        try {
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/metrics`
+          )
+          if (response.ok) {
+            const data = await response.json()
+            setMetrics(data)
+          }
+        } catch (error) {
+          console.error('Error refetching metrics:', error)
+        }
+      }
+      refetchMetrics()
+    }
+  }, [activeTab, trainingJobId])
+
   // Fetch logs
   useEffect(() => {
     if (!trainingJobId) return
