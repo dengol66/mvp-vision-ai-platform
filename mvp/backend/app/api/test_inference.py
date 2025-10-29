@@ -789,6 +789,9 @@ async def quick_inference(
     if not job:
         raise HTTPException(status_code=404, detail=f"Training job {training_job_id} not found")
 
+    # Convert image_path to Path object for cleanup
+    image_path_obj = Path(image_path)
+
     try:
         # Path to training venv python
         backend_dir = Path(__file__).parent.parent.parent
@@ -869,3 +872,13 @@ async def quick_inference(
             status_code=500,
             detail=f"Inference failed: {str(e)}"
         )
+    finally:
+        # Clean up temporary uploaded image
+        # Only delete if it's in the inference_temp directory (safety check)
+        try:
+            if image_path_obj.exists() and "inference_temp" in str(image_path_obj):
+                image_path_obj.unlink()
+                print(f"[INFO] Cleaned up temporary image: {image_path}")
+        except Exception as cleanup_error:
+            # Log but don't raise - cleanup failure shouldn't break the response
+            print(f"[WARNING] Failed to clean up temporary image {image_path}: {cleanup_error}")
