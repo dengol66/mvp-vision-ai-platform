@@ -82,6 +82,21 @@ def run_inference(
     # Prepare model (creates self.model)
     adapter.prepare_model()
 
+    # Load class names from dataset (for classification)
+    if task_type == "image_classification" and dataset_path:
+        import os
+        train_dir = os.path.join(dataset_path, "train")
+        if os.path.exists(train_dir):
+            # Get class names from directory structure (ImageFolder format)
+            class_names = sorted([d for d in os.listdir(train_dir)
+                                 if os.path.isdir(os.path.join(train_dir, d))])
+            adapter.class_names = class_names
+            print(f"[INFO] Loaded {len(class_names)} class names from dataset")
+        else:
+            # Fallback: use numeric class names
+            adapter.class_names = [str(i) for i in range(num_classes)]
+            print(f"[WARNING] Train directory not found, using numeric class names")
+
     # Load checkpoint
     adapter.load_checkpoint(
         checkpoint_path=checkpoint_path,
