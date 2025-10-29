@@ -355,6 +355,7 @@ class TestImageResult(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     test_run_id = Column(Integer, ForeignKey("test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    training_job_id = Column(Integer, ForeignKey("training_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Image information
     image_path = Column(String(500), nullable=True)
@@ -385,7 +386,11 @@ class TestImageResult(Base):
     is_correct = Column(Boolean, nullable=False, default=False, index=True)
     iou = Column(Float, nullable=True)
     oks = Column(Float, nullable=True)
+
+    # Performance
     inference_time_ms = Column(Float, nullable=True)
+    preprocessing_time_ms = Column(Float, default=0.0)
+    postprocessing_time_ms = Column(Float, default=0.0)
 
     # Extra data
     extra_data = Column(JSON, nullable=True)
@@ -393,6 +398,7 @@ class TestImageResult(Base):
 
     # Relationships
     test_run = relationship("TestRun", back_populates="image_results")
+    job = relationship("TrainingJob", foreign_keys=[training_job_id])
 
 
 # ========== Inference Models ==========
@@ -447,6 +453,7 @@ class InferenceResult(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     inference_job_id = Column(Integer, ForeignKey("inference_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    training_job_id = Column(Integer, ForeignKey("training_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Image information
     image_path = Column(String(500), nullable=False)
@@ -482,4 +489,4 @@ class InferenceResult(Base):
 
     # Relationships
     inference_job = relationship("InferenceJob", back_populates="results")
-    job = relationship("TrainingJob")
+    job = relationship("TrainingJob", foreign_keys=[training_job_id])
