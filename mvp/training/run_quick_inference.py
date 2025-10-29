@@ -45,7 +45,7 @@ def run_inference(
 
     dataset_config = DatasetConfig(
         dataset_path=dataset_path,
-        format=DatasetFormat.IMAGEFOLDER,
+        format=DatasetFormat.IMAGE_FOLDER,
         train_split="train",
         val_split="val"
     )
