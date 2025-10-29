@@ -31,26 +31,48 @@ def run_inference(
     top_k: int = 5
 ):
     """Run inference on a single image."""
-    from training.adapters.base import TaskType
+    from training.adapters.base import TaskType, ModelConfig, DatasetConfig, TrainingConfig, DatasetFormat
+
+    # Create config objects
+    model_config = ModelConfig(
+        framework=framework,
+        task_type=TaskType(task_type),
+        model_name=model_name,
+        pretrained=True,
+        num_classes=num_classes,
+        image_size=224
+    )
+
+    dataset_config = DatasetConfig(
+        dataset_path=dataset_path,
+        format=DatasetFormat.IMAGEFOLDER,
+        train_split="train",
+        val_split="val"
+    )
+
+    training_config = TrainingConfig(
+        epochs=1,  # Not used for inference
+        batch_size=1,
+        learning_rate=0.001,
+        device="cuda"
+    )
 
     # Create adapter based on framework
     if framework == "timm":
         from training.adapters.timm_adapter import TimmAdapter
         adapter = TimmAdapter(
-            model_name=model_name,
-            task_type=TaskType(task_type),
-            num_classes=num_classes,
-            dataset_path=dataset_path,
+            model_config=model_config,
+            dataset_config=dataset_config,
+            training_config=training_config,
             output_dir=output_dir,
             job_id=training_job_id
         )
     elif framework == "ultralytics":
         from training.adapters.ultralytics_adapter import UltralyticsAdapter
         adapter = UltralyticsAdapter(
-            model_name=model_name,
-            task_type=TaskType(task_type),
-            num_classes=num_classes,
-            dataset_path=dataset_path,
+            model_config=model_config,
+            dataset_config=dataset_config,
+            training_config=training_config,
             output_dir=output_dir,
             job_id=training_job_id
         )
