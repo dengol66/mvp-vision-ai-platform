@@ -124,10 +124,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
   // Draw bboxes when image or results change
   useEffect(() => {
+    const selectedImage = images.find(img => img.id === selectedImageId)
     if (selectedImage?.result && imageRef.current?.complete) {
       drawBoundingBoxes()
     }
-  }, [selectedImage])
+  }, [images, selectedImageId])
 
   const drawBoundingBoxes = () => {
     const canvas = canvasRef.current
@@ -136,6 +137,10 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    // Get selected image
+    const selectedImage = images.find(img => img.id === selectedImageId)
+    if (!selectedImage) return
 
     // Set canvas size to match displayed image size
     const rect = image.getBoundingClientRect()
