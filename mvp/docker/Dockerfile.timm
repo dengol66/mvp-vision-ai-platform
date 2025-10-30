@@ -24,6 +24,9 @@ COPY training/adapters/timm_adapter.py /opt/vision-platform/adapters/
 COPY training/model_registry/__init__.py /opt/vision-platform/model_registry/
 COPY training/model_registry/timm_models.py /opt/vision-platform/model_registry/
 
+# Copy validators
+COPY training/validators/ /opt/vision-platform/validators/
+
 # Verify installation
 RUN python -c "import torch; import timm; print(f'PyTorch: {torch.__version__}'); print(f'timm: {timm.__version__}')"
 

@@ -24,6 +24,9 @@ COPY training/adapters/ultralytics_adapter.py /opt/vision-platform/adapters/
 COPY training/model_registry/__init__.py /opt/vision-platform/model_registry/
 COPY training/model_registry/ultralytics_models.py /opt/vision-platform/model_registry/
 
+# Copy validators
+COPY training/validators/ /opt/vision-platform/validators/
+
 # Verify installation (including YOLOWorld)
 RUN python -c "from ultralytics import YOLO, YOLOWorld; import ultralytics; print(f'ultralytics: {ultralytics.__version__}'); print('YOLOWorld available')"
 

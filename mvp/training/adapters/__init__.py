@@ -10,14 +10,27 @@ from platform_sdk import (
     MetricsResult,
 )
 
-from .timm_adapter import TimmAdapter
-from .ultralytics_adapter import UltralyticsAdapter
+# Conditional imports for Docker compatibility
+# Each Docker image only has its framework-specific adapter
+TimmAdapter = None
+UltralyticsAdapter = None
 
-# Adapter registry
-ADAPTER_REGISTRY = {
-    'timm': TimmAdapter,
-    'ultralytics': UltralyticsAdapter,
-}
+try:
+    from .timm_adapter import TimmAdapter
+except ImportError:
+    pass
+
+try:
+    from .ultralytics_adapter import UltralyticsAdapter
+except ImportError:
+    pass
+
+# Adapter registry (only includes successfully imported adapters)
+ADAPTER_REGISTRY = {}
+if TimmAdapter is not None:
+    ADAPTER_REGISTRY['timm'] = TimmAdapter
+if UltralyticsAdapter is not None:
+    ADAPTER_REGISTRY['ultralytics'] = UltralyticsAdapter
 
 __all__ = [
     "TrainingAdapter",
