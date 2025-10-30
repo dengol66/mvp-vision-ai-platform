@@ -5,7 +5,7 @@ This module defines configuration schemas without heavy dependencies (torch, etc
 so they can be imported by the backend API without requiring ML libraries.
 """
 
-from training.adapters.base import ConfigSchema, ConfigField
+from adapters.base import ConfigSchema, ConfigField
 
 
 def get_timm_schema() -> ConfigSchema:

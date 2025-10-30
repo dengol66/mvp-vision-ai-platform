@@ -793,8 +793,15 @@ async def get_config_schema(framework: str, task_type: str = None):
     try:
         logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
+        # Add training directory to path for imports
+        import sys
+        from pathlib import Path
+        training_dir = Path(__file__).parent.parent.parent.parent / "training"
+        if str(training_dir) not in sys.path:
+            sys.path.insert(0, str(training_dir))
+
         # Import config schemas (lightweight, no torch dependencies)
-        from training.config_schemas import get_timm_schema, get_ultralytics_schema
+        from config_schemas import get_timm_schema, get_ultralytics_schema
 
         # Map framework name to schema getter function
         schema_map = {

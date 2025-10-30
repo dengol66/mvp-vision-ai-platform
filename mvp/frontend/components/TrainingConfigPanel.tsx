@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import AdvancedConfigPanel from './training/AdvancedConfigPanel'
+import ModelSelector from './training/ModelSelector'
+import CustomPromptsModal from './training/CustomPromptsModal'
+import { ModelInfo } from './training/ModelCard'
 
 // Helper: Infer task type from dataset format
 const getTaskTypeFromFormat = (format: string): string => {
@@ -48,6 +51,9 @@ export default function TrainingConfigPanel({
   const [framework, setFramework] = useState(initialConfig?.framework || 'timm')
   const [modelName, setModelName] = useState(initialConfig?.model_name || '')
   const [taskType, setTaskType] = useState(initialConfig?.task_type || 'image_classification')
+  const [selectedModel, setSelectedModel] = useState<ModelInfo | null>(null)
+  const [customPrompts, setCustomPrompts] = useState<string[]>([])
+  const [showPromptsModal, setShowPromptsModal] = useState(false)
 
   // Step 2: Dataset
   const [datasetPath, setDatasetPath] = useState(initialConfig?.dataset_path || '')
@@ -284,7 +290,10 @@ export default function TrainingConfigPanel({
   }
 
   // Validation
-  const canProceedStep1 = framework && modelName && taskType
+  const canProceedStep1 = framework && modelName && taskType && (
+    // YOLO-World requires custom prompts
+    taskType !== 'zero_shot_detection' || customPrompts.length > 0
+  )
   const canProceedStep2 = datasetPath.trim() !== '' && datasetInfo !== null  // Need analysis
   const canSubmit = canProceedStep1 && canProceedStep2 && epochs > 0 && batchSize > 0 && learningRate > 0
 
@@ -300,6 +309,29 @@ export default function TrainingConfigPanel({
     if (step > 1) {
       setStep(step - 1)
     }
+  }
+
+  const handleModelSelect = (model: ModelInfo) => {
+    setSelectedModel(model)
+    setFramework(model.framework)
+    setModelName(model.model_name)
+    setTaskType(model.task_type)
+
+    // Apply recommended settings
+    setBatchSize(model.recommended_batch_size)
+    setLearningRate(model.recommended_lr)
+
+    // Show prompts modal for YOLO-World
+    if (model.task_type === 'zero_shot_detection') {
+      setShowPromptsModal(true)
+    } else {
+      setCustomPrompts([])
+    }
+  }
+
+  const handlePromptsConfirm = (prompts: string[]) => {
+    setCustomPrompts(prompts)
+    setShowPromptsModal(false)
   }
 
   const handleSubmit = async () => {
@@ -322,6 +354,7 @@ export default function TrainingConfigPanel({
         primary_metric: primaryMetric || undefined,
         primary_metric_mode: primaryMetricMode,
         advanced_config: advancedConfig || undefined,
+        custom_prompts: customPrompts.length > 0 ? customPrompts : undefined,
       }
 
       const requestBody: any = { config }
@@ -446,76 +479,76 @@ export default function TrainingConfigPanel({
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  작업 유형 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={taskType}
-                  onChange={(e) => setTaskType(e.target.value)}
-                  className={cn(
-                    'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
-                    'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                    'text-sm bg-white'
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    모델 선택
+                  </h3>
+                  {selectedModel && (
+                    <span className="text-sm text-gray-600">
+                      선택됨: <span className="font-semibold text-blue-600">{selectedModel.display_name}</span>
+                    </span>
                   )}
-                >
-                  {allTaskTypes.map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  먼저 수행할 작업 유형을 선택하세요
-                </p>
+                </div>
+
+                <ModelSelector
+                  onModelSelect={handleModelSelect}
+                  selectedModel={selectedModel}
+                />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  프레임워크 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={framework}
-                  onChange={(e) => setFramework(e.target.value)}
-                  className={cn(
-                    'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
-                    'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                    'text-sm bg-white'
-                  )}
-                >
-                  {getFrameworkOptions().map((fw) => (
-                    <option key={fw.value} value={fw.value}>
-                      {fw.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  선택한 작업 유형을 지원하는 프레임워크만 표시됩니다
-                </p>
-              </div>
+              {/* YOLO-World Custom Prompts */}
+              {selectedModel && selectedModel.task_type === 'zero_shot_detection' && (
+                <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-purple-900 mb-1">
+                        텍스트 프롬프트 설정 필요
+                      </h4>
+                      <p className="text-xs text-purple-700">
+                        YOLO-World는 탐지할 객체를 자연어로 정의해야 합니다
+                      </p>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  모델 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  className={cn(
-                    'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
-                    'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                    'text-sm bg-white'
+                  {customPrompts.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-purple-900">
+                          설정된 클래스: {customPrompts.length}개
+                        </span>
+                        <button
+                          onClick={() => setShowPromptsModal(true)}
+                          className="text-sm text-purple-700 hover:text-purple-900 font-medium"
+                        >
+                          수정
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {customPrompts.slice(0, 5).map((prompt, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-1 rounded-md text-xs bg-purple-100 text-purple-800"
+                          >
+                            {prompt}
+                          </span>
+                        ))}
+                        {customPrompts.length > 5 && (
+                          <span className="px-2 py-1 rounded-md text-xs bg-purple-100 text-purple-800">
+                            +{customPrompts.length - 5}개 더
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowPromptsModal(true)}
+                      className="w-full px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      프롬프트 설정하기
+                    </button>
                   )}
-                >
-                  {getModelOptions().map((model) => (
-                    <option key={model.value} value={model.value}>
-                      {model.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  선택한 작업 유형과 프레임워크를 지원하는 모델만 표시됩니다
-                </p>
-              </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -981,6 +1014,15 @@ export default function TrainingConfigPanel({
           onClose={() => setShowAdvancedConfig(false)}
         />
       )}
+
+      {/* Custom Prompts Modal (YOLO-World) */}
+      <CustomPromptsModal
+        isOpen={showPromptsModal}
+        onClose={() => setShowPromptsModal(false)}
+        onConfirm={handlePromptsConfirm}
+        initialPrompts={customPrompts}
+        modelName={selectedModel?.display_name}
+      />
     </div>
   )
 }

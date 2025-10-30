@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from .configs import (
     OptimizerConfig,
     SchedulerConfig,
@@ -42,6 +42,16 @@ class TrainingConfig(BaseModel):
     primary_metric_mode: Optional[str] = Field(
         "max",
         description="Optimization mode: 'max' to maximize metric, 'min' to minimize"
+    )
+
+    # Open-vocabulary / Zero-shot configuration (for YOLO-World, etc.)
+    custom_prompts: Optional[List[str]] = Field(
+        None,
+        description="Custom text prompts for open-vocabulary/zero-shot detection (e.g., YOLO-World). Example: ['red apple', 'damaged box']"
+    )
+    prompt_mode: Optional[str] = Field(
+        "offline",
+        description="Prompt mode for open-vocabulary models: 'offline' (pre-computed embeddings) or 'dynamic' (runtime encoding)"
     )
 
     class Config:

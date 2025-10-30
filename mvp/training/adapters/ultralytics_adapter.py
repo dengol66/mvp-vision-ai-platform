@@ -18,6 +18,7 @@ class UltralyticsAdapter(TrainingAdapter):
     - Pose Estimation (yolov8n-pose.pt)
     - Classification (yolov8n-cls.pt)
     - OBB (yolov8n-obb.pt)
+    - Zero-shot Detection (YOLO-World with custom text prompts)
     """
 
     TASK_SUFFIX_MAP = {
@@ -25,6 +26,7 @@ class UltralyticsAdapter(TrainingAdapter):
         TaskType.INSTANCE_SEGMENTATION: "-seg",
         TaskType.POSE_ESTIMATION: "-pose",
         TaskType.IMAGE_CLASSIFICATION: "-cls",
+        TaskType.ZERO_SHOT_DETECTION: "",  # YOLO-World uses base model
     }
 
     @classmethod
@@ -369,14 +371,22 @@ class UltralyticsAdapter(TrainingAdapter):
         return ConfigSchema(fields=fields, presets=presets)
 
     def prepare_model(self):
-        """Initialize YOLO model."""
+        """Initialize YOLO model (standard YOLO or YOLO-World for zero-shot detection)."""
         print("[prepare_model] Step 1: Importing ultralytics...")
         sys.stdout.flush()
 
+        # Check if this is YOLO-World (zero-shot detection)
+        is_yolo_world = self.task_type == TaskType.ZERO_SHOT_DETECTION
+
         try:
-            from ultralytics import YOLO
-            print("[prepare_model] ultralytics imported successfully")
-            sys.stdout.flush()
+            if is_yolo_world:
+                from ultralytics import YOLOWorld
+                print("[prepare_model] YOLOWorld imported successfully")
+                sys.stdout.flush()
+            else:
+                from ultralytics import YOLO
+                print("[prepare_model] ultralytics YOLO imported successfully")
+                sys.stdout.flush()
         except ImportError as e:
             print(f"[prepare_model] ERROR: Failed to import ultralytics: {e}")
             sys.stdout.flush()
@@ -394,16 +404,37 @@ class UltralyticsAdapter(TrainingAdapter):
         suffix = self.TASK_SUFFIX_MAP.get(self.task_type, "")
         model_path = f"{self.model_config.model_name}{suffix}.pt"
 
-        print(f"[prepare_model] Step 2: Loading YOLO model: {model_path}")
+        print(f"[prepare_model] Step 2: Loading model: {model_path}")
         print(f"[prepare_model] Task type: {self.task_type}")
+        print(f"[prepare_model] Model type: {'YOLO-World' if is_yolo_world else 'Standard YOLO'}")
         print(f"[prepare_model] Suffix: '{suffix}'")
         sys.stdout.flush()
 
         try:
-            print(f"[prepare_model] About to call YOLO('{model_path}')...")
-            sys.stdout.flush()
+            if is_yolo_world:
+                print(f"[prepare_model] About to call YOLOWorld('{model_path}')...")
+                sys.stdout.flush()
 
-            self.model = YOLO(model_path)
+                self.model = YOLOWorld(model_path)
+
+                # Set custom classes if provided
+                if hasattr(self.model_config, 'custom_prompts') and self.model_config.custom_prompts:
+                    print(f"[prepare_model] Setting custom classes: {self.model_config.custom_prompts}")
+                    sys.stdout.flush()
+                    self.model.set_classes(self.model_config.custom_prompts)
+                    # Store class names for inference
+                    self.class_names = self.model_config.custom_prompts
+                    print(f"[prepare_model] Custom classes set successfully")
+                    sys.stdout.flush()
+                else:
+                    print("[prepare_model] WARNING: No custom_prompts provided for YOLO-World")
+                    print("[prepare_model] YOLO-World requires custom text prompts to function properly")
+                    sys.stdout.flush()
+            else:
+                print(f"[prepare_model] About to call YOLO('{model_path}')...")
+                sys.stdout.flush()
+
+                self.model = YOLO(model_path)
 
             print(f"[prepare_model] Model object created")
             sys.stdout.flush()
@@ -1703,6 +1734,7 @@ class UltralyticsAdapter(TrainingAdapter):
         Load checkpoint for inference or training resume.
 
         For YOLO, this creates a new model instance with the checkpoint weights.
+        For YOLO-World, also sets custom classes if provided.
 
         Args:
             checkpoint_path: Path to checkpoint file (.pt)
@@ -1710,19 +1742,35 @@ class UltralyticsAdapter(TrainingAdapter):
                            If False, load for training resume
             device: Device to load model on ('cuda', 'cpu'), auto-detect if None
         """
-        from ultralytics import YOLO
-
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
+        # Check if this is YOLO-World
+        is_yolo_world = self.task_type == TaskType.ZERO_SHOT_DETECTION
+
         print(f"\n{'='*80}")
-        print(f"LOADING CHECKPOINT (YOLO)")
+        print(f"LOADING CHECKPOINT ({'YOLO-World' if is_yolo_world else 'YOLO'})")
         print(f"{'='*80}")
         print(f"[CHECKPOINT] Path: {checkpoint_path}")
         print(f"[CHECKPOINT] Mode: {'Inference' if inference_mode else 'Training Resume'}")
 
-        # YOLO handles checkpoint loading internally
-        self.model = YOLO(checkpoint_path)
+        # Import appropriate model class
+        if is_yolo_world:
+            from ultralytics import YOLOWorld
+            self.model = YOLOWorld(checkpoint_path)
+
+            # Set custom classes for YOLO-World
+            if hasattr(self.model_config, 'custom_prompts') and self.model_config.custom_prompts:
+                print(f"[CHECKPOINT] Setting custom classes: {self.model_config.custom_prompts}")
+                self.model.set_classes(self.model_config.custom_prompts)
+                # Store class names for inference
+                self.class_names = self.model_config.custom_prompts
+                print(f"[CHECKPOINT] Custom classes set")
+            else:
+                print("[CHECKPOINT] WARNING: No custom_prompts for YOLO-World inference")
+        else:
+            from ultralytics import YOLO
+            self.model = YOLO(checkpoint_path)
 
         # Set device if specified
         if device:
