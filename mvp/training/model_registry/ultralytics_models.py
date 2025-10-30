@@ -855,7 +855,263 @@ ULTRALYTICS_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 
     # ============================================================
-    # P1, P2 models will be added in later phases
+    # P1: Core Expansion (6 models)
+    # ============================================================
+
+    "yolov5nu": {
+        "display_name": "YOLOv5n-Ultralytics",
+        "description": "YOLOv5 Nano - Ultra-lightweight detection model",
+        "params": "1.9M",
+        "input_size": 640,
+        "pretrained_available": True,
+        "recommended_batch_size": 64,
+        "recommended_lr": 0.01,
+        "tags": ["p1", "yolov5", "nano", "lightweight", "fast"],
+        "priority": 1,
+        "task_type": "object_detection",
+        "benchmark": {
+            "coco_map50": 45.7,
+            "coco_map50_95": 28.0,
+            "inference_speed": "6.3ms (V100)",
+        },
+        "use_cases": [
+            "Real-time detection on edge devices",
+            "High-throughput video processing",
+            "Resource-constrained environments",
+        ],
+        "pros": [
+            "Extremely fast inference",
+            "Very small model size",
+            "Good balance of speed and accuracy",
+        ],
+        "cons": [
+            "Lower accuracy than larger models",
+            "May miss small objects",
+        ],
+        "when_to_use": "Use YOLOv5n for real-time detection on edge devices or when you need maximum speed.",
+        "alternatives": [
+            {"model": "yolov8n", "reason": "Newer, better accuracy"},
+            {"model": "yolo11n", "reason": "Latest version"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 64, "range": [32, 128]},
+            "learning_rate": {"value": 0.01, "range": [0.001, 0.1]},
+            "epochs": {"value": 100, "range": [50, 300]},
+        },
+    },
+
+    "yolov5su": {
+        "display_name": "YOLOv5s-Ultralytics",
+        "description": "YOLOv5 Small - Balanced performance and accuracy",
+        "params": "7.2M",
+        "input_size": 640,
+        "pretrained_available": True,
+        "recommended_batch_size": 32,
+        "recommended_lr": 0.01,
+        "tags": ["p1", "yolov5", "small", "balanced"],
+        "priority": 1,
+        "task_type": "object_detection",
+        "benchmark": {
+            "coco_map50": 56.8,
+            "coco_map50_95": 37.4,
+            "inference_speed": "9.2ms (V100)",
+        },
+        "use_cases": [
+            "General-purpose object detection",
+            "Balanced speed and accuracy",
+            "Production deployments",
+        ],
+        "pros": [
+            "Good accuracy for size",
+            "Fast inference",
+            "Well-tested and stable",
+        ],
+        "cons": [
+            "Larger than nano version",
+            "Slower than nano",
+        ],
+        "when_to_use": "Use YOLOv5s for production detection with balanced performance.",
+        "alternatives": [
+            {"model": "yolov8s", "reason": "Newer, better accuracy"},
+            {"model": "yolov5nu", "reason": "Faster, smaller"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 32, "range": [16, 64]},
+            "learning_rate": {"value": 0.01, "range": [0.001, 0.1]},
+            "epochs": {"value": 100, "range": [50, 300]},
+        },
+    },
+
+    "yolov8n-seg": {
+        "display_name": "YOLOv8n-Seg",
+        "description": "YOLOv8 Nano Segmentation - Fast instance segmentation",
+        "params": "3.4M",
+        "input_size": 640,
+        "pretrained_available": True,
+        "recommended_batch_size": 16,
+        "recommended_lr": 0.01,
+        "tags": ["p1", "yolov8", "segmentation", "nano", "instance"],
+        "priority": 1,
+        "task_type": "instance_segmentation",
+        "benchmark": {
+            "coco_map50": 52.3,
+            "coco_map50_95": 36.7,
+            "mask_map50_95": 30.5,
+        },
+        "use_cases": [
+            "Fast instance segmentation",
+            "Real-time mask generation",
+            "Edge device segmentation",
+        ],
+        "pros": [
+            "Fast segmentation inference",
+            "Small model size",
+            "Pixel-level masks",
+        ],
+        "cons": [
+            "Lower accuracy than detection",
+            "More compute than pure detection",
+        ],
+        "when_to_use": "Use YOLOv8n-seg for fast instance segmentation on edge devices.",
+        "alternatives": [
+            {"model": "yolov8s-seg", "reason": "Better accuracy"},
+            {"model": "yolov8n", "reason": "Faster, detection only"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 16, "range": [8, 32]},
+            "learning_rate": {"value": 0.01, "range": [0.001, 0.1]},
+            "epochs": {"value": 100, "range": [50, 200]},
+        },
+    },
+
+    "yolov8s-seg": {
+        "display_name": "YOLOv8s-Seg",
+        "description": "YOLOv8 Small Segmentation - Accurate instance segmentation",
+        "params": "11.8M",
+        "input_size": 640,
+        "pretrained_available": True,
+        "recommended_batch_size": 8,
+        "recommended_lr": 0.01,
+        "tags": ["p1", "yolov8", "segmentation", "small", "instance"],
+        "priority": 1,
+        "task_type": "instance_segmentation",
+        "benchmark": {
+            "coco_map50": 59.8,
+            "coco_map50_95": 44.6,
+            "mask_map50_95": 36.8,
+        },
+        "use_cases": [
+            "High-accuracy instance segmentation",
+            "Production segmentation tasks",
+            "Detailed mask extraction",
+        ],
+        "pros": [
+            "Better accuracy than nano",
+            "Detailed segmentation masks",
+            "Good for complex scenes",
+        ],
+        "cons": [
+            "Slower than nano",
+            "Higher memory usage",
+        ],
+        "when_to_use": "Use YOLOv8s-seg for production-grade instance segmentation.",
+        "alternatives": [
+            {"model": "yolov8n-seg", "reason": "Faster, smaller"},
+            {"model": "yolov8m-seg", "reason": "Higher accuracy"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 8, "range": [4, 16]},
+            "learning_rate": {"value": 0.01, "range": [0.001, 0.1]},
+            "epochs": {"value": 100, "range": [50, 200]},
+        },
+    },
+
+    "yolov8n-pose": {
+        "display_name": "YOLOv8n-Pose",
+        "description": "YOLOv8 Nano Pose - Fast human pose estimation",
+        "params": "3.3M",
+        "input_size": 640,
+        "pretrained_available": True,
+        "recommended_batch_size": 16,
+        "recommended_lr": 0.01,
+        "tags": ["p1", "yolov8", "pose", "keypoints", "nano"],
+        "priority": 1,
+        "task_type": "pose_estimation",
+        "benchmark": {
+            "coco_keypoint_ap": 50.4,
+            "coco_keypoint_ap50": 80.1,
+        },
+        "use_cases": [
+            "Real-time pose estimation",
+            "Fitness and sports analysis",
+            "Human activity recognition",
+        ],
+        "pros": [
+            "Fast pose detection",
+            "17 keypoints (COCO format)",
+            "Good for single/multiple persons",
+        ],
+        "cons": [
+            "Requires clear human visibility",
+            "Lower accuracy than larger models",
+        ],
+        "when_to_use": "Use YOLOv8n-pose for real-time human pose estimation.",
+        "alternatives": [
+            {"model": "yolov8s-pose", "reason": "Better accuracy"},
+            {"model": "yolov8n", "reason": "Detection only, faster"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 16, "range": [8, 32]},
+            "learning_rate": {"value": 0.01, "range": [0.001, 0.1]},
+            "epochs": {"value": 200, "range": [100, 300]},
+        },
+    },
+
+    "yolo11l": {
+        "display_name": "YOLO11-Large",
+        "description": "YOLO11 Large - Latest YOLO with high accuracy",
+        "params": "25.3M",
+        "input_size": 640,
+        "pretrained_available": True,
+        "recommended_batch_size": 8,
+        "recommended_lr": 0.01,
+        "tags": ["p1", "yolo11", "large", "sota", "2024"],
+        "priority": 1,
+        "task_type": "object_detection",
+        "benchmark": {
+            "coco_map50": 66.4,
+            "coco_map50_95": 53.4,
+            "inference_speed": "39.5ms (V100)",
+        },
+        "use_cases": [
+            "High-accuracy detection",
+            "Production systems",
+            "Benchmark comparisons",
+        ],
+        "pros": [
+            "State-of-the-art accuracy",
+            "Latest YOLO architecture",
+            "Good for complex scenes",
+        ],
+        "cons": [
+            "Larger model size",
+            "Slower inference",
+            "More GPU memory needed",
+        ],
+        "when_to_use": "Use YOLO11l when you need maximum detection accuracy.",
+        "alternatives": [
+            {"model": "yolo11m", "reason": "Faster, slightly lower accuracy"},
+            {"model": "yolov8m", "reason": "More stable, well-tested"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 8, "range": [4, 16]},
+            "learning_rate": {"value": 0.01, "range": [0.001, 0.1]},
+            "epochs": {"value": 100, "range": [50, 300]},
+        },
+    },
+
+    # ============================================================
+    # P2 models will be added in later phases
     # ============================================================
 }
 

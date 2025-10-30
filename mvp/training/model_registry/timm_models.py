@@ -469,7 +469,296 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 
     # ============================================================
-    # P1, P2 models will be added in later phases
+    # P1: Core Expansion (6 models)
+    # ============================================================
+
+    "vgg16": {
+        "display_name": "VGG-16",
+        "description": "Classic deep CNN - Simple architecture, excellent for transfer learning",
+        "params": "138.4M",
+        "input_size": 224,
+        "pretrained_available": True,
+        "recommended_batch_size": 32,
+        "recommended_lr": 0.001,
+        "tags": ["p1", "classic", "simple", "transfer-learning"],
+        "priority": 1,
+        "task_type": "image_classification",
+        "benchmark": {
+            "imagenet_top1": 71.6,
+            "imagenet_top5": 90.6,
+            "inference_speed_v100": 120,
+            "inference_speed_unit": "img/s",
+        },
+        "use_cases": [
+            "Transfer learning baseline",
+            "Feature extraction for other tasks",
+            "Educational purposes",
+        ],
+        "pros": [
+            "Very simple and intuitive architecture",
+            "Excellent transfer learning performance",
+            "Strong feature extractor",
+        ],
+        "cons": [
+            "Large model size (138M params)",
+            "Slower than modern architectures",
+            "Memory intensive",
+        ],
+        "when_to_use": "Use VGG-16 for transfer learning or when you need a simple, well-understood architecture with strong feature extraction capabilities.",
+        "alternatives": [
+            {"model": "resnet50", "reason": "More efficient, better accuracy"},
+            {"model": "efficientnet_b0", "reason": "Much smaller, faster"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 32, "range": [16, 64]},
+            "learning_rate": {"value": 0.001, "range": [0.0001, 0.01]},
+            "epochs": {"value": 50, "range": [20, 100]},
+            "optimizer": "Adam or SGD",
+            "scheduler": "Step decay or cosine",
+        },
+    },
+
+    "mobilenetv3_large_100": {
+        "display_name": "MobileNetV3-Large",
+        "description": "Mobile-optimized CNN - Best for edge deployment and real-time inference",
+        "params": "5.5M",
+        "input_size": 224,
+        "pretrained_available": True,
+        "recommended_batch_size": 128,
+        "recommended_lr": 0.001,
+        "tags": ["p1", "mobile", "efficient", "edge", "realtime"],
+        "priority": 1,
+        "task_type": "image_classification",
+        "benchmark": {
+            "imagenet_top1": 75.8,
+            "imagenet_top5": 92.7,
+            "inference_speed_v100": 250,
+            "inference_speed_unit": "img/s",
+            "mobile_latency": "25ms on iPhone 11",
+        },
+        "use_cases": [
+            "Mobile app integration",
+            "Edge device deployment",
+            "Real-time inference on CPU",
+            "IoT and embedded systems",
+        ],
+        "pros": [
+            "Very small and fast",
+            "Optimized for mobile hardware",
+            "Low power consumption",
+            "Good accuracy for size",
+        ],
+        "cons": [
+            "Lower accuracy than large models",
+            "Complex architecture (hard to modify)",
+            "May underperform on complex tasks",
+        ],
+        "when_to_use": "Use MobileNetV3 for mobile/edge deployment where inference speed and model size are critical constraints.",
+        "alternatives": [
+            {"model": "efficientnet_b0", "reason": "Better accuracy, slightly larger"},
+            {"model": "resnet18", "reason": "Simpler architecture, similar speed"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 128, "range": [64, 256]},
+            "learning_rate": {"value": 0.001, "range": [0.0005, 0.005]},
+            "epochs": {"value": 100, "range": [50, 200]},
+            "optimizer": "RMSprop or Adam",
+            "scheduler": "Cosine with warmup",
+        },
+    },
+
+    "densenet121": {
+        "display_name": "DenseNet-121",
+        "description": "Dense connection CNN - Parameter efficient with excellent gradient flow",
+        "params": "8.0M",
+        "input_size": 224,
+        "pretrained_available": True,
+        "recommended_batch_size": 64,
+        "recommended_lr": 0.001,
+        "tags": ["p1", "efficient", "dense-connections", "gradient-flow"],
+        "priority": 1,
+        "task_type": "image_classification",
+        "benchmark": {
+            "imagenet_top1": 74.9,
+            "imagenet_top5": 92.2,
+            "inference_speed_v100": 160,
+            "inference_speed_unit": "img/s",
+        },
+        "use_cases": [
+            "Medical image analysis",
+            "Small dataset scenarios",
+            "Feature reuse applications",
+        ],
+        "pros": [
+            "Very parameter efficient",
+            "Excellent gradient flow (no vanishing gradients)",
+            "Strong feature reuse",
+            "Good for small datasets",
+        ],
+        "cons": [
+            "Memory intensive during training",
+            "Slower inference than ResNet",
+            "Complex computational graph",
+        ],
+        "when_to_use": "Use DenseNet-121 when working with limited data or when you need strong gradient flow for deep networks.",
+        "alternatives": [
+            {"model": "resnet50", "reason": "Faster inference, simpler"},
+            {"model": "efficientnet_b0", "reason": "More efficient overall"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 64, "range": [32, 128]},
+            "learning_rate": {"value": 0.001, "range": [0.0001, 0.01]},
+            "epochs": {"value": 100, "range": [50, 200]},
+            "optimizer": "SGD with Nesterov or Adam",
+            "scheduler": "Cosine annealing",
+        },
+    },
+
+    "convnext_tiny": {
+        "display_name": "ConvNeXt-Tiny",
+        "description": "Modern CNN (2022) - Transformer-inspired design, state-of-the-art accuracy",
+        "params": "28.6M",
+        "input_size": 224,
+        "pretrained_available": True,
+        "recommended_batch_size": 64,
+        "recommended_lr": 0.0004,
+        "tags": ["p1", "modern", "2022", "sota", "transformer-inspired"],
+        "priority": 1,
+        "task_type": "image_classification",
+        "benchmark": {
+            "imagenet_top1": 82.1,
+            "imagenet_top5": 96.0,
+            "inference_speed_v100": 140,
+            "inference_speed_unit": "img/s",
+        },
+        "use_cases": [
+            "State-of-the-art CNN baseline",
+            "Production systems requiring high accuracy",
+            "Research and benchmarking",
+        ],
+        "pros": [
+            "Modern architecture with transformer insights",
+            "Excellent accuracy for CNN",
+            "Pure convolution (no attention)",
+            "Good training stability",
+        ],
+        "cons": [
+            "Larger than ResNet-50",
+            "Requires careful hyperparameter tuning",
+            "Less community resources than ResNet",
+        ],
+        "when_to_use": "Use ConvNeXt when you need state-of-the-art CNN performance without using transformers.",
+        "alternatives": [
+            {"model": "efficientnetv2_s", "reason": "Faster training, more efficient"},
+            {"model": "vit_base_patch16_224", "reason": "Pure transformer, higher accuracy"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 64, "range": [32, 128]},
+            "learning_rate": {"value": 0.0004, "range": [0.0001, 0.001]},
+            "epochs": {"value": 100, "range": [50, 300]},
+            "optimizer": "AdamW",
+            "scheduler": "Cosine with warmup",
+        },
+    },
+
+    "vit_base_patch16_224": {
+        "display_name": "ViT-Base/16",
+        "description": "Vision Transformer - Pure attention-based architecture, no convolutions",
+        "params": "86.6M",
+        "input_size": 224,
+        "pretrained_available": True,
+        "recommended_batch_size": 32,
+        "recommended_lr": 0.0003,
+        "tags": ["p1", "transformer", "attention", "sota", "2021"],
+        "priority": 1,
+        "task_type": "image_classification",
+        "benchmark": {
+            "imagenet_top1": 84.5,
+            "imagenet_top5": 97.2,
+            "inference_speed_v100": 100,
+            "inference_speed_unit": "img/s",
+        },
+        "use_cases": [
+            "High-accuracy requirements",
+            "Large dataset scenarios",
+            "Research on attention mechanisms",
+        ],
+        "pros": [
+            "State-of-the-art accuracy",
+            "Scales well with data size",
+            "Global receptive field from start",
+            "Interpretable attention maps",
+        ],
+        "cons": [
+            "Requires large datasets",
+            "Slower than CNNs",
+            "High memory usage",
+            "Poor with small datasets",
+        ],
+        "when_to_use": "Use ViT when you have large datasets and need maximum accuracy with attention mechanisms.",
+        "when_not_to_use": "Avoid with small datasets (< 100K images) or resource-constrained environments.",
+        "alternatives": [
+            {"model": "convnext_tiny", "reason": "CNN alternative, faster, works with small data"},
+            {"model": "swin_tiny_patch4_window7_224", "reason": "More efficient transformer"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 32, "range": [16, 64]},
+            "learning_rate": {"value": 0.0003, "range": [0.0001, 0.001]},
+            "epochs": {"value": 100, "range": [50, 300]},
+            "optimizer": "AdamW",
+            "scheduler": "Cosine with warmup (10-20 epochs)",
+        },
+    },
+
+    "swin_tiny_patch4_window7_224": {
+        "display_name": "Swin-Tiny",
+        "description": "Hierarchical Vision Transformer - Efficient attention with shifted windows",
+        "params": "28.3M",
+        "input_size": 224,
+        "pretrained_available": True,
+        "recommended_batch_size": 64,
+        "recommended_lr": 0.0005,
+        "tags": ["p1", "transformer", "hierarchical", "efficient", "2021"],
+        "priority": 1,
+        "task_type": "image_classification",
+        "benchmark": {
+            "imagenet_top1": 81.2,
+            "imagenet_top5": 95.5,
+            "inference_speed_v100": 130,
+            "inference_speed_unit": "img/s",
+        },
+        "use_cases": [
+            "Vision tasks requiring spatial hierarchy",
+            "Backbone for detection/segmentation",
+            "Balanced accuracy and efficiency",
+        ],
+        "pros": [
+            "More efficient than ViT",
+            "Hierarchical features (like CNNs)",
+            "Good for downstream tasks",
+            "Shifted window attention reduces compute",
+        ],
+        "cons": [
+            "Complex architecture",
+            "Still requires substantial data",
+            "Slower than pure CNNs",
+        ],
+        "when_to_use": "Use Swin Transformer when you need transformer benefits with better efficiency than ViT.",
+        "alternatives": [
+            {"model": "vit_base_patch16_224", "reason": "Simpler, higher accuracy"},
+            {"model": "convnext_tiny", "reason": "Pure CNN, similar accuracy, faster"},
+        ],
+        "recommended_settings": {
+            "batch_size": {"value": 64, "range": [32, 128]},
+            "learning_rate": {"value": 0.0005, "range": [0.0001, 0.001]},
+            "epochs": {"value": 100, "range": [50, 300]},
+            "optimizer": "AdamW",
+            "scheduler": "Cosine with warmup",
+        },
+    },
+
+    # ============================================================
+    # P2 models will be added in later phases
     # ============================================================
 }
 
