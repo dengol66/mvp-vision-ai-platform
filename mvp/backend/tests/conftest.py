@@ -90,3 +90,19 @@ def sample_image_path(tmp_path):
     img.save(img_path)
 
     return str(img_path)
+
+
+@pytest.fixture
+def sample_image_batch(tmp_path):
+    """Create multiple test images for batch inference."""
+    from PIL import Image
+    import numpy as np
+
+    image_paths = []
+    for i in range(3):
+        img = Image.fromarray(np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8))
+        img_path = tmp_path / f"test_image_{i}.jpg"
+        img.save(img_path)
+        image_paths.append(str(img_path))
+
+    return image_paths
