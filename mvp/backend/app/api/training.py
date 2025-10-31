@@ -32,6 +32,12 @@ async def create_training_job(
     This endpoint creates a training job but does not start it immediately.
     Use the /jobs/{job_id}/start endpoint to start training.
     """
+    # DEBUG: Log what we received
+    logger.info(f"[DEBUG] Received training job request:")
+    logger.info(f"[DEBUG]   framework: {job_request.config.framework}")
+    logger.info(f"[DEBUG]   model_name: {job_request.config.model_name}")
+    logger.info(f"[DEBUG]   task_type: {job_request.config.task_type}")
+
     # Validate required fields
     config = job_request.config
 

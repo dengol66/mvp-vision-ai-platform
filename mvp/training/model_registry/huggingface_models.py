@@ -86,66 +86,68 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # Object Detection
     # ========================================
 
-    "ustc-community/dfine-x-coco": {
-        "display_name": "D-FINE (Detection Fine-grained)",
-        "description": "SOTA real-time detector - Fine-grained bbox refinement (57.1% AP on COCO)",
-        "framework": "huggingface",
-        "task_types": ["object_detection"],
-        "model_id": "ustc-community/dfine-x-coco",
-        "params": "67M",
-        "input_size": 640,
-        "pretrained_available": True,
-        "recommended_batch_size": 8,
-        "recommended_lr": 1e-4,
-        "tags": ["p1", "detection", "detr", "real-time", "sota", "2024"],
-        "priority": 1,
+    # NOTE: D-FINE model is not yet available on HuggingFace Hub
+    # Commented out until pretrained weights are publicly released
+    # "ustc-community/dfine-x-coco": {
+    #     "display_name": "D-FINE (Detection Fine-grained)",
+    #     "description": "SOTA real-time detector - Fine-grained bbox refinement (57.1% AP on COCO)",
+    #     "framework": "huggingface",
+    #     "task_types": ["object_detection"],
+    #     "model_id": "ustc-community/dfine-x-coco",
+    #     "params": "67M",
+    #     "input_size": 640,
+    #     "pretrained_available": True,
+    #     "recommended_batch_size": 8,
+    #     "recommended_lr": 1e-4,
+    #     "tags": ["p1", "detection", "detr", "real-time", "sota", "2024"],
+    #     "priority": 1,
 
-        "architecture": {
-            "type": "DETR-based",
-            "backbone": "ResNet-50",
-            "features": ["FDR (Fine-grained Distribution Refinement)", "GO-LSD (Global Optimal Localization Self-Distillation)"],
-            "innovation": "Redefines bbox regression as distribution refinement",
-        },
+    #     "architecture": {
+    #         "type": "DETR-based",
+    #         "backbone": "ResNet-50",
+    #         "features": ["FDR (Fine-grained Distribution Refinement)", "GO-LSD (Global Optimal Localization Self-Distillation)"],
+    #         "innovation": "Redefines bbox regression as distribution refinement",
+    #     },
 
-        "performance": {
-            "coco_map50": "57.1%",
-            "coco_map50-95": "40.8%",
-            "inference_speed": "Real-time (>30 FPS on V100)",
-            "vs_yolov8": "+7% mAP50 improvement",
-        },
+    #     "performance": {
+    #         "coco_map50": "57.1%",
+    #         "coco_map50-95": "40.8%",
+    #         "inference_speed": "Real-time (>30 FPS on V100)",
+    #         "vs_yolov8": "+7% mAP50 improvement",
+    #     },
 
-        "training_tips": {
-            "optimizer": "AdamW",
-            "lr": "1e-4",
-            "warmup": "1k steps",
-            "batch_size": "8-16 (GPU memory intensive)",
-            "epochs": "50-300 (COCO scale)",
-            "dataset_format": "COCO JSON annotations required",
-        },
+    #     "training_tips": {
+    #         "optimizer": "AdamW",
+    #         "lr": "1e-4",
+    #         "warmup": "1k steps",
+    #         "batch_size": "8-16 (GPU memory intensive)",
+    #         "epochs": "50-300 (COCO scale)",
+    #         "dataset_format": "COCO JSON annotations required",
+    #     },
 
-        "use_cases": [
-            {
-                "title": "Precision Object Localization",
-                "description": "High-precision bounding box detection for industrial quality inspection",
-                "industry": "Manufacturing, Quality Control",
-                "dataset": "Custom COCO-format defect dataset",
-                "metrics": {
-                    "before": "YOLOv8: 50.2% mAP50, occasional missed defects",
-                    "after": "D-FINE: 57.1% mAP50 with fine-grained localization, 0.1% false negative rate"
-                }
-            },
-            {
-                "title": "Autonomous Driving Object Detection",
-                "description": "Real-time detection of vehicles, pedestrians, traffic signs",
-                "industry": "Autonomous Vehicles",
-                "dataset": "Road scene dataset (COCO format)",
-                "metrics": {
-                    "before": "DETR: 45% mAP50, 15 FPS",
-                    "after": "D-FINE: 57% mAP50, 35 FPS (real-time capable)"
-                }
-            }
-        ]
-    },
+    #     "use_cases": [
+    #         {
+    #             "title": "Precision Object Localization",
+    #             "description": "High-precision bounding box detection for industrial quality inspection",
+    #             "industry": "Manufacturing, Quality Control",
+    #             "dataset": "Custom COCO-format defect dataset",
+    #             "metrics": {
+    #                 "before": "YOLOv8: 50.2% mAP50, occasional missed defects",
+    #                 "after": "D-FINE: 57.1% mAP50 with fine-grained localization, 0.1% false negative rate"
+    #             }
+    #         },
+    #         {
+    #             "title": "Autonomous Driving Object Detection",
+    #             "description": "Real-time detection of vehicles, pedestrians, traffic signs",
+    #             "industry": "Autonomous Vehicles",
+    #             "dataset": "Road scene dataset (COCO format)",
+    #             "metrics": {
+    #                 "before": "DETR: 45% mAP50, 15 FPS",
+    #                 "after": "D-FINE: 57% mAP50, 35 FPS (real-time capable)"
+    #             }
+    #         }
+    #     ]
+    # },
 
     # ========================================
     # Semantic Segmentation
