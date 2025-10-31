@@ -179,6 +179,15 @@ def run_inference(
         result_dict["confidence"] = result.confidence
         result_dict["upscaled_image_path"] = result.upscaled_image_path
 
+    elif result.task_type in [TaskType.SEMANTIC_SEGMENTATION, TaskType.INSTANCE_SEGMENTATION]:
+        result_dict["predicted_label"] = result.predicted_label
+        result_dict["confidence"] = result.confidence
+        result_dict["predicted_mask_path"] = result.predicted_mask_path
+        if result.extra_data:
+            result_dict["overlay_path"] = result.extra_data.get("overlay_path")
+            result_dict["num_classes"] = result.extra_data.get("num_classes")
+            result_dict["unique_classes"] = result.extra_data.get("unique_classes")
+
     return result_dict
 
 

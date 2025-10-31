@@ -890,8 +890,23 @@ async def quick_inference(
                 # Convert to API URL (without /api/v1 prefix - frontend will add it)
                 result_dict['upscaled_image_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
                 print(f"[DEBUG] Generated upscaled_image_url: {result_dict['upscaled_image_url']}")
-            else:
-                print(f"[DEBUG] No upscaled_image_path found in result")
+
+            # Convert segmentation mask path to URL if present (for segmentation)
+            if result_dict.get('predicted_mask_path'):
+                mask_path = Path(result_dict['predicted_mask_path'])
+                filename = mask_path.name
+                result_dict['predicted_mask_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
+                print(f"[DEBUG] Generated predicted_mask_url: {result_dict['predicted_mask_url']}")
+
+            # Convert overlay path to URL if present (for segmentation)
+            if result_dict.get('overlay_path'):
+                overlay_path = Path(result_dict['overlay_path'])
+                filename = overlay_path.name
+                result_dict['overlay_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
+                print(f"[DEBUG] Generated overlay_url: {result_dict['overlay_url']}")
+
+            if not any([result_dict.get('upscaled_image_path'), result_dict.get('predicted_mask_path')]):
+                print(f"[DEBUG] No special image paths found in result")
 
             print(f"[DEBUG] Final result_dict keys: {result_dict.keys()}")
             return result_dict

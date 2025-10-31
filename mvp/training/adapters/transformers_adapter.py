@@ -130,7 +130,19 @@ class TransformersAdapter(TrainingAdapter):
 
     def _prepare_segmentation_model(self):
         """Prepare model for semantic segmentation."""
-        raise NotImplementedError("Semantic segmentation not yet implemented in Phase 2")
+        from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
+
+        model_name = self.model_config.model_name
+
+        # Load processor
+        self.processor = AutoImageProcessor.from_pretrained(model_name)
+
+        # Load model
+        self.model = AutoModelForSemanticSegmentation.from_pretrained(model_name)
+
+        print(f"  - Processor: {model_name}")
+        print(f"  - Model: {type(self.model).__name__}")
+        print(f"  - Task: Semantic Segmentation")
 
     def _prepare_super_resolution_model(self):
         """Prepare model for super-resolution."""
@@ -545,6 +557,8 @@ class TransformersAdapter(TrainingAdapter):
             return self._infer_classification(image_path)
         elif task_type == TaskType.SUPER_RESOLUTION:
             return self._infer_super_resolution(image_path)
+        elif task_type == TaskType.SEMANTIC_SEGMENTATION:
+            return self._infer_segmentation(image_path)
         else:
             raise ValueError(f"Unsupported task type for inference: {task_type}")
 
@@ -663,6 +677,94 @@ class TransformersAdapter(TrainingAdapter):
             inference_time_ms=inference_time,
             preprocessing_time_ms=preprocessing_time,
             postprocessing_time_ms=postprocessing_time,
+        )
+
+    def _infer_segmentation(self, image_path: str) -> InferenceResult:
+        """Run inference for semantic segmentation."""
+        import time
+        import numpy as np
+
+        image = Image.open(image_path).convert("RGB")
+        original_size = image.size
+
+        # Preprocess
+        start_time = time.time()
+        inputs = self.processor(images=image, return_tensors="pt")
+        preprocessing_time = (time.time() - start_time) * 1000
+
+        # Move to device
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        # Inference
+        self.model.eval()
+        start_time = time.time()
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        inference_time = (time.time() - start_time) * 1000
+
+        # Post-process
+        start_time = time.time()
+
+        # Get segmentation map: [batch, num_classes, H, W] -> [H, W]
+        logits = outputs.logits
+        seg_map = logits.argmax(dim=1)[0].cpu().numpy()  # [H, W]
+
+        # Resize to original image size
+        from scipy.ndimage import zoom
+        zoom_factors = (original_size[1] / seg_map.shape[0], original_size[0] / seg_map.shape[1])
+        seg_map_resized = zoom(seg_map, zoom_factors, order=0)  # Nearest neighbor interpolation
+
+        # Create colorized segmentation map
+        num_classes = logits.shape[1]
+
+        # Generate distinct colors for each class
+        np.random.seed(42)  # For reproducible colors
+        colors = np.random.randint(0, 255, size=(num_classes, 3), dtype=np.uint8)
+        colors[0] = [0, 0, 0]  # Background is black
+
+        # Apply colors
+        colored_seg_map = colors[seg_map_resized.astype(int)]
+
+        # Create overlay (50% segmentation, 50% original)
+        overlay = (colored_seg_map * 0.5 + np.array(image) * 0.5).astype(np.uint8)
+
+        # Save results
+        inference_results_dir = os.path.join(self.output_dir, "inference_results")
+        os.makedirs(inference_results_dir, exist_ok=True)
+
+        base_name = os.path.splitext(os.path.basename(image_path))[0]
+
+        # Save segmentation map
+        seg_map_filename = f"{base_name}_segmentation.png"
+        seg_map_path = os.path.join(inference_results_dir, seg_map_filename)
+        Image.fromarray(colored_seg_map).save(seg_map_path)
+
+        # Save overlay
+        overlay_filename = f"{base_name}_overlay.png"
+        overlay_path = os.path.join(inference_results_dir, overlay_filename)
+        Image.fromarray(overlay).save(overlay_path)
+
+        postprocessing_time = (time.time() - start_time) * 1000
+
+        # Count unique classes (excluding background)
+        unique_classes = len(np.unique(seg_map_resized)) - 1
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=os.path.basename(image_path),
+            task_type=TaskType.SEMANTIC_SEGMENTATION,
+            predicted_label=f"{unique_classes} classes detected",
+            confidence=1.0,
+            predicted_mask_path=seg_map_path,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=preprocessing_time,
+            postprocessing_time_ms=postprocessing_time,
+            extra_data={
+                "overlay_path": overlay_path,
+                "num_classes": int(num_classes),
+                "unique_classes": int(unique_classes)
+            }
         )
 
     def inference(self, image_path: str) -> InferenceResult:

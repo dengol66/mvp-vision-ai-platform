@@ -49,8 +49,8 @@ async def get_capabilities():
             {
                 "name": "transformers",
                 "display_name": "HuggingFace Transformers",
-                "description": "Vision-Language models (coming soon)",
-                "supported": False
+                "description": "Vision transformers for classification, detection, segmentation, and super-resolution",
+                "supported": True
             }
         ],
         "models": [
@@ -103,6 +103,47 @@ async def get_capabilities():
                 "framework": "ultralytics",
                 "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
                 "supported": True
+            },
+            # HuggingFace Transformers models
+            {
+                "name": "google/vit-base-patch16-224",
+                "display_name": "Vision Transformer (ViT) Base",
+                "description": "Transformer-based image classification",
+                "framework": "transformers",
+                "task_types": ["image_classification"],
+                "supported": True
+            },
+            {
+                "name": "ustc-community/dfine-x-coco",
+                "display_name": "D-FINE",
+                "description": "SOTA real-time object detector",
+                "framework": "transformers",
+                "task_types": ["object_detection"],
+                "supported": True
+            },
+            {
+                "name": "nvidia/segformer-b0-finetuned-ade-512-512",
+                "display_name": "SegFormer-B0 (ADE20K)",
+                "description": "Efficient semantic segmentation",
+                "framework": "transformers",
+                "task_types": ["semantic_segmentation"],
+                "supported": True
+            },
+            {
+                "name": "caidas/swin2SR-classical-sr-x2-64",
+                "display_name": "Swin2SR (2x)",
+                "description": "2x super-resolution",
+                "framework": "transformers",
+                "task_types": ["super_resolution"],
+                "supported": True
+            },
+            {
+                "name": "caidas/swin2SR-classical-sr-x4-64",
+                "display_name": "Swin2SR (4x)",
+                "description": "4x super-resolution",
+                "framework": "transformers",
+                "task_types": ["super_resolution"],
+                "supported": True
             }
         ],
         "task_types": [
@@ -132,6 +173,20 @@ async def get_capabilities():
                 "display_name": "자세 추정",
                 "description": "이미지 내 사람의 자세 키포인트 탐지",
                 "frameworks": ["ultralytics"],
+                "supported": True
+            },
+            {
+                "name": "semantic_segmentation",
+                "display_name": "시맨틱 분할",
+                "description": "이미지의 모든 픽셀을 클래스별로 분할",
+                "frameworks": ["transformers"],
+                "supported": True
+            },
+            {
+                "name": "super_resolution",
+                "display_name": "초해상화",
+                "description": "저해상도 이미지를 고해상도로 업스케일",
+                "frameworks": ["transformers"],
                 "supported": True
             }
         ],
@@ -165,7 +220,7 @@ async def get_capabilities():
                 "description": "사용할 딥러닝 프레임워크",
                 "type": "string",
                 "required": True,
-                "options": ["timm", "ultralytics"],
+                "options": ["timm", "ultralytics", "transformers"],
                 "default": "timm"
             },
             {
@@ -174,7 +229,7 @@ async def get_capabilities():
                 "description": "수행할 작업의 종류",
                 "type": "string",
                 "required": True,
-                "options": ["image_classification", "object_detection", "instance_segmentation", "pose_estimation"],
+                "options": ["image_classification", "object_detection", "instance_segmentation", "pose_estimation", "semantic_segmentation", "super_resolution"],
                 "default": "image_classification"
             },
             {

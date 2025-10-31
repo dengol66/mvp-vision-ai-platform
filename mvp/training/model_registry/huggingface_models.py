@@ -145,25 +145,25 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # Semantic Segmentation
     # ========================================
 
-    "tue-mps/eomt-vit-large": {
-        "display_name": "EoMT (Encoder-only Mask Transformer)",
-        "description": "CVPR 2025 Highlight - Segmentation without task-specific components (4x faster)",
+    "nvidia/segformer-b0-finetuned-ade-512-512": {
+        "display_name": "SegFormer-B0 (ADE20K)",
+        "description": "Efficient semantic segmentation with hierarchical Transformer encoder",
         "framework": "huggingface",
         "task_type": "semantic_segmentation",
-        "model_id": "tue-mps/eomt-vit-large",
-        "params": "304M",
-        "input_size": 518,
+        "model_id": "nvidia/segformer-b0-finetuned-ade-512-512",
+        "params": "3.7M",
+        "input_size": 512,
         "pretrained_available": True,
-        "recommended_batch_size": 4,
-        "recommended_lr": 1e-4,
-        "tags": ["p1", "segmentation", "vit", "encoder-only", "cvpr2025", "fast"],
+        "recommended_batch_size": 8,
+        "recommended_lr": 6e-5,
+        "tags": ["p1", "segmentation", "transformer", "efficient", "ade20k"],
         "priority": 1,
 
         "architecture": {
-            "type": "Encoder-only ViT",
-            "backbone": "ViT-Large",
-            "innovation": "No task-specific decoder - learns segmentation with pure ViT",
-            "key_insight": "Inductive biases can be learned through large-scale pretraining",
+            "type": "Hierarchical Transformer",
+            "backbone": "MixTransformer-B0",
+            "innovation": "No positional encoding, hierarchical feature maps",
+            "key_insight": "Lightweight MLP decoder achieves strong performance",
         },
 
         "performance": {
