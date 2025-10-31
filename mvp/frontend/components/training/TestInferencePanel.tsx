@@ -11,6 +11,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Upload, Settings, Play, AlertCircle, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { SlidePanel } from '../SlidePanel'
+import ImageUploadList from './ImageUploadList'
 
 interface TrainingJob {
   id: number
@@ -65,9 +66,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [iouThreshold, setIouThreshold] = useState(0.45)
   const [maxDetections, setMaxDetections] = useState(100)
   const [topK, setTopK] = useState(5)
-
-  // File input ref
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Canvas ref for bbox visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -227,17 +225,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     drawBoundingBoxes()
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    addImages(files)
-  }
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
-    addImages(files)
-  }
-
   const addImages = (files: File[]) => {
     const newImages: UploadedImage[] = files.map(file => ({
       id: `${Date.now()}-${Math.random()}`,
@@ -392,53 +379,47 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     )
   }
 
+  const handleImageRemove = (imageId: string) => {
+    setImages(prev => prev.filter(img => img.id !== imageId))
+    // If removed image was selected, select another or none
+    if (selectedImageId === imageId) {
+      const remainingImages = images.filter(img => img.id !== imageId)
+      setSelectedImageId(remainingImages.length > 0 ? remainingImages[0].id : null)
+    }
+    addLog('info', '이미지를 삭제했습니다')
+  }
+
+  const handleClearAll = () => {
+    setImages([])
+    setSelectedImageId(null)
+    addLog('info', '모든 이미지를 삭제했습니다')
+  }
+
+  const handleImageSelect = (imageId: string) => {
+    const image = images.find(img => img.id === imageId)
+    if (!image) return
+
+    setSelectedImageId(imageId)
+
+    // Show slide panel for super-resolution results
+    if (image.result && image.status === 'completed' && image.result.upscaled_image_url) {
+      setShowSlidePanel(true)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Upload and Settings Section */}
       <div className="grid grid-cols-2 gap-6">
-        {/* Image Upload */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">이미지 업로드</h3>
-
-          <div className="space-y-3">
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-
-            {/* Upload count */}
-            <div className="text-xs text-gray-500">
-              업로드된 이미지: <span className="font-medium text-gray-900">{images.length}개</span>
-            </div>
-
-            {/* Drop zone - clickable */}
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              className={cn(
-                'border-2 border-dashed border-gray-300',
-                'rounded-lg p-8',
-                'text-center',
-                'hover:border-violet-400 hover:bg-violet-50/50',
-                'transition-colors cursor-pointer'
-              )}
-            >
-              <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-              <p className="text-sm text-gray-600 mb-1">
-                이미지를 드래그 앤 드롭하세요
-              </p>
-              <p className="text-xs text-gray-500">
-                또는 클릭하여 파일 선택
-              </p>
-            </div>
-          </div>
-        </div>
+        {/* Image Upload - Using unified component */}
+        <ImageUploadList
+          images={images}
+          selectedImageId={selectedImageId}
+          onImagesAdd={addImages}
+          onImageSelect={handleImageSelect}
+          onImageRemove={handleImageRemove}
+          onClearAll={handleClearAll}
+        />
 
         {/* Inference Settings */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -606,78 +587,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
         </div>
       </div>
 
-      {/* Results Section */}
-      {images.length > 0 && (
-        <div className="grid grid-cols-12 gap-6 h-[600px]">
-          {/* Image List */}
-          <div className="col-span-2 bg-white rounded-lg border border-gray-200 p-4 overflow-y-auto">
-            <h4 className="text-xs font-semibold text-gray-900 mb-3">
-              이미지 리스트
-            </h4>
-            <div className="text-xs text-gray-500 mb-3">
-              전체: {images.length}개
-            </div>
-            <div className="space-y-2">
-              {images.map((image) => (
-                <div
-                  key={image.id}
-                  onClick={() => {
-                    console.log('[DEBUG] Image clicked:', {
-                      imageId: image.id,
-                      status: image.status,
-                      hasResult: !!image.result,
-                      taskType: image.result?.task_type,
-                      hasUpscaledUrl: !!image.result?.upscaled_image_url,
-                      upscaledUrl: image.result?.upscaled_image_url
-                    })
-                    setSelectedImageId(image.id)
-                    // Show slide panel for super-resolution results
-                    if (image.result && image.status === 'completed' && image.result.upscaled_image_url) {
-                      console.log('[DEBUG] Opening slide panel')
-                      setShowSlidePanel(true)
-                    } else {
-                      console.log('[DEBUG] NOT opening slide panel - condition not met')
-                    }
-                  }}
-                  className={cn(
-                    'cursor-pointer rounded-lg border-2 p-2 transition-all',
-                    selectedImageId === image.id
-                      ? 'border-violet-600 bg-violet-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  )}
-                >
-                  <img
-                    src={image.preview}
-                    alt={image.file.name}
-                    className="w-full h-16 object-cover rounded mb-1"
-                  />
-                  <p className="text-xs text-gray-600 truncate">{image.file.name}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className={cn(
-                      'text-xs px-1.5 py-0.5 rounded',
-                      image.status === 'completed' && 'bg-green-100 text-green-700',
-                      image.status === 'pending' && 'bg-gray-100 text-gray-600',
-                      image.status === 'processing' && 'bg-blue-100 text-blue-700',
-                      image.status === 'failed' && 'bg-red-100 text-red-700'
-                    )}>
-                      {image.status === 'completed' && '✓'}
-                      {image.status === 'pending' && '⏳'}
-                      {image.status === 'processing' && '⚙️'}
-                      {image.status === 'failed' && '✗'}
-                    </span>
-                  </div>
-                  {image.error && image.status === 'failed' && (
-                    <p className="text-xs text-red-600 mt-1 truncate" title={image.error}>
-                      {image.error}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
+      {/* Results Section - Full Width Layout */}
+      {images.length > 0 && selectedImage && (
+        <div className="grid grid-cols-2 gap-6 h-[600px]">
           {/* Image Viewer */}
-          <div className="col-span-6 bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h4 className="text-xs font-semibold text-gray-900 mb-3">이미지 뷰어</h4>
             {selectedImage ? (
               <div className="flex items-center justify-center h-[calc(100%-2rem)] relative">
@@ -704,7 +618,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           </div>
 
           {/* Inference Results */}
-          <div className="col-span-4 bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
+          <div className="bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
             <h4 className="text-xs font-semibold text-gray-900 mb-3">추론 결과</h4>
             {selectedImage?.result ? (
               <div className="space-y-4">
