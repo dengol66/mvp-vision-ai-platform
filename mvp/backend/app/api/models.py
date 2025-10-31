@@ -35,7 +35,7 @@ class ModelInfo(BaseModel):
     description: str
     params: str
     input_size: int
-    task_type: str
+    task_types: List[str]  # Changed from task_type to task_types (plural, array)
     pretrained_available: bool
     recommended_batch_size: int
     recommended_lr: float
@@ -97,8 +97,10 @@ async def list_models(
             continue
 
         # Filter by task type
-        if task_type and model_data.get("task_type") != task_type:
-            continue
+        if task_type:
+            model_task_types = model_data.get("task_types", [])
+            if task_type not in model_task_types:
+                continue
 
         # Filter by priority
         if priority is not None and model_data.get("priority") != priority:
@@ -120,7 +122,7 @@ async def list_models(
                 description=model_data["description"],
                 params=model_data["params"],
                 input_size=model_data["input_size"],
-                task_type=model_data["task_type"],
+                task_types=model_data["task_types"],
                 pretrained_available=model_data["pretrained_available"],
                 recommended_batch_size=model_data["recommended_batch_size"],
                 recommended_lr=model_data["recommended_lr"],
@@ -240,7 +242,7 @@ async def get_model_guide_by_query(
             "description": model_info["description"],
             "params": model_info["params"],
             "input_size": model_info["input_size"],
-            "task_type": model_info["task_type"],
+            "task_types": model_info["task_types"],
             "tags": model_info["tags"],
         },
         "benchmark": model_info.get("benchmark", {}),
@@ -297,7 +299,7 @@ async def get_model_guide(framework: str, model_name: str):
             "description": model_info["description"],
             "params": model_info["params"],
             "input_size": model_info["input_size"],
-            "task_type": model_info["task_type"],
+            "task_types": model_info["task_types"],
             "tags": model_info["tags"],
         },
         "benchmark": model_info.get("benchmark", {}),
@@ -343,7 +345,7 @@ async def compare_models(
                     "model_name": model_name,
                     "display_name": model_info["display_name"],
                     "params": model_info["params"],
-                    "task_type": model_info["task_type"],
+                    "task_types": model_info["task_types"],
                     "benchmark": model_info.get("benchmark", {}),
                     "tags": model_info["tags"],
                 })

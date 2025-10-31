@@ -20,7 +20,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "Vision Transformer (ViT) Base",
         "description": "Transformer-based image classification - Attention-based global context (86M params)",
         "framework": "huggingface",
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "model_id": "google/vit-base-patch16-224",
         "params": "86M",
         "input_size": 224,
@@ -90,7 +90,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "D-FINE (Detection Fine-grained)",
         "description": "SOTA real-time detector - Fine-grained bbox refinement (57.1% AP on COCO)",
         "framework": "huggingface",
-        "task_type": "object_detection",
+        "task_types": ["object_detection"],
         "model_id": "ustc-community/dfine-x-coco",
         "params": "67M",
         "input_size": 640,
@@ -155,7 +155,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "SegFormer-B0 (ADE20K)",
         "description": "Efficient semantic segmentation with hierarchical Transformer encoder",
         "framework": "huggingface",
-        "task_type": "semantic_segmentation",
+        "task_types": ["semantic_segmentation"],
         "model_id": "nvidia/segformer-b0-finetuned-ade-512-512",
         "params": "3.7M",
         "input_size": 512,
@@ -227,7 +227,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "Swin2SR 2x",
         "description": "Image restoration and super-resolution - 2x upscaling with artifact removal",
         "framework": "huggingface",
-        "task_type": "super_resolution",
+        "task_types": ["super_resolution"],
         "model_id": "caidas/swin2SR-classical-sr-x2-64",
         "params": "11.9M",
         "input_size": 512,
@@ -309,7 +309,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "Swin2SR 4x",
         "description": "Image restoration and super-resolution - 4x upscaling with artifact removal",
         "framework": "huggingface",
-        "task_type": "super_resolution",
+        "task_types": ["super_resolution"],
         "model_id": "caidas/swin2SR-classical-sr-x4-64",
         "params": "11.9M",
         "input_size": 256,
@@ -392,8 +392,10 @@ def list_huggingface_models(
 
     for model_name, model_info in HUGGINGFACE_MODEL_REGISTRY.items():
         # Task type filter
-        if task_type and model_info.get('task_type') != task_type:
-            continue
+        if task_type:
+            model_task_types = model_info.get('task_types', [])
+            if task_type not in model_task_types:
+                continue
 
         # Priority filter
         if priority is not None and model_info.get('priority') != priority:

@@ -22,7 +22,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p0", "baseline", "classic", "standard", "popular"],
         "priority": 0,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
 
         # 🆕 Phase 1: Model metadata
         "status": "active",  # active | deprecated | experimental
@@ -167,7 +167,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p0", "modern", "efficient", "balanced", "2021", "fast-training"],
         "priority": 0,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
 
         # 🆕 Phase 1: Model metadata
         "status": "active",
@@ -287,7 +287,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p0", "baseline", "lightweight", "fast", "classic"],
         "priority": 0,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
 
         # 🆕 Phase 1: Model metadata
         "status": "deprecated",  # Deprecated in favor of EfficientNet
@@ -407,7 +407,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p0", "efficient", "lightweight", "baseline", "2019"],
         "priority": 0,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
 
         # Benchmark performance
         "benchmark": {
@@ -527,7 +527,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p1", "classic", "simple", "transfer-learning"],
         "priority": 1,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 71.6,
             "imagenet_top5": 90.6,
@@ -573,7 +573,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p1", "mobile", "efficient", "edge", "realtime"],
         "priority": 1,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 75.8,
             "imagenet_top5": 92.7,
@@ -622,7 +622,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p1", "efficient", "dense-connections", "gradient-flow"],
         "priority": 1,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 74.9,
             "imagenet_top5": 92.2,
@@ -669,7 +669,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0004,
         "tags": ["p1", "modern", "2022", "sota", "transformer-inspired"],
         "priority": 1,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 82.1,
             "imagenet_top5": 96.0,
@@ -716,7 +716,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0003,
         "tags": ["p1", "transformer", "attention", "sota", "2021"],
         "priority": 1,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 84.5,
             "imagenet_top5": 97.2,
@@ -765,7 +765,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0005,
         "tags": ["p1", "transformer", "hierarchical", "efficient", "2021"],
         "priority": 1,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 81.2,
             "imagenet_top5": 95.5,
@@ -817,7 +817,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p2", "regnet", "efficient", "modern"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 81.7,
             "imagenet_top5": 95.8,
@@ -866,7 +866,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0005,
         "tags": ["p2", "transformer", "hybrid", "attention"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 83.6,
             "imagenet_top5": 96.7,
@@ -916,7 +916,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0003,
         "tags": ["p2", "transformer", "self-supervised", "bert-style"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 85.2,
             "imagenet_top5": 97.5,
@@ -966,7 +966,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0004,
         "tags": ["p2", "modern-cnn", "large", "high-accuracy"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 85.8,
             "imagenet_top5": 97.7,
@@ -1015,7 +1015,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0008,
         "tags": ["p2", "normalizer-free", "stable-training", "research"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 83.6,
             "imagenet_top5": 96.8,
@@ -1065,7 +1065,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.0005,
         "tags": ["p2", "hybrid", "attention", "efficient"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 81.6,
             "imagenet_top5": 95.7,
@@ -1114,7 +1114,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.002,
         "tags": ["p2", "mobile", "lightweight", "transformer", "edge"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 76.2,
             "imagenet_top5": 93.0,
@@ -1163,7 +1163,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.001,
         "tags": ["p2", "reparameterized", "simple", "fast-inference"],
         "priority": 2,
-        "task_type": "image_classification",
+        "task_types": ["image_classification"],
         "benchmark": {
             "imagenet_top1": 75.1,
             "imagenet_top5": 92.4,

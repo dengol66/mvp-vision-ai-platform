@@ -49,7 +49,7 @@ class TestModelsAPI:
         # Assert
         assert yolo11n is not None
         assert yolo11n["framework"] == "ultralytics"
-        assert yolo11n["task_type"] == "object_detection"
+        assert "object_detection" in yolo11n["task_types"]
         assert yolo11n["display_name"] == "YOLOv11 Nano"
         assert yolo11n["pretrained_available"] is True
 
@@ -86,10 +86,10 @@ class TestModelsAPI:
         response = client.get("/api/v1/models/list?task_type=object_detection")
         models = response.json()
 
-        # Assert: All models are object detection
+        # Assert: All models support object detection
         if len(models) > 0:
             for model in models:
-                assert model["task_type"] == "object_detection"
+                assert "object_detection" in model["task_types"]
 
     def test_yolo8_and_yolo11_coexist(self, client):
         """Test that both YOLOv8 and YOLOv11 models are available."""
