@@ -402,7 +402,16 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # Determine model path based on task
         suffix = self.TASK_SUFFIX_MAP.get(self.task_type, "")
-        model_path = f"{self.model_config.model_name}{suffix}.pt"
+
+        # Check if model_name already has the suffix to avoid duplication
+        # e.g., "yolo11n-seg" + "-seg" = "yolo11n-seg-seg" (WRONG)
+        if suffix and self.model_config.model_name.endswith(suffix):
+            # Model name already has suffix, don't add it again
+            model_path = f"{self.model_config.model_name}.pt"
+            print(f"[prepare_model] Model name already contains suffix '{suffix}', not adding again")
+        else:
+            # Add suffix to model name
+            model_path = f"{self.model_config.model_name}{suffix}.pt"
 
         print(f"[prepare_model] Step 2: Loading model: {model_path}")
         print(f"[prepare_model] Task type: {self.task_type}")
