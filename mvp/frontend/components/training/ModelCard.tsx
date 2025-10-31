@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronRight, Sparkles, Zap, Target } from 'lucide-react'
+import { ChevronRight, Sparkles, Target } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import Badge from '@/components/ui/Badge'
 
 export interface ModelInfo {
   framework: string
@@ -11,12 +12,12 @@ export interface ModelInfo {
   description: string
   params: string
   input_size: number
-  task_type: string
+  task_types: string[]  // Changed from task_type to task_types (array)
   pretrained_available: boolean
   recommended_batch_size: number
   recommended_lr: number
   tags: string[]
-  priority: number
+  status?: 'active' | 'experimental' | 'deprecated'
   benchmark?: Record<string, any>
   special_features?: {
     type: string
@@ -31,12 +32,6 @@ interface ModelCardProps {
   onSelect?: (model: ModelInfo) => void
   selected?: boolean
   className?: string
-}
-
-const PRIORITY_CONFIG = {
-  0: { label: 'P0', color: 'bg-blue-500', textColor: 'text-blue-500' },
-  1: { label: 'P1', color: 'bg-green-500', textColor: 'text-green-500' },
-  2: { label: 'P2', color: 'bg-gray-500', textColor: 'text-gray-500' },
 }
 
 const TASK_TYPE_LABELS: Record<string, string> = {
@@ -61,9 +56,9 @@ export default function ModelCard({
 }: ModelCardProps) {
   const [isHovered, setIsHovered] = useState(false)
 
-  const priorityConfig = PRIORITY_CONFIG[model.priority as keyof typeof PRIORITY_CONFIG]
-  const taskTypeLabel = TASK_TYPE_LABELS[model.task_type] || model.task_type
+  const taskTypeLabel = TASK_TYPE_LABELS[model.task_types[0]] || model.task_types[0]
   const frameworkLabel = FRAMEWORK_LABELS[model.framework] || model.framework
+  const status = model.status || 'active' // Default to 'active' if not specified
 
   const hasSpecialFeatures = !!model.special_features
 
@@ -132,13 +127,12 @@ export default function ModelCard({
             </p>
           </div>
 
-          {/* Priority Badge */}
-          <div className={cn(
-            'ml-3 px-2 py-1 rounded-md text-xs font-bold text-white shrink-0',
-            priorityConfig.color
-          )}>
-            {priorityConfig.label}
-          </div>
+          {/* Status Badge */}
+          <Badge variant={status} className="ml-3 shrink-0">
+            {status === 'active' && 'Active'}
+            {status === 'experimental' && 'Experimental'}
+            {status === 'deprecated' && 'Deprecated'}
+          </Badge>
         </div>
 
         {/* Badges */}
@@ -149,12 +143,6 @@ export default function ModelCard({
           <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-700">
             {taskTypeLabel}
           </span>
-          {model.pretrained_available && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-green-100 text-green-700">
-              <Zap className="w-3 h-3" />
-              Pre-trained
-            </span>
-          )}
         </div>
       </div>
 
@@ -175,23 +163,6 @@ export default function ModelCard({
               <div className="text-xs text-gray-500 mb-1">{keyMetric.label}</div>
               <div className="text-sm font-bold text-gray-900">{keyMetric.value}</div>
             </div>
-          )}
-        </div>
-
-        {/* Tags */}
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {model.tags.slice(0, 5).map((tag) => (
-            <span
-              key={tag}
-              className="inline-block px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600"
-            >
-              {tag}
-            </span>
-          ))}
-          {model.tags.length > 5 && (
-            <span className="inline-block px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
-              +{model.tags.length - 5}
-            </span>
           )}
         </div>
 

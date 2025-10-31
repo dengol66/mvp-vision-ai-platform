@@ -31,7 +31,7 @@ interface GuideData {
     description: string
     params: string
     input_size: number
-    task_type: string
+    task_types: string[]  // Changed from task_type to task_types
     tags: string[]
   }
   benchmark: Record<string, any>
