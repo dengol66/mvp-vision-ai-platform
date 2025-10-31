@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
@@ -510,7 +511,12 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h2 className="text-lg font-semibold text-gray-900">학습 진행 상황</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                {formatTrainingJobTitle(job.framework, job.model_name, job.task_type)}
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">학습 진행 상황</p>
+            </div>
           </div>
           {getStatusBadge(job.status)}
         </div>
@@ -841,11 +847,15 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                       </div>
                       <div>
                         <span className="text-gray-600">모델:</span>
-                        <span className="ml-2 font-medium text-gray-900">{job.model_name}</span>
+                        <span className="ml-2 font-medium text-gray-900">
+                          {getModelDisplayNameSync(job.framework, job.model_name)}
+                        </span>
                       </div>
                       <div>
                         <span className="text-gray-600">작업 유형:</span>
-                        <span className="ml-2 font-medium text-gray-900">{job.task_type}</span>
+                        <span className="ml-2 font-medium text-gray-900">
+                          {getTaskDisplayName(job.task_type)}
+                        </span>
                       </div>
                       {job.num_classes && (
                         <div>

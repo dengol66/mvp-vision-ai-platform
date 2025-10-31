@@ -30,6 +30,12 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "tags": ["p1", "transformer", "attention", "imagenet", "2021", "classification"],
         "priority": 1,
 
+        # 🆕 Phase 1: Model metadata
+        "status": "active",
+        "inference_only": False,
+        "recommended": True,  # P1 transformer model
+        "performance_tier": "accurate",  # High accuracy
+
         "architecture": {
             "type": "Vision Transformer",
             "patch_size": 16,
@@ -159,6 +165,12 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "tags": ["p1", "segmentation", "transformer", "efficient", "ade20k"],
         "priority": 1,
 
+        # 🆕 Phase 1: Model metadata
+        "status": "active",
+        "inference_only": True,  # Pretrained inference only (for now)
+        "recommended": True,  # P1 segmentation model
+        "performance_tier": "balanced",  # Efficient and accurate
+
         "architecture": {
             "type": "Hierarchical Transformer",
             "backbone": "MixTransformer-B0",
@@ -212,7 +224,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # ========================================
 
     "caidas/swin2SR-classical-sr-x2-64": {
-        "display_name": "Swin2SR (2x Super-Resolution)",
+        "display_name": "Swin2SR 2x",
         "description": "Image restoration and super-resolution - 2x upscaling with artifact removal",
         "framework": "huggingface",
         "task_type": "super_resolution",
@@ -225,6 +237,12 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 2e-4,
         "tags": ["p1", "super-resolution", "restoration", "swin", "2022", "image-quality"],
         "priority": 1,
+
+        # 🆕 Phase 1: Model metadata
+        "status": "experimental",  # experimental + inference_only
+        "inference_only": True,  # Image tool only (no training)
+        "recommended": True,  # Recommended for image quality enhancement
+        "performance_tier": "accurate",  # High quality upscaling
 
         "architecture": {
             "type": "Swin Transformer V2",
@@ -288,7 +306,7 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # ========================================
 
     "caidas/swin2SR-classical-sr-x4-64": {
-        "display_name": "Swin2SR (4x Super-Resolution)",
+        "display_name": "Swin2SR 4x",
         "description": "Image restoration and super-resolution - 4x upscaling with artifact removal",
         "framework": "huggingface",
         "task_type": "super_resolution",
@@ -301,6 +319,12 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 2e-4,
         "tags": ["p1", "super-resolution", "restoration", "swin", "2022", "4x"],
         "priority": 1,
+
+        # 🆕 Phase 1: Model metadata
+        "status": "experimental",  # experimental + inference_only
+        "inference_only": True,  # Image tool only (no training)
+        "recommended": True,  # Recommended for high-quality upscaling
+        "performance_tier": "accurate",  # High quality 4x upscaling
 
         "architecture": {
             "type": "Swin Transformer V2",

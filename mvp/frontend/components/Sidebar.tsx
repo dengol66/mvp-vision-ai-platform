@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban } from 'lucide-react'
+import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban, Wand2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,6 +23,7 @@ interface SidebarProps {
   onProjectSelect?: (projectId: number) => void
   selectedProjectId?: number | null
   onCreateProject?: () => void
+  onOpenImageTools?: () => void
   onOpenLogin?: () => void
   onOpenRegister?: () => void
   onOpenProfile?: () => void
@@ -35,6 +36,7 @@ export default function Sidebar({
   onProjectSelect,
   selectedProjectId,
   onCreateProject,
+  onOpenImageTools,
   onOpenLogin,
   onOpenRegister,
   onOpenProfile,
@@ -158,6 +160,25 @@ export default function Sidebar({
           Vision AI Platform
         </h1>
         <p className="text-xs text-gray-400 mt-1">Training Platform MVP</p>
+      </div>
+
+      {/* Image Tools Section */}
+      <div className="px-4 py-3 border-b border-gray-800">
+        <button
+          onClick={onOpenImageTools}
+          className={cn(
+            'w-full px-3 py-2.5 rounded-lg',
+            'text-left transition-colors',
+            'flex items-center gap-3',
+            'text-gray-300 hover:bg-gray-800 hover:text-violet-400'
+          )}
+        >
+          <Wand2 className="w-5 h-5" />
+          <div>
+            <p className="text-sm font-medium">이미지 도구</p>
+            <p className="text-xs text-gray-500">초해상화, 배경 제거 등</p>
+          </div>
+        </button>
       </div>
 
       {/* Recent Projects */}

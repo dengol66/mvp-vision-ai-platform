@@ -23,6 +23,12 @@ ULTRALYTICS_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "tags": ["p0", "latest", "2024", "ultralight", "realtime", "edge", "yolo11"],
         "priority": 0,
 
+        # 🆕 Phase 1: Model metadata
+        "status": "active",
+        "inference_only": False,
+        "recommended": True,  # P0 latest YOLO for edge
+        "performance_tier": "fast",  # Ultra-lightweight, fast inference
+
         # Benchmark performance
         "benchmark": {
             "coco_map50": 52.1,
@@ -136,6 +142,12 @@ ULTRALYTICS_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.01,
         "tags": ["p0", "latest", "2024", "balanced", "production", "sota", "yolo11"],
         "priority": 0,
+
+        # 🆕 Phase 1: Model metadata
+        "status": "active",
+        "inference_only": False,
+        "recommended": True,  # P0 best balance for production
+        "performance_tier": "balanced",  # Best accuracy/speed tradeoff
 
         # Benchmark performance
         "benchmark": {
@@ -541,6 +553,12 @@ ULTRALYTICS_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "recommended_lr": 0.01,
         "tags": ["p0", "baseline", "2023", "stable", "proven", "yolov8"],
         "priority": 0,
+
+        # 🆕 Phase 1: Model metadata
+        "status": "active",
+        "inference_only": False,
+        "recommended": False,  # Superseded by yolo11n, but kept for stability
+        "performance_tier": "fast",  # Fast nano model
 
         # Benchmark performance
         "benchmark": {

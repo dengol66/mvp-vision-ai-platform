@@ -11,6 +11,10 @@ __all__ = [
     "get_timm_model_info",
     "get_ultralytics_model_info",
     "get_huggingface_model",
+    "get_all_models",
+    "get_model_info",
+    "get_model_display_name",  # 🆕 Phase 1
+    "get_task_display_name",   # 🆕 Phase 1
 ]
 
 
@@ -55,3 +59,45 @@ def get_model_info(framework: str, model_name: str):
         return get_huggingface_model(model_name)
     else:
         return None
+
+
+# 🆕 Phase 1: Helper functions for display names
+
+def get_model_display_name(framework: str, model_name: str) -> str:
+    """
+    Get user-friendly display name for a model.
+
+    Args:
+        framework: Framework name (timm, ultralytics, huggingface)
+        model_name: Model ID (e.g., "resnet50", "google/vit-base-patch16-224")
+
+    Returns:
+        Display name (e.g., "ResNet-50", "Vision Transformer (ViT) Base")
+        Falls back to model_name if not found.
+    """
+    model_info = get_model_info(framework, model_name)
+    if model_info and "display_name" in model_info:
+        return model_info["display_name"]
+    return model_name  # Fallback
+
+
+def get_task_display_name(task_type: str) -> str:
+    """
+    Get user-friendly display name for a task type.
+
+    Args:
+        task_type: Task type (e.g., "image_classification", "object_detection")
+
+    Returns:
+        Korean display name (e.g., "이미지 분류", "객체 탐지")
+    """
+    TASK_DISPLAY_NAMES = {
+        "image_classification": "이미지 분류",
+        "object_detection": "객체 탐지",
+        "instance_segmentation": "인스턴스 분할",
+        "semantic_segmentation": "시맨틱 분할",
+        "pose_estimation": "자세 추정",
+        "super_resolution": "초해상화",
+        "segmentation": "분할",  # Unified segmentation
+    }
+    return TASK_DISPLAY_NAMES.get(task_type, task_type)

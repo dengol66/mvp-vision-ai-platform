@@ -13,6 +13,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
 
     "resnet50": {
         "display_name": "ResNet-50",
+        "model_id": "resnet50",  # ID for model loading
         "description": "Most popular baseline CNN - Industry standard for benchmarking",
         "params": "25.6M",
         "input_size": 224,
@@ -22,6 +23,12 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "tags": ["p0", "baseline", "classic", "standard", "popular"],
         "priority": 0,
         "task_type": "image_classification",
+
+        # 🆕 Phase 1: Model metadata
+        "status": "active",  # active | deprecated | experimental
+        "inference_only": False,  # Can be trained
+        "recommended": True,  # P0 model, recommended for users
+        "performance_tier": "balanced",  # Balanced speed/accuracy
 
         # Benchmark performance
         "benchmark": {
@@ -151,6 +158,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
 
     "tf_efficientnetv2_s.in1k": {
         "display_name": "EfficientNetV2-Small",
+        "model_id": "tf_efficientnetv2_s.in1k",
         "description": "Modern efficient CNN - Best accuracy/speed trade-off with fast training",
         "params": "21.5M",
         "input_size": 384,
@@ -160,6 +168,12 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "tags": ["p0", "modern", "efficient", "balanced", "2021", "fast-training"],
         "priority": 0,
         "task_type": "image_classification",
+
+        # 🆕 Phase 1: Model metadata
+        "status": "active",
+        "inference_only": False,
+        "recommended": True,  # P0 model, best modern choice
+        "performance_tier": "balanced",  # Excellent balance
 
         # Benchmark performance
         "benchmark": {
@@ -264,6 +278,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
 
     "resnet18": {
         "display_name": "ResNet-18",
+        "model_id": "resnet18",
         "description": "Lightweight baseline CNN - Faster training and inference than ResNet-50",
         "params": "11.7M",
         "input_size": 224,
@@ -273,6 +288,12 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "tags": ["p0", "baseline", "lightweight", "fast", "classic"],
         "priority": 0,
         "task_type": "image_classification",
+
+        # 🆕 Phase 1: Model metadata
+        "status": "deprecated",  # Deprecated in favor of EfficientNet
+        "inference_only": False,
+        "recommended": False,  # Not recommended, use EfficientNet or ResNet-50
+        "performance_tier": "fast",  # Fast but lower accuracy
 
         # Benchmark performance
         "benchmark": {

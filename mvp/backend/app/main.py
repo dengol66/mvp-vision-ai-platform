@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
-from app.api import auth, chat, training, projects, debug, datasets, admin, validation, test_inference, models
+from app.api import auth, chat, training, projects, debug, datasets, admin, validation, test_inference, models, image_tools
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -37,6 +37,7 @@ app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["
 app.include_router(training.router, prefix=f"{settings.API_V1_PREFIX}/training", tags=["training"])
 app.include_router(validation.router, prefix=f"{settings.API_V1_PREFIX}", tags=["validation"])
 app.include_router(test_inference.router, prefix=f"{settings.API_V1_PREFIX}", tags=["test_inference"])
+app.include_router(image_tools.router, prefix=f"{settings.API_V1_PREFIX}", tags=["image_tools"])  # Image tools
 app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
 app.include_router(datasets.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["admin"])
@@ -80,44 +81,50 @@ async def start_background_tasks():
         Periodically clean up old inference session directories.
 
         Runs every hour and deletes sessions where all files are older than 2 hours.
+        Cleans up both inference_temp and image_tools_temp directories.
         """
         while True:
             try:
                 await asyncio.sleep(3600)  # Run every 1 hour
 
-                temp_dir = Path(settings.UPLOAD_DIR) / "inference_temp"
-
-                if not temp_dir.exists():
-                    continue
+                # Cleanup both inference_temp and image_tools_temp
+                temp_dirs = [
+                    Path(settings.UPLOAD_DIR) / "inference_temp",
+                    Path(settings.UPLOAD_DIR) / "image_tools_temp"
+                ]
 
                 cutoff_time = datetime.now() - timedelta(hours=2)
 
-                for session_dir in temp_dir.iterdir():
-                    if not session_dir.is_dir():
+                for temp_dir in temp_dirs:
+                    if not temp_dir.exists():
                         continue
 
-                    try:
-                        # Check if all files in session are older than cutoff
-                        files = list(session_dir.iterdir())
-
-                        if not files:
-                            # Empty directory - delete it
-                            session_dir.rmdir()
-                            print(f"[CLEANUP] Removed empty session: {session_dir.name}")
+                    for session_dir in temp_dir.iterdir():
+                        if not session_dir.is_dir():
                             continue
 
-                        all_old = all(
-                            datetime.fromtimestamp(f.stat().st_mtime) < cutoff_time
-                            for f in files
-                        )
+                        try:
+                            # Check if all files in session are older than cutoff
+                            files = list(session_dir.iterdir())
 
-                        if all_old:
-                            shutil.rmtree(session_dir)
-                            print(f"[CLEANUP] Removed old session: {session_dir.name} ({len(files)} files)")
+                            if not files:
+                                # Empty directory - delete it
+                                session_dir.rmdir()
+                                print(f"[CLEANUP] Removed empty session: {session_dir.name}")
+                                continue
 
-                    except Exception as e:
-                        print(f"[CLEANUP] Error processing session {session_dir.name}: {e}")
-                        continue
+                            all_old = all(
+                                datetime.fromtimestamp(f.stat().st_mtime) < cutoff_time
+                                for f in files
+                            )
+
+                            if all_old:
+                                shutil.rmtree(session_dir)
+                                print(f"[CLEANUP] Removed old session: {session_dir.name} ({len(files)} files)")
+
+                        except Exception as e:
+                            print(f"[CLEANUP] Error processing session {session_dir.name}: {e}")
+                            continue
 
             except Exception as e:
                 print(f"[CLEANUP] Background cleanup task error: {e}")

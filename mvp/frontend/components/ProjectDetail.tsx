@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon, Crown, UserPlus, X as XClose } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getAvatarColorStyle, getAvatarRingColor } from '@/lib/utils/avatarColors'
+import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface Experiment {
@@ -605,7 +606,7 @@ export default function ProjectDetail({
                     <div className="flex items-center gap-3">
                       {getStatusIcon(exp.status)}
                       <h4 className="font-semibold text-gray-900">
-                        {exp.experiment_name || `Experiment ${exp.id}`}
+                        {exp.experiment_name || formatTrainingJobTitle(exp.framework, exp.model_name, exp.task_type)}
                       </h4>
                       <span className={cn(
                         'px-2 py-1 rounded text-xs font-medium',
@@ -619,7 +620,7 @@ export default function ProjectDetail({
                     </div>
 
                     <div className="mt-2 flex items-center gap-4 text-sm text-gray-600">
-                      <span>{exp.model_name}</span>
+                      <span>{getModelDisplayNameSync(exp.framework, exp.model_name)}</span>
                       <span>•</span>
                       <span>{exp.framework}</span>
                       <span>•</span>
@@ -673,11 +674,15 @@ export default function ProjectDetail({
                       </div>
                       <div>
                         <span className="text-gray-500">모델:</span>
-                        <span className="ml-2 text-gray-900">{exp.model_name}</span>
+                        <span className="ml-2 text-gray-900">
+                          {getModelDisplayNameSync(exp.framework, exp.model_name)}
+                        </span>
                       </div>
                       <div>
                         <span className="text-gray-500">작업 유형:</span>
-                        <span className="ml-2 text-gray-900">{exp.task_type}</span>
+                        <span className="ml-2 text-gray-900">
+                          {getTaskDisplayName(exp.task_type)}
+                        </span>
                       </div>
                       <div>
                         <span className="text-gray-500">Epochs:</span>
