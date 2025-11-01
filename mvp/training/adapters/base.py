@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+import sys
 
 
 class TaskType(Enum):
@@ -16,6 +17,7 @@ class TaskType(Enum):
     SEMANTIC_SEGMENTATION = "semantic_segmentation"
     POSE_ESTIMATION = "pose_estimation"
     DEPTH_ESTIMATION = "depth_estimation"
+    SUPER_RESOLUTION = "super_resolution"
 
     # Vision-Language
     IMAGE_CAPTIONING = "image_captioning"
@@ -49,6 +51,7 @@ TASK_PRIMARY_METRICS = {
     TaskType.INSTANCE_SEGMENTATION: 'mAP50',
     TaskType.SEMANTIC_SEGMENTATION: 'miou',
     TaskType.POSE_ESTIMATION: 'pck',
+    TaskType.SUPER_RESOLUTION: 'psnr',
 }
 
 
@@ -150,6 +153,33 @@ TASK_STANDARD_METRICS = {
             format='percent',
             higher_is_better=True,
             description='Dice similarity coefficient'
+        ),
+        'train_loss': MetricDefinition(
+            label='Train Loss',
+            format='float',
+            higher_is_better=False,
+            description='Training loss'
+        ),
+        'val_loss': MetricDefinition(
+            label='Validation Loss',
+            format='float',
+            higher_is_better=False,
+            description='Validation loss'
+        ),
+    },
+
+    TaskType.SUPER_RESOLUTION: {
+        'psnr': MetricDefinition(
+            label='PSNR',
+            format='float',
+            higher_is_better=True,
+            description='Peak Signal-to-Noise Ratio in dB'
+        ),
+        'ssim': MetricDefinition(
+            label='SSIM',
+            format='float',
+            higher_is_better=True,
+            description='Structural Similarity Index'
         ),
         'train_loss': MetricDefinition(
             label='Train Loss',
@@ -318,8 +348,9 @@ class InferenceResult:
     predicted_boxes: Optional[List[Dict[str, Any]]] = None
 
     # Segmentation fields
-    predicted_mask: Optional[Any] = None  # np.ndarray or torch.Tensor
+    predicted_mask: Optional[Any] = None  # np.ndarray or torch.Tensor (deprecated)
     predicted_mask_path: Optional[str] = None
+    predicted_masks: Optional[List[Dict[str, Any]]] = None  # List of polygon masks
 
     # Pose estimation fields
     predicted_keypoints: Optional[List[Dict[str, Any]]] = None
@@ -485,7 +516,29 @@ class TrainingAdapter(ABC):
             overall_loss = validation_metrics.overall_loss
 
             # Prepare task-specific fields
-            metrics_json = json.dumps(task_metrics.to_dict())
+            metrics_dict = task_metrics.to_dict()
+
+            # Merge extra metrics if present (e.g., Box/Mask metrics for segmentation)
+            import sys
+            print(f"[_save_validation_result DEBUG] Checking for _extra_metrics...")
+            sys.stdout.flush()
+            print(f"[_save_validation_result DEBUG] hasattr: {hasattr(validation_metrics, '_extra_metrics')}")
+            sys.stdout.flush()
+            if hasattr(validation_metrics, '_extra_metrics'):
+                print(f"[_save_validation_result DEBUG] _extra_metrics value: {validation_metrics._extra_metrics}")
+                sys.stdout.flush()
+
+            if hasattr(validation_metrics, '_extra_metrics') and validation_metrics._extra_metrics:
+                print(f"[_save_validation_result DEBUG] Merging {len(validation_metrics._extra_metrics)} extra metrics")
+                sys.stdout.flush()
+                metrics_dict.update(validation_metrics._extra_metrics)
+                print(f"[_save_validation_result DEBUG] After merge: {len(metrics_dict)} total keys")
+                sys.stdout.flush()
+            else:
+                print(f"[_save_validation_result DEBUG] No _extra_metrics to merge")
+                sys.stdout.flush()
+
+            metrics_json = json.dumps(metrics_dict)
             per_class_metrics_json = None
             confusion_matrix_json = None
             pr_curves_json = None
@@ -847,7 +900,9 @@ class TrainingAdapter(ABC):
                     result = self.infer_single(img_path)
                     results.append(result)
                 except Exception as e:
-                    print(f"[WARNING] Failed to process {img_path}: {e}")
+                    print(f"[ERROR] Failed to process {img_path}: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
                     # Continue with next image
 
         return results
@@ -1583,10 +1638,12 @@ class TrainingCallbacks:
             print(f"[Callbacks] Warning: MLflow run not started, call on_train_begin() first")
             return
 
-        # Log to MLflow
+        # Log to MLflow (sanitize metric names)
         for key, value in metrics.items():
             if isinstance(value, (int, float)):
-                mlflow.log_metric(key, value, step=epoch)
+                # Sanitize metric name: replace invalid chars with underscores
+                sanitized_key = key.replace('(', '_').replace(')', '_').replace(' ', '_')
+                mlflow.log_metric(sanitized_key, value, step=epoch)
 
         # Log to database
         # Extract common metrics

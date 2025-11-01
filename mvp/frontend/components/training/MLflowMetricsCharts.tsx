@@ -24,11 +24,13 @@ interface MLflowMetricsData {
 interface MLflowMetricsChartsProps {
   jobId: number | string;
   selectedMetrics?: string[];
+  jobStatus?: string;
 }
 
 export default function MLflowMetricsCharts({
   jobId,
   selectedMetrics = [],
+  jobStatus,
 }: MLflowMetricsChartsProps) {
   const [metricsData, setMetricsData] = useState<MLflowMetricsData | null>(
     null
@@ -36,6 +38,12 @@ export default function MLflowMetricsCharts({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Don't fetch if job is pending
+    if (jobStatus === 'pending') {
+      setIsLoading(false);
+      return;
+    }
+
     const fetchMetrics = async () => {
       try {
         const response = await fetch(
@@ -54,10 +62,10 @@ export default function MLflowMetricsCharts({
 
     fetchMetrics();
 
-    // Poll every 5 seconds for updates
+    // Poll every 5 seconds for updates (only if not pending)
     const interval = setInterval(fetchMetrics, 5000);
     return () => clearInterval(interval);
-  }, [jobId]);
+  }, [jobId, jobStatus]);
 
   if (isLoading) {
     return (
@@ -68,6 +76,17 @@ export default function MLflowMetricsCharts({
         <div className="animate-pulse">
           <div className="h-48 bg-gray-200 rounded-lg"></div>
         </div>
+      </div>
+    );
+  }
+
+  // Show message for pending status (no spinner)
+  if (jobStatus === 'pending') {
+    return (
+      <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+        <p className="text-sm text-gray-500">
+          학습을 시작하면 메트릭이 표시됩니다
+        </p>
       </div>
     );
   }

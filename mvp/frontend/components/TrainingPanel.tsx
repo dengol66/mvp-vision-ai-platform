@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
@@ -510,7 +511,12 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h2 className="text-lg font-semibold text-gray-900">학습 진행 상황</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                {formatTrainingJobTitle(job.framework, job.model_name, job.task_type)}
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">학습 진행 상황</p>
+            </div>
           </div>
           {getStatusBadge(job.status)}
         </div>
@@ -619,21 +625,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto">
-        {/* Show message if not started yet */}
-        {job.status === 'pending' && (
-          <div className="p-6">
-            <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
-              <p className="text-sm text-gray-500">학습을 시작하면 메트릭과 실험 정보가 표시됩니다</p>
-            </div>
-          </div>
-        )}
-
-        {/* Tabs - Show after training starts */}
-        {job.status !== 'pending' && (
-          <>
-            {/* Tab Navigation - Sticky */}
-            <div className="sticky top-0 z-20 border-b border-gray-200 bg-white px-6 shadow-sm">
-              <div className="flex space-x-8">
+        {/* Tabs - Always show */}
+        <>
+          {/* Tab Navigation - Sticky */}
+          <div className="sticky top-0 z-20 border-b border-gray-200 bg-white px-6 shadow-sm">
+            <div className="flex space-x-8">
                 <button
                   onClick={() => setActiveTab('metrics')}
                   className={cn(
@@ -769,28 +765,32 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               <MLflowMetricsCharts
                 jobId={job.id}
                 selectedMetrics={selectedMetrics}
+                jobStatus={job.status}
               />
             </div>
 
-            {/* Metrics Table */}
-            <div>
-              <DatabaseMetricsTable
-                jobId={job.id}
-                metrics={metrics}
-                selectedMetrics={selectedMetrics}
-                onMetricToggle={(metricKey) => {
-                  setSelectedMetrics(prev =>
-                    prev.includes(metricKey)
-                      ? prev.filter(m => m !== metricKey)
-                      : [...prev, metricKey]
-                  )
-                }}
-                onCheckpointSelect={(checkpointPath, epoch) => {
-                  console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
-                  // Will implement resume dialog in next step
-                }}
-              />
-            </div>
+            {/* Metrics Table - Hide when pending */}
+            {job.status !== 'pending' && (
+              <div>
+                <DatabaseMetricsTable
+                  jobId={job.id}
+                  metrics={metrics}
+                  selectedMetrics={selectedMetrics}
+                  jobStatus={job.status}
+                  onMetricToggle={(metricKey) => {
+                    setSelectedMetrics(prev =>
+                      prev.includes(metricKey)
+                        ? prev.filter(m => m !== metricKey)
+                        : [...prev, metricKey]
+                    )
+                  }}
+                  onCheckpointSelect={(checkpointPath, epoch) => {
+                    console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
+                    // Will implement resume dialog in next step
+                  }}
+                />
+              </div>
+            )}
 
             {/* Final Metric */}
             {job.final_accuracy !== null && (
@@ -806,10 +806,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               {/* Validation Tab */}
               {activeTab === 'validation' && (
                 <>
-                  {metrics.length > 0 ? (
+                  {job.status === 'pending' || metrics.length > 0 ? (
                     <ValidationDashboard
                       jobId={job.id}
                       currentEpoch={metrics[metrics.length - 1]?.epoch}
+                      jobStatus={job.status}
                     />
                   ) : (
                     <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
@@ -842,11 +843,15 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                       </div>
                       <div>
                         <span className="text-gray-600">모델:</span>
-                        <span className="ml-2 font-medium text-gray-900">{job.model_name}</span>
+                        <span className="ml-2 font-medium text-gray-900">
+                          {getModelDisplayNameSync(job.framework, job.model_name)}
+                        </span>
                       </div>
                       <div>
                         <span className="text-gray-600">작업 유형:</span>
-                        <span className="ml-2 font-medium text-gray-900">{job.task_type}</span>
+                        <span className="ml-2 font-medium text-gray-900">
+                          {getTaskDisplayName(job.task_type)}
+                        </span>
                       </div>
                       {job.num_classes && (
                         <div>
@@ -1082,7 +1087,6 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               )}
             </div>
           </>
-        )}
       </div>
 
       {/* Resume Dialog */}

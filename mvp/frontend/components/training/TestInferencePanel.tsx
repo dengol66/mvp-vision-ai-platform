@@ -8,8 +8,10 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Settings, Play, AlertCircle } from 'lucide-react'
+import { Upload, Settings, Play, AlertCircle, Terminal, Info, CheckCircle, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { SlidePanel } from '../SlidePanel'
+import ImageUploadList from './ImageUploadList'
 
 interface TrainingJob {
   id: number
@@ -51,6 +53,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [bestMetricName, setBestMetricName] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showSlidePanel, setShowSlidePanel] = useState(false)
 
   // Session ID for image uploads (generated once per component mount)
   const [sessionId] = useState<string>(() => {
@@ -64,12 +67,31 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [maxDetections, setMaxDetections] = useState(100)
   const [topK, setTopK] = useState(5)
 
-  // File input ref
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Visualization settings
+  const [showMasks, setShowMasks] = useState(true)
+  const [showBoxes, setShowBoxes] = useState(false)
 
   // Canvas ref for bbox visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
+
+  // Logs state
+  interface LogEntry {
+    timestamp: Date
+    level: 'info' | 'success' | 'warning' | 'error'
+    message: string
+  }
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const logsEndRef = useRef<HTMLDivElement>(null)
+
+  // Helper to add log entry
+  const addLog = (level: LogEntry['level'], message: string) => {
+    setLogs(prev => [...prev, { timestamp: new Date(), level, message }])
+    // Auto-scroll to bottom
+    setTimeout(() => {
+      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
+  }
 
   // Fetch job details
   useEffect(() => {
@@ -131,13 +153,13 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     }
   }, [sessionId])
 
-  // Draw bboxes when image or results change
+  // Draw bboxes when image, results, or visibility changes
   useEffect(() => {
     const selectedImage = images.find(img => img.id === selectedImageId)
     if (selectedImage?.result && imageRef.current?.complete) {
       drawBoundingBoxes()
     }
-  }, [images, selectedImageId])
+  }, [images, selectedImageId, showMasks, showBoxes])
 
   const drawBoundingBoxes = () => {
     const canvas = canvasRef.current
@@ -169,10 +191,65 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     }
 
     const boxes = selectedImage.result.predicted_boxes || []
+    const masks = selectedImage.result.predicted_masks || []
 
-    // Draw each bbox
-    ctx.lineWidth = 3
-    boxes.forEach((box: any) => {
+    console.log('[CANVAS] task_type:', selectedImage.result.task_type)
+    console.log('[CANVAS] masks array:', masks)
+    console.log('[CANVAS] masks.length:', masks.length)
+    console.log('[CANVAS] showMasks:', showMasks)
+    console.log('[CANVAS] showBoxes:', showBoxes)
+    console.log('[CANVAS] canvas size:', canvas.width, 'x', canvas.height)
+
+    // Draw masks first (if segmentation task and showMasks is enabled)
+    if (showMasks && selectedImage.result.task_type === 'instance_segmentation' && masks.length > 0) {
+      console.log('[CANVAS] Drawing masks...')
+      masks.forEach((mask: any, idx: number) => {
+        console.log(`[CANVAS] Mask ${idx}:`, mask)
+        console.log(`[CANVAS] Mask ${idx} polygon length:`, mask.polygon?.length)
+        if (mask.polygon && mask.polygon.length > 0) {
+          console.log(`[CANVAS] Drawing polygon for mask ${idx} with ${mask.polygon.length} points`)
+
+          // Use different colors for each instance (cycle through palette)
+          const colors = [
+            { fill: 'rgba(168, 85, 247, 0.4)', stroke: '#A855F7' },  // Purple
+            { fill: 'rgba(34, 197, 94, 0.4)', stroke: '#22C55E' },   // Green
+            { fill: 'rgba(59, 130, 246, 0.4)', stroke: '#3B82F6' },  // Blue
+            { fill: 'rgba(251, 146, 60, 0.4)', stroke: '#FB923C' },  // Orange
+            { fill: 'rgba(236, 72, 153, 0.4)', stroke: '#EC4899' },  // Pink
+          ]
+          const color = colors[idx % colors.length]
+
+          // Draw filled polygon with transparency
+          ctx.fillStyle = color.fill
+          ctx.strokeStyle = color.stroke
+          ctx.lineWidth = 3
+
+          ctx.beginPath()
+          const firstPoint = mask.polygon[0]
+          console.log('[CANVAS] First point:', firstPoint)
+          ctx.moveTo(firstPoint[0], firstPoint[1])
+
+          mask.polygon.forEach((point: number[]) => {
+            ctx.lineTo(point[0], point[1])
+          })
+
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
+          console.log(`[CANVAS] Mask ${idx} drawn successfully with color:`, color.stroke)
+        } else {
+          console.log(`[CANVAS] Mask ${idx} has no polygon data`)
+        }
+      })
+    } else {
+      console.log('[CANVAS] NOT drawing masks. Reason:',
+        selectedImage.result.task_type !== 'instance_segmentation' ? 'not segmentation task' : 'no masks')
+    }
+
+    // Draw bboxes (if showBoxes is enabled)
+    if (showBoxes) {
+      ctx.lineWidth = 3
+      boxes.forEach((box: any) => {
       // Use x1, y1, x2, y2 from backend
       if (box.x1 !== undefined && box.x2 !== undefined) {
         const x = box.x1
@@ -200,22 +277,12 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           ctx.fillText(label, x + padding, y - 6)
         }
       }
-    })
+      })
+    }
   }
 
   const handleImageLoad = () => {
     drawBoundingBoxes()
-  }
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    addImages(files)
-  }
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
-    addImages(files)
   }
 
   const addImages = (files: File[]) => {
@@ -229,12 +296,18 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     if (!selectedImageId && newImages.length > 0) {
       setSelectedImageId(newImages[0].id)
     }
+    addLog('info', `${newImages.length}개의 이미지를 추가했습니다: ${files.map(f => f.name).join(', ')}`)
   }
 
   const runInference = async () => {
-    if (!selectedEpoch || !selectedEpoch.checkpoint_path || images.length === 0) return
+    // Allow inference if either pretrained (selectedEpoch is null) or checkpoint exists
+    if (images.length === 0) return
+    if (selectedEpoch && !selectedEpoch.checkpoint_path) return
 
     setIsRunning(true)
+
+    const weightType = selectedEpoch ? `Epoch ${selectedEpoch.epoch}` : 'Pretrained Weight'
+    addLog('info', `추론을 시작합니다 (가중치: ${weightType}, 이미지: ${images.length}개)`)
 
     try {
       // Run inference on each image
@@ -248,6 +321,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           // Step 1: Upload image to server if not already uploaded
           let serverPath = image.serverPath
           if (!serverPath) {
+            addLog('info', `이미지 업로드 중: ${image.file.name}`)
             const formData = new FormData()
             formData.append('file', image.file)
 
@@ -270,28 +344,66 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             setImages(prev => prev.map(img =>
               img.id === image.id ? { ...img, serverPath } : img
             ))
+            addLog('success', `이미지 업로드 완료: ${image.file.name}`)
           }
 
           // Step 2: Run inference with server path and checkpoint from validation results
+          if (!serverPath) {
+            addLog('error', `이미지 경로를 찾을 수 없습니다: ${image.file.name}`)
+            continue
+          }
+
+          addLog('info', `추론 실행 중: ${image.file.name}`)
+          // Build query parameters
+          const params = new URLSearchParams({
+            training_job_id: jobId.toString(),
+            image_path: serverPath,
+            confidence_threshold: confidenceThreshold.toString(),
+            iou_threshold: iouThreshold.toString(),
+            max_detections: maxDetections.toString(),
+            top_k: topK.toString()
+          })
+
+          // Add checkpoint_path only if selected epoch exists (not pretrained)
+          if (selectedEpoch && selectedEpoch.checkpoint_path) {
+            params.append('checkpoint_path', selectedEpoch.checkpoint_path)
+          }
+          // If selectedEpoch is null, backend will use pretrained weights
+
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/quick?` + new URLSearchParams({
-              training_job_id: jobId.toString(),
-              checkpoint_path: selectedEpoch.checkpoint_path,
-              image_path: serverPath,
-              confidence_threshold: confidenceThreshold.toString(),
-              iou_threshold: iouThreshold.toString(),
-              max_detections: maxDetections.toString(),
-              top_k: topK.toString()
-            }),
+            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/quick?` + params.toString(),
             { method: 'POST' }
           )
 
           if (response.ok) {
             const result = await response.json()
+            console.log('[DEBUG] Inference result received:', result)
+            console.log('[DEBUG] Full result JSON:', JSON.stringify(result, null, 2))
+            console.log('[DEBUG] task_type:', result.task_type)
+            console.log('[DEBUG] top5_predictions:', result.top5_predictions)
+            console.log('[DEBUG] Has upscaled_image_url:', !!result.upscaled_image_url)
+            console.log('[DEBUG] upscaled_image_url value:', result.upscaled_image_url)
+
             // Update image with result
             setImages(prev => prev.map(img =>
               img.id === image.id ? { ...img, status: 'completed', result } : img
             ))
+
+            // Log result summary
+            let resultSummary = `추론 완료: ${image.file.name} (${result.inference_time_ms?.toFixed(1)}ms)`
+            if (result.task_type === 'image_classification') {
+              const topPred = result.top5_predictions?.[0]
+              if (topPred) {
+                resultSummary += ` - Top-1: ${topPred.label} (${(topPred.confidence * 100).toFixed(1)}%)`
+              }
+            } else if (result.task_type === 'object_detection') {
+              resultSummary += ` - ${result.num_detections}개 탐지`
+            } else if (result.task_type === 'instance_segmentation' || result.task_type === 'semantic_segmentation') {
+              resultSummary += ` - ${result.num_instances}개 인스턴스`
+            } else if (result.task_type === 'pose_estimation') {
+              resultSummary += ` - ${result.num_persons}명 탐지`
+            }
+            addLog('success', resultSummary)
           } else {
             const errorData = await response.json().catch(() => ({}))
             throw new Error(errorData.detail || 'Inference failed')
@@ -302,8 +414,13 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           setImages(prev => prev.map(img =>
             img.id === image.id ? { ...img, status: 'failed', error: errorMessage } : img
           ))
+          addLog('error', `추론 실패: ${image.file.name} - ${errorMessage}`)
         }
       }
+
+      const successCount = images.filter(img => img.status === 'completed').length
+      const failedCount = images.filter(img => img.status === 'failed').length
+      addLog('info', `추론 완료 - 성공: ${successCount}개, 실패: ${failedCount}개`)
     } finally {
       setIsRunning(false)
     }
@@ -330,53 +447,86 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     )
   }
 
+  const handleImageRemove = (imageId: string) => {
+    setImages(prev => prev.filter(img => img.id !== imageId))
+    // If removed image was selected, select another or none
+    if (selectedImageId === imageId) {
+      const remainingImages = images.filter(img => img.id !== imageId)
+      setSelectedImageId(remainingImages.length > 0 ? remainingImages[0].id : null)
+    }
+    addLog('info', '이미지를 삭제했습니다')
+  }
+
+  const handleClearAll = () => {
+    setImages([])
+    setSelectedImageId(null)
+    addLog('info', '모든 이미지를 삭제했습니다')
+  }
+
+  const handleImageSelect = (imageId: string) => {
+    console.log('[DEBUG] handleImageSelect called with imageId:', imageId)
+    const image = images.find(img => img.id === imageId)
+    console.log('[DEBUG] Found image:', image)
+    if (!image) {
+      console.log('[DEBUG] Image not found, returning')
+      return
+    }
+
+    console.log('[DEBUG] Setting selectedImageId to:', imageId)
+    console.log('[DEBUG] Image result:', image.result)
+    console.log('[DEBUG] Image task_type:', image.result?.task_type)
+    console.log('[DEBUG] Image top5_predictions:', image.result?.top5_predictions)
+    setSelectedImageId(imageId)
+
+    // Show slide panel for super-resolution results
+    if (image.result && image.status === 'completed' && image.result.upscaled_image_url) {
+      setShowSlidePanel(true)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Upload and Settings Section */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Image Upload */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">이미지 업로드</h3>
-
-          <div className="space-y-3">
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-
-            {/* Upload count */}
-            <div className="text-xs text-gray-500">
-              업로드된 이미지: <span className="font-medium text-gray-900">{images.length}개</span>
+      {/* Task Type Header */}
+      <div className="bg-gradient-to-r from-violet-50 to-purple-50 rounded-lg border border-violet-200 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "px-3 py-1 rounded-full text-xs font-semibold",
+              job.task_type === 'instance_segmentation'
+                ? "bg-purple-500 text-white"
+                : job.task_type === 'object_detection'
+                ? "bg-blue-500 text-white"
+                : "bg-green-500 text-white"
+            )}>
+              {job.task_type === 'instance_segmentation' ? '🎭 Instance Segmentation' :
+               job.task_type === 'object_detection' ? '📦 Object Detection' :
+               '🖼️ Image Classification'}
             </div>
-
-            {/* Drop zone - clickable */}
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              className={cn(
-                'border-2 border-dashed border-gray-300',
-                'rounded-lg p-8',
-                'text-center',
-                'hover:border-violet-400 hover:bg-violet-50/50',
-                'transition-colors cursor-pointer'
-              )}
-            >
-              <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-              <p className="text-sm text-gray-600 mb-1">
-                이미지를 드래그 앤 드롭하세요
-              </p>
-              <p className="text-xs text-gray-500">
-                또는 클릭하여 파일 선택
-              </p>
-            </div>
+            <span className="text-sm text-gray-700">
+              {job.task_type === 'instance_segmentation'
+                ? 'Mask와 Bounding Box를 함께 예측합니다'
+                : job.task_type === 'object_detection'
+                ? 'Bounding Box를 예측합니다'
+                : 'Class와 Confidence를 예측합니다'}
+            </span>
+          </div>
+          <div className="text-xs text-gray-500">
+            Model: <span className="font-mono text-violet-600">{job.model_name}</span>
           </div>
         </div>
+      </div>
+
+      {/* Upload and Settings Section */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* Image Upload - Using unified component */}
+        <ImageUploadList
+          images={images}
+          selectedImageId={selectedImageId}
+          onImagesAdd={addImages}
+          onImageSelect={handleImageSelect}
+          onImageRemove={handleImageRemove}
+          onClearAll={handleClearAll}
+        />
 
         {/* Inference Settings */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -389,13 +539,17 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             {/* Epoch Selection */}
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">
-                에폭 선택
+                모델 가중치 선택
               </label>
               <select
-                value={selectedEpoch?.epoch || ''}
+                value={selectedEpoch?.epoch || 'pretrained'}
                 onChange={(e) => {
-                  const epoch = epochMetrics.find(m => m.epoch === Number(e.target.value))
-                  setSelectedEpoch(epoch || null)
+                  if (e.target.value === 'pretrained') {
+                    setSelectedEpoch(null)
+                  } else {
+                    const epoch = epochMetrics.find(m => m.epoch === Number(e.target.value))
+                    setSelectedEpoch(epoch || null)
+                  }
                 }}
                 className={cn(
                   'w-full px-3 py-2 text-sm',
@@ -404,22 +558,36 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                   'bg-white'
                 )}
               >
-                {epochMetrics.length === 0 && (
-                  <option value="">검증 결과 없음</option>
+                {/* Pretrained weight option - always available */}
+                <option value="pretrained">
+                  🔷 Pretrained Weight (사전학습 모델)
+                </option>
+
+                {/* Trained epochs */}
+                {epochMetrics.length > 0 && (
+                  <optgroup label="학습된 체크포인트">
+                    {epochMetrics.map(metric => (
+                      <option
+                        key={metric.epoch}
+                        value={metric.epoch}
+                        disabled={!metric.checkpoint_path}
+                      >
+                        Epoch {metric.epoch}
+                        {metric.epoch === bestEpoch ? ' ⭐' : ''}
+                        {bestMetricName && metric.primary_metric !== undefined ? ` - ${bestMetricName}: ${metric.primary_metric.toFixed(4)}` : ''}
+                        {!metric.checkpoint_path ? ' (체크포인트 없음)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 )}
-                {epochMetrics.map(metric => (
-                  <option
-                    key={metric.epoch}
-                    value={metric.epoch}
-                    disabled={!metric.checkpoint_path}
-                  >
-                    Epoch {metric.epoch}
-                    {metric.epoch === bestEpoch ? ' ⭐' : ''}
-                    {bestMetricName && metric.primary_metric !== undefined ? ` - ${bestMetricName}: ${metric.primary_metric.toFixed(4)}` : ''}
-                    {!metric.checkpoint_path ? ' (체크포인트 없음)' : ''}
-                  </option>
-                ))}
               </select>
+
+              {/* Info text */}
+              {!selectedEpoch && (
+                <p className="text-xs text-gray-500 mt-1.5">
+                  💡 ImageNet, COCO 등으로 사전학습된 가중치를 사용합니다
+                </p>
+              )}
             </div>
 
             {/* Task-specific settings */}
@@ -496,7 +664,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             {/* Run Inference Button */}
             <button
               onClick={runInference}
-              disabled={!selectedEpoch || !selectedEpoch.checkpoint_path || images.length === 0 || isRunning}
+              disabled={images.length === 0 || isRunning || Boolean(selectedEpoch && !selectedEpoch.checkpoint_path)}
               className={cn(
                 'w-full px-4 py-2.5',
                 'bg-violet-600 hover:bg-violet-700',
@@ -510,65 +678,27 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
               <Play className="w-4 h-4" />
               {isRunning ? '추론 실행 중...' : '추론 시작'}
             </button>
+
+            {/* Status text */}
+            {images.length === 0 && (
+              <p className="text-xs text-gray-500 text-center">
+                이미지를 업로드하세요
+              </p>
+            )}
+            {!selectedEpoch && images.length > 0 && (
+              <p className="text-xs text-green-600 text-center">
+                ✓ Pretrained weight로 추론 가능
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Results Section */}
-      {images.length > 0 && (
-        <div className="grid grid-cols-12 gap-6 h-[600px]">
-          {/* Image List */}
-          <div className="col-span-2 bg-white rounded-lg border border-gray-200 p-4 overflow-y-auto">
-            <h4 className="text-xs font-semibold text-gray-900 mb-3">
-              이미지 리스트
-            </h4>
-            <div className="text-xs text-gray-500 mb-3">
-              전체: {images.length}개
-            </div>
-            <div className="space-y-2">
-              {images.map((image) => (
-                <div
-                  key={image.id}
-                  onClick={() => setSelectedImageId(image.id)}
-                  className={cn(
-                    'cursor-pointer rounded-lg border-2 p-2 transition-all',
-                    selectedImageId === image.id
-                      ? 'border-violet-600 bg-violet-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  )}
-                >
-                  <img
-                    src={image.preview}
-                    alt={image.file.name}
-                    className="w-full h-16 object-cover rounded mb-1"
-                  />
-                  <p className="text-xs text-gray-600 truncate">{image.file.name}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <span className={cn(
-                      'text-xs px-1.5 py-0.5 rounded',
-                      image.status === 'completed' && 'bg-green-100 text-green-700',
-                      image.status === 'pending' && 'bg-gray-100 text-gray-600',
-                      image.status === 'processing' && 'bg-blue-100 text-blue-700',
-                      image.status === 'failed' && 'bg-red-100 text-red-700'
-                    )}>
-                      {image.status === 'completed' && '✓'}
-                      {image.status === 'pending' && '⏳'}
-                      {image.status === 'processing' && '⚙️'}
-                      {image.status === 'failed' && '✗'}
-                    </span>
-                  </div>
-                  {image.error && image.status === 'failed' && (
-                    <p className="text-xs text-red-600 mt-1 truncate" title={image.error}>
-                      {image.error}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
+      {/* Results Section - Full Width Layout */}
+      {images.length > 0 && selectedImage && (
+        <div className="grid grid-cols-2 gap-6 h-[600px]">
           {/* Image Viewer */}
-          <div className="col-span-6 bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h4 className="text-xs font-semibold text-gray-900 mb-3">이미지 뷰어</h4>
             {selectedImage ? (
               <div className="flex items-center justify-center h-[calc(100%-2rem)] relative">
@@ -595,7 +725,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           </div>
 
           {/* Inference Results */}
-          <div className="col-span-4 bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
+          <div className="bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
             <h4 className="text-xs font-semibold text-gray-900 mb-3">추론 결과</h4>
             {selectedImage?.result ? (
               <div className="space-y-4">
@@ -648,9 +778,37 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 {/* Detection Results */}
                 {selectedImage.result.task_type === 'object_detection' && (
                   <div>
-                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
-                      탐지된 객체 ({selectedImage.result.num_detections}개)
-                    </h5>
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="text-xs font-semibold text-gray-900">
+                        탐지된 객체 ({selectedImage.result.num_detections || 0}개)
+                      </h5>
+                      {selectedImage.result.task_type === 'instance_segmentation' && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showMasks}
+                            onChange={(e) => setShowMasks(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">Mask 표시</span>
+                        </label>
+                      )}
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showBoxes}
+                          onChange={(e) => setShowBoxes(e.target.checked)}
+                          className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                        />
+                        <span className="text-xs text-gray-600">BBox 표시</span>
+                      </label>
+                    </div>
+                    {selectedImage.result.num_detections === 0 ? (
+                      <div className="p-4 bg-gray-50 rounded-lg text-center">
+                        <p className="text-xs text-gray-500">검출된 객체가 없습니다</p>
+                        <p className="text-xs text-gray-400 mt-1">Confidence threshold를 낮춰보세요</p>
+                      </div>
+                    ) : (
                     <div className="space-y-3">
                       {selectedImage.result.predicted_boxes?.slice(0, 10).map((box: any, idx: number) => (
                         <div key={idx} className="p-3 bg-gray-50 rounded-lg">
@@ -676,6 +834,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                         </p>
                       )}
                     </div>
+                    )}
                   </div>
                 )}
 
@@ -683,9 +842,37 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 {(selectedImage.result.task_type === 'instance_segmentation' ||
                   selectedImage.result.task_type === 'semantic_segmentation') && (
                   <div>
-                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
-                      분할된 인스턴스 ({selectedImage.result.num_instances}개)
-                    </h5>
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="text-xs font-semibold text-gray-900">
+                        분할된 인스턴스 ({selectedImage.result.num_instances || 0}개)
+                      </h5>
+                      {selectedImage.result.task_type === 'instance_segmentation' && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showMasks}
+                            onChange={(e) => setShowMasks(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">Mask 표시</span>
+                        </label>
+                      )}
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showBoxes}
+                          onChange={(e) => setShowBoxes(e.target.checked)}
+                          className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                        />
+                        <span className="text-xs text-gray-600">BBox 표시</span>
+                      </label>
+                    </div>
+                    {selectedImage.result.num_instances === 0 ? (
+                      <div className="p-4 bg-gray-50 rounded-lg text-center">
+                        <p className="text-xs text-gray-500">분할된 인스턴스가 없습니다</p>
+                        <p className="text-xs text-gray-400 mt-1">Confidence threshold를 낮춰보세요</p>
+                      </div>
+                    ) : (
                     <div className="space-y-3">
                       {selectedImage.result.predicted_boxes?.slice(0, 10).map((box: any, idx: number) => (
                         <div key={idx} className="p-3 bg-gray-50 rounded-lg">
@@ -703,6 +890,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                         </div>
                       ))}
                     </div>
+                    )}
                   </div>
                 )}
 
@@ -731,6 +919,23 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                     </div>
                   </div>
                 )}
+
+                {/* Super-Resolution Results */}
+                {selectedImage.result.task_type === 'super_resolution' && (
+                  <div>
+                    <h5 className="text-xs font-semibold text-gray-900 mb-3">업스케일 결과</h5>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-gradient-to-br from-violet-50 to-purple-50 rounded-lg border border-violet-200">
+                        <div className="text-xs text-gray-700">
+                          <span className="font-medium">변환:</span> {selectedImage.result.predicted_label}
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-500 text-center">
+                        💡 이미지를 클릭하여 결과를 비교하세요
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center text-gray-400 py-12">
@@ -738,6 +943,63 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 <p className="text-xs">추론을 실행하세요</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {logs.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200">
+          <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-200">
+            <Terminal className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-900">추론 로그</h3>
+            <span className="ml-auto text-xs text-gray-500">{logs.length}개 이벤트</span>
+          </div>
+          <div className="p-4 overflow-y-auto max-h-60 font-mono text-xs">
+            {logs.map((log, index) => (
+              <div
+                key={index}
+                className={cn(
+                  'flex items-start gap-3 py-1.5 px-2 rounded mb-1',
+                  log.level === 'success' && 'bg-green-50',
+                  log.level === 'error' && 'bg-red-50',
+                  log.level === 'warning' && 'bg-yellow-50',
+                  log.level === 'info' && 'bg-blue-50'
+                )}
+              >
+                {log.level === 'info' && <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />}
+                {log.level === 'success' && <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />}
+                {log.level === 'error' && <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />}
+                {log.level === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />}
+
+                <span
+                  className={cn(
+                    'px-1.5 py-0.5 rounded text-xs font-medium shrink-0',
+                    log.level === 'info' && 'bg-blue-100 text-blue-700',
+                    log.level === 'success' && 'bg-green-100 text-green-700',
+                    log.level === 'warning' && 'bg-yellow-100 text-yellow-700',
+                    log.level === 'error' && 'bg-red-100 text-red-700'
+                  )}
+                >
+                  {log.level === 'info' && 'INFO'}
+                  {log.level === 'success' && 'SUCCESS'}
+                  {log.level === 'warning' && 'WARN'}
+                  {log.level === 'error' && 'ERROR'}
+                </span>
+
+                <span
+                  className={cn(
+                    'flex-1',
+                    log.level === 'error' && 'text-red-700',
+                    log.level === 'success' && 'text-green-700',
+                    log.level === 'warning' && 'text-yellow-700',
+                    log.level === 'info' && 'text-gray-700'
+                  )}
+                >
+                  {log.message}
+                </span>
+              </div>
+            ))}
+            <div ref={logsEndRef} />
           </div>
         </div>
       )}
@@ -754,6 +1016,74 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           </p>
         </div>
       )}
+
+      {/* Slide Panel for Super-Resolution Comparison */}
+      <SlidePanel
+        isOpen={showSlidePanel && !!selectedImage?.result?.upscaled_image_url}
+        onClose={() => {
+          console.log('[DEBUG] Closing slide panel')
+          setShowSlidePanel(false)
+        }}
+        title="Super-Resolution 결과 비교"
+        width="xl"
+      >
+        {selectedImage?.result && (
+          <div className="p-6 space-y-6">
+            {/* Metadata */}
+            <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-lg p-4 border border-violet-200">
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">파일명</span>
+                  <span className="font-medium text-gray-900">{selectedImage.file.name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">변환</span>
+                  <span className="font-medium text-violet-700">{selectedImage.result.predicted_label}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">추론 시간</span>
+                  <span className="font-medium text-gray-900">{selectedImage.result.inference_time_ms?.toFixed(1)}ms</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Before Image */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-900">원본 이미지</h4>
+                <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">Before</span>
+              </div>
+              <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                <img
+                  src={selectedImage.preview}
+                  alt="Original"
+                  className="w-full h-auto"
+                />
+              </div>
+            </div>
+
+            {/* After Image */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-900">업스케일된 이미지</h4>
+                <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">After</span>
+              </div>
+              <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                <img
+                  src={`${process.env.NEXT_PUBLIC_API_URL}${selectedImage.result.upscaled_image_url}`}
+                  alt="Upscaled"
+                  className="w-full h-auto"
+                />
+              </div>
+            </div>
+
+            {/* Info */}
+            <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
+              💡 스크롤하여 두 이미지를 비교하고, 디테일의 차이를 확인하세요.
+            </div>
+          </div>
+        )}
+      </SlidePanel>
     </div>
   )
 }

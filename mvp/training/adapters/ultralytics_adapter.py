@@ -402,7 +402,16 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # Determine model path based on task
         suffix = self.TASK_SUFFIX_MAP.get(self.task_type, "")
-        model_path = f"{self.model_config.model_name}{suffix}.pt"
+
+        # Check if model_name already has the suffix to avoid duplication
+        # e.g., "yolo11n-seg" + "-seg" = "yolo11n-seg-seg" (WRONG)
+        if suffix and self.model_config.model_name.endswith(suffix):
+            # Model name already has suffix, don't add it again
+            model_path = f"{self.model_config.model_name}.pt"
+            print(f"[prepare_model] Model name already contains suffix '{suffix}', not adding again")
+        else:
+            # Add suffix to model name
+            model_path = f"{self.model_config.model_name}{suffix}.pt"
 
         print(f"[prepare_model] Step 2: Loading model: {model_path}")
         print(f"[prepare_model] Task type: {self.task_type}")
@@ -456,6 +465,18 @@ class UltralyticsAdapter(TrainingAdapter):
         # YOLO requires data.yaml file
         self.data_yaml = self._create_data_yaml()
         print(f"Dataset config created: {self.data_yaml}")
+
+        # Load class names from data.yaml for callbacks
+        try:
+            with open(self.data_yaml, 'r') as f:
+                data_config = yaml.safe_load(f)
+                if 'names' in data_config:
+                    self.class_names = data_config['names']
+                    print(f"[prepare_dataset] Loaded {len(self.class_names)} class names from data.yaml")
+                    sys.stdout.flush()
+        except Exception as e:
+            print(f"[prepare_dataset] WARNING: Failed to load class names from data.yaml: {e}")
+            sys.stdout.flush()
 
     def _clear_yolo_cache(self):
         """Clear YOLO cache files in the dataset directory."""
@@ -529,13 +550,27 @@ class UltralyticsAdapter(TrainingAdapter):
             sys.stdout.flush()
 
             # YOLO format - create data.yaml
-            data = {
-                'path': os.path.abspath(self.dataset_config.dataset_path),
-                'train': train_path,
-                'val': val_path,
-                'nc': nc,
-                'names': [f'class_{i}' for i in range(nc)]
-            }
+            # Check if train_path is a .txt file (auto-split dataset)
+            if train_path.endswith('.txt'):
+                # txt files contain absolute paths, so path should point to output_dir
+                data = {
+                    'path': output_dir,
+                    'train': train_path,
+                    'val': val_path,
+                    'nc': nc,
+                    'names': [f'class_{i}' for i in range(nc)]
+                }
+                print(f"[_create_data_yaml] Using txt file format (auto-split dataset)")
+                sys.stdout.flush()
+            else:
+                # Regular folder structure
+                data = {
+                    'path': os.path.abspath(self.dataset_config.dataset_path),
+                    'train': train_path,
+                    'val': val_path,
+                    'nc': nc,
+                    'names': [f'class_{i}' for i in range(nc)]
+                }
         elif self.dataset_config.format == DatasetFormat.COCO:
             # COCO format - convert to YOLO format reference
             data = {
@@ -623,15 +658,21 @@ class UltralyticsAdapter(TrainingAdapter):
         """
         Detect actual train/val folder names in YOLO dataset.
 
+        If val folder doesn't exist, automatically creates train/val split
+        from all available data.
+
         YOLO datasets can have various folder structures:
         - images/train, images/val (standard)
         - images/train2017, images/val2017 (COCO format)
         - train, val (flat structure)
+        - images/ only (will auto-split)
 
         Returns:
-            tuple: (train_path, val_path) relative to dataset root
+            tuple: (train_path, val_path) relative to dataset root or output dir
         """
         from pathlib import Path
+        import random
+        import shutil
 
         dataset_path = Path(self.dataset_config.dataset_path)
         print(f"[_detect_yolo_folders] Scanning dataset: {dataset_path}")
@@ -662,34 +703,133 @@ class UltralyticsAdapter(TrainingAdapter):
             elif val_candidates:
                 val_name = val_candidates[0]
 
-            # If val not found, use train for validation (common in small datasets)
-            if not val_name and train_name:
-                print(f"[_detect_yolo_folders] Warning: No val folder found, using train for validation")
-                sys.stdout.flush()
-                val_name = train_name
-
-            if train_name:
+            # If both train and val exist, use them
+            if train_name and val_name:
                 train_path = f'images/{train_name}'
-                val_path = f'images/{val_name}' if val_name else train_path
+                val_path = f'images/{val_name}'
                 print(f"[_detect_yolo_folders] Using train={train_path}, val={val_path}")
                 sys.stdout.flush()
                 return train_path, val_path
+
+            # If only train exists (no val), auto-split
+            if train_name and not val_name:
+                print(f"[_detect_yolo_folders] Val folder not found, auto-splitting train data...")
+                sys.stdout.flush()
+                return self._auto_split_dataset(
+                    images_base=images_dir,
+                    train_folder=train_name,
+                    split_ratio=0.8
+                )
 
         # Fallback: Check for flat structure (train/, val/ directly under dataset root)
         train_dir = dataset_path / "train"
         val_dir = dataset_path / "val"
 
         if train_dir.exists() and train_dir.is_dir():
-            train_path = 'train'
-            val_path = 'val' if val_dir.exists() else 'train'
-            print(f"[_detect_yolo_folders] Using flat structure: train={train_path}, val={val_path}")
-            sys.stdout.flush()
-            return train_path, val_path
+            if val_dir.exists():
+                train_path = 'train'
+                val_path = 'val'
+                print(f"[_detect_yolo_folders] Using flat structure: train={train_path}, val={val_path}")
+                sys.stdout.flush()
+                return train_path, val_path
+            else:
+                print(f"[_detect_yolo_folders] Val folder not found, auto-splitting train data...")
+                sys.stdout.flush()
+                return self._auto_split_dataset(
+                    images_base=dataset_path,
+                    train_folder='train',
+                    split_ratio=0.8
+                )
 
-        # Last resort: use default
+        # No train/val structure found, treat entire images/ folder as data
+        print(f"[_detect_yolo_folders] No train/val structure detected")
+        print(f"[_detect_yolo_folders] Auto-splitting all data in images/ folder...")
+        sys.stdout.flush()
+
+        if images_dir.exists():
+            return self._auto_split_dataset(
+                images_base=dataset_path,
+                train_folder='images',
+                split_ratio=0.8
+            )
+
+        # Last resort: use default (will likely fail in YOLO)
         print(f"[_detect_yolo_folders] Warning: Could not detect folder structure, using defaults")
         sys.stdout.flush()
         return 'images/train', 'images/val'
+
+    def _auto_split_dataset(self, images_base: Path, train_folder: str, split_ratio: float = 0.8) -> Tuple[str, str]:
+        """
+        Automatically split dataset into train/val sets.
+
+        Creates .txt files with image paths for YOLO to use.
+        This avoids copying/moving actual image files.
+
+        Args:
+            images_base: Base directory containing images
+            train_folder: Name of the folder with all images
+            split_ratio: Train/val split ratio (default 0.8 = 80% train)
+
+        Returns:
+            tuple: (train_txt_path, val_txt_path) relative paths for data.yaml
+        """
+        from pathlib import Path
+        import random
+
+        print(f"[_auto_split_dataset] Splitting dataset with ratio {split_ratio}")
+        sys.stdout.flush()
+
+        # Find all images in the source folder
+        source_dir = images_base / train_folder
+        if not source_dir.exists():
+            source_dir = images_base  # Fallback to base directory
+
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
+        all_images = []
+
+        for ext in image_extensions:
+            all_images.extend(source_dir.glob(f'*{ext}'))
+            all_images.extend(source_dir.glob(f'*{ext.upper()}'))
+
+        if not all_images:
+            print(f"[_auto_split_dataset] ERROR: No images found in {source_dir}")
+            sys.stdout.flush()
+            return 'images/train', 'images/val'  # Fallback
+
+        # Shuffle and split
+        random.seed(42)  # For reproducibility
+        random.shuffle(all_images)
+
+        split_idx = int(len(all_images) * split_ratio)
+        train_images = all_images[:split_idx]
+        val_images = all_images[split_idx:]
+
+        print(f"[_auto_split_dataset] Total images: {len(all_images)}")
+        print(f"[_auto_split_dataset] Train: {len(train_images)}, Val: {len(val_images)}")
+        sys.stdout.flush()
+
+        # Create .txt files in output directory
+        output_dir = Path(self.output_dir)
+        train_txt = output_dir / 'train.txt'
+        val_txt = output_dir / 'val.txt'
+
+        # Write absolute paths to txt files
+        with open(train_txt, 'w') as f:
+            for img_path in train_images:
+                # YOLO expects absolute paths in .txt files
+                f.write(f"{img_path.absolute()}\n")
+
+        with open(val_txt, 'w') as f:
+            for img_path in val_images:
+                f.write(f"{img_path.absolute()}\n")
+
+        print(f"[_auto_split_dataset] Created train.txt: {train_txt}")
+        print(f"[_auto_split_dataset] Created val.txt: {val_txt}")
+        sys.stdout.flush()
+
+        # Return relative paths for data.yaml
+        # YOLO will resolve these relative to data.yaml location
+        return 'train.txt', 'val.txt'
 
     def train(self, start_epoch: int = 0, checkpoint_path: str = None, resume_training: bool = False) -> List[MetricsResult]:
         """
@@ -745,14 +885,8 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # Build YOLO training arguments from advanced config
         try:
-            print("[YOLO] Building training arguments...")
             train_args = self._build_yolo_train_args()
-            print(f"[YOLO] Training args built: {list(train_args.keys())}")
-
-            # Print actual values for debugging
-            print("[YOLO] Training arguments values:")
-            for key, value in train_args.items():
-                print(f"  {key}: {value}")
+            print(f"[YOLO] Training configuration ready ({len(train_args)} parameters)")
             sys.stdout.flush()
         except Exception as e:
             print(f"[YOLO] ERROR building training args: {e}")
@@ -848,15 +982,21 @@ class UltralyticsAdapter(TrainingAdapter):
                 # Validation metrics from trainer.metrics
                 if hasattr(trainer, 'metrics') and trainer.metrics:
                     # trainer.metrics is a dict with keys like:
-                    # 'metrics/precision(B)', 'metrics/recall(B)', 'metrics/mAP50(B)', etc.
+                    # 'metrics/precision(B)', 'metrics/recall(B)', 'metrics/mAP50(B)', 'metrics/mAP50(M)', etc.
                     val_metrics = trainer.metrics
 
                     # Extract validation losses and metrics
                     for key, value in val_metrics.items():
                         if isinstance(value, (int, float)):
-                            # Clean up metric names
-                            clean_key = key.replace('metrics/', '').replace('(B)', '')
+                            # Clean up metric names but preserve (B) and (M) suffixes
+                            clean_key = key.replace('metrics/', '')
                             metrics_dict[clean_key] = value
+
+                            # Also add without suffix for backward compatibility (use Box metrics)
+                            if '(B)' in clean_key:
+                                base_key = clean_key.replace('(B)', '')
+                                if base_key not in metrics_dict:  # Don't overwrite
+                                    metrics_dict[base_key] = value
 
                 # Calculate total losses
                 train_loss = sum(v for k, v in metrics_dict.items() if k.startswith('train/') and 'loss' in k)
@@ -881,8 +1021,9 @@ class UltralyticsAdapter(TrainingAdapter):
                 sys.stdout.flush()
                 callbacks.on_epoch_end(epoch_num, metrics_dict, checkpoint_path)
 
-                # Save validation results to database
-                if hasattr(trainer, 'metrics') and trainer.metrics:
+                # Save validation results to database (use metrics_dict which has all metrics)
+                # Note: trainer.metrics may be None when val=False, but metrics_dict has training metrics
+                if True:  # Always try to save, use metrics_dict instead of trainer.metrics
                     try:
                         # Add parent directory to sys.path for imports
                         from pathlib import Path
@@ -907,10 +1048,19 @@ class UltralyticsAdapter(TrainingAdapter):
                             validator = trainer.validator
 
                             # Get class names from validator
-                            if hasattr(validator, 'names'):
+                            if hasattr(validator, 'names') and validator.names is not None:
                                 class_names = list(validator.names.values())
                                 print(f"[YOLO Callback] Found {len(class_names)} classes: {class_names}")
                                 sys.stdout.flush()
+                            else:
+                                # Validation disabled, use class_names from adapter
+                                if hasattr(self, 'class_names') and self.class_names:
+                                    class_names = self.class_names
+                                    print(f"[YOLO Callback] Using adapter class_names: {len(class_names)} classes")
+                                    sys.stdout.flush()
+                                else:
+                                    print(f"[YOLO Callback] No class_names available (validation disabled)")
+                                    sys.stdout.flush()
 
                             # Get per-class AP from validator results
                             if hasattr(validator, 'metrics') and validator.metrics is not None:
@@ -1062,7 +1212,7 @@ class UltralyticsAdapter(TrainingAdapter):
 
                         # Create ValidationMetrics using calculator
                         validation_metrics = ValidationMetricsCalculator.compute_metrics(
-                            task_type=TaskType.DETECTION,
+                            task_type=self.task_type,
                             predictions=None,  # YOLO pre-computes metrics
                             labels=None,
                             class_names=class_names,
@@ -1072,6 +1222,35 @@ class UltralyticsAdapter(TrainingAdapter):
                             precision=precision,
                             recall=recall
                         )
+
+                        # Add Box/Mask metrics as extra_metrics for segmentation tasks
+                        # Use string comparison to avoid enum identity issues
+                        task_type_value = self.task_type.value if hasattr(self.task_type, 'value') else str(self.task_type)
+                        print(f"[YOLO Callback DEBUG] task_type_value = '{task_type_value}', checking for instance_segmentation")
+                        sys.stdout.flush()
+
+                        if task_type_value == "instance_segmentation":
+                            print(f"[YOLO Callback DEBUG] Instance segmentation detected, extracting Box/Mask metrics")
+                            sys.stdout.flush()
+                            extra_metrics = {}
+                            # Use metrics_dict that was already extracted from trainer.metrics
+                            for key, value in metrics_dict.items():
+                                # Include all metrics with (B) or (M) suffix
+                                if '(B)' in key or '(M)' in key:
+                                    extra_metrics[key] = float(value) if isinstance(value, (int, float)) else 0.0
+
+                            if extra_metrics:
+                                validation_metrics._extra_metrics = extra_metrics
+                                print(f"[YOLO Callback] ✓ Added {len(extra_metrics)} Box/Mask metrics to validation result")
+                                print(f"[YOLO Callback] Box/Mask keys: {list(extra_metrics.keys())}")
+                                sys.stdout.flush()
+                            else:
+                                print(f"[YOLO Callback WARNING] No Box/Mask metrics found in metrics_dict")
+                                print(f"[YOLO Callback] metrics_dict keys: {list(metrics_dict.keys())}")
+                                sys.stdout.flush()
+                        else:
+                            print(f"[YOLO Callback DEBUG] Not instance_segmentation (task_type='{task_type_value}'), skipping Box/Mask extraction")
+                            sys.stdout.flush()
 
                         # Override per_class_metrics if we extracted them
                         if per_class_metrics:
@@ -1137,6 +1316,16 @@ class UltralyticsAdapter(TrainingAdapter):
         # Register callback with YOLO model
         self.model.add_callback("on_fit_epoch_end", on_yolo_epoch_end)
         print("[YOLO] Registered real-time metric collection callback")
+        sys.stdout.flush()
+
+        # Disable YOLO's built-in MLflow integration to avoid parameter conflicts
+        # We use our own Callbacks for MLflow logging
+        try:
+            from ultralytics import settings
+            settings.update({'mlflow': False})
+            print("[YOLO] Disabled YOLO's built-in MLflow (using custom Callbacks)")
+        except Exception as e:
+            print(f"[YOLO WARNING] Could not disable MLflow: {e}")
         sys.stdout.flush()
 
         # YOLO training
@@ -1241,10 +1430,12 @@ class UltralyticsAdapter(TrainingAdapter):
             'project': os.path.abspath(self.output_dir),  # Use absolute path
             'name': f'job_{self.job_id}',
             'exist_ok': True,
-            'verbose': True,
+            'verbose': False,  # Reduce YOLO verbosity
             'workers': 0,  # Disable multiprocessing to avoid output issues
-            'plots': True,  # Enable plotting for PR curves
-            'save_json': True,  # Save predictions to JSON for per-image analysis
+            'plots': False,  # Disable plots to skip final validation
+            'save': True,  # Save checkpoints
+            'save_period': -1,  # Only save last and best
+            'val': False,  # Disable validation during training
         }
 
         adv_config = self.training_config.advanced_config
@@ -1380,19 +1571,29 @@ class UltralyticsAdapter(TrainingAdapter):
 
                 # Extract metrics
                 train_box_loss = float(row.get('train/box_loss', 0))
+                train_seg_loss = float(row.get('train/seg_loss', 0))
                 train_cls_loss = float(row.get('train/cls_loss', 0))
                 train_dfl_loss = float(row.get('train/dfl_loss', 0))
                 val_box_loss = float(row.get('val/box_loss', 0))
+                val_seg_loss = float(row.get('val/seg_loss', 0))
                 val_cls_loss = float(row.get('val/cls_loss', 0))
                 val_dfl_loss = float(row.get('val/dfl_loss', 0))
-                precision = float(row.get('metrics/precision(B)', 0))
-                recall = float(row.get('metrics/recall(B)', 0))
-                mAP50 = float(row.get('metrics/mAP50(B)', 0))
-                mAP50_95 = float(row.get('metrics/mAP50-95(B)', 0))
 
-                # Calculate total losses
-                train_loss = train_box_loss + train_cls_loss + train_dfl_loss
-                val_loss = val_box_loss + val_cls_loss + val_dfl_loss
+                # Extract Box metrics
+                precision_box = float(row.get('metrics/precision(B)', 0))
+                recall_box = float(row.get('metrics/recall(B)', 0))
+                mAP50_box = float(row.get('metrics/mAP50(B)', 0))
+                mAP50_95_box = float(row.get('metrics/mAP50-95(B)', 0))
+
+                # Extract Mask metrics (for segmentation tasks)
+                precision_mask = float(row.get('metrics/precision(M)', 0))
+                recall_mask = float(row.get('metrics/recall(M)', 0))
+                mAP50_mask = float(row.get('metrics/mAP50(M)', 0))
+                mAP50_95_mask = float(row.get('metrics/mAP50-95(M)', 0))
+
+                # Calculate total losses (include seg_loss if present)
+                train_loss = train_box_loss + train_cls_loss + train_dfl_loss + train_seg_loss
+                val_loss = val_box_loss + val_cls_loss + val_dfl_loss + val_seg_loss
 
                 # Create metrics dict for callbacks
                 metrics_dict = {
@@ -1404,16 +1605,91 @@ class UltralyticsAdapter(TrainingAdapter):
                     'val_box_loss': val_box_loss,
                     'val_cls_loss': val_cls_loss,
                     'val_dfl_loss': val_dfl_loss,
-                    'precision': precision,
-                    'recall': recall,
-                    'mAP50': mAP50,
-                    'mAP50-95': mAP50_95,
+                    # Box metrics (use generic names for backward compatibility)
+                    'precision': precision_box,
+                    'recall': recall_box,
+                    'mAP50': mAP50_box,
+                    'mAP50-95': mAP50_95_box,
+                    # Box metrics (explicit names for segmentation UI)
+                    'precision(B)': precision_box,
+                    'recall(B)': recall_box,
+                    'mAP50(B)': mAP50_box,
+                    'mAP50-95(B)': mAP50_95_box,
+                    # Mask metrics (for segmentation)
+                    'precision(M)': precision_mask,
+                    'recall(M)': recall_mask,
+                    'mAP50(M)': mAP50_mask,
+                    'mAP50-95(M)': mAP50_95_mask,
                 }
+
+                # Add segmentation loss if present
+                if train_seg_loss > 0 or val_seg_loss > 0:
+                    metrics_dict['train_seg_loss'] = train_seg_loss
+                    metrics_dict['val_seg_loss'] = val_seg_loss
 
                 # Report to callbacks for unified metric collection
                 # Callbacks will handle both MLflow and database logging
                 if callbacks:
                     callbacks.on_epoch_end(epoch - 1, metrics_dict)  # epoch is 1-indexed in CSV
+
+                # Save validation results to database
+                # Create ValidationMetrics using ValidationMetricsCalculator
+                try:
+                    from ..validators.metrics import ValidationMetricsCalculator, TaskType
+
+                    # Use self.task_type directly (it's already a TaskType enum)
+                    # self.task_type is set in base adapter from TrainingJob.task_type
+                    task_type = self.task_type
+
+                    # For detection/segmentation tasks, pass pre-computed YOLO metrics
+                    # Note: We use Box metrics for the main metrics (for backward compatibility)
+                    # Mask metrics will be added separately to the metrics dict
+                    validation_metrics = ValidationMetricsCalculator.compute_metrics(
+                        task_type=task_type,
+                        predictions=None,  # Not needed, metrics pre-computed
+                        labels=None,  # Not needed, metrics pre-computed
+                        class_names=self.class_names if hasattr(self, 'class_names') else None,
+                        loss=val_loss,
+                        map_50=mAP50_box,
+                        map_50_95=mAP50_95_box,
+                        precision=precision_box,
+                        recall=recall_box,
+                    )
+
+                    # Add Box and Mask metrics to the detection metrics dict
+                    # This allows the UI to display both Box and Mask metrics separately
+                    if hasattr(validation_metrics, 'detection') and validation_metrics.detection:
+                        # Update the detection metrics dict with explicit Box/Mask metrics
+                        detection_dict = validation_metrics.detection.to_dict()
+                        # Add Box metrics (explicit names)
+                        detection_dict['precision(B)'] = precision_box
+                        detection_dict['recall(B)'] = recall_box
+                        detection_dict['mAP50(B)'] = mAP50_box
+                        detection_dict['mAP50-95(B)'] = mAP50_95_box
+                        # Add Mask metrics (for segmentation)
+                        detection_dict['precision(M)'] = precision_mask
+                        detection_dict['recall(M)'] = recall_mask
+                        detection_dict['mAP50(M)'] = mAP50_mask
+                        detection_dict['mAP50-95(M)'] = mAP50_95_mask
+                        # Update the detection metrics object
+                        # Store in a way that will be serialized to JSON
+                        validation_metrics._extra_metrics = detection_dict
+
+                    # Save to validation_results table
+                    # Note: checkpoint_path would be set if we had checkpoint saving per epoch
+                    val_result_id = self._save_validation_result(
+                        epoch=epoch,  # Use 1-indexed epoch for database
+                        validation_metrics=validation_metrics,
+                        checkpoint_path=None  # YOLO saves checkpoints internally
+                    )
+
+                    if val_result_id:
+                        print(f"[YOLO] Saved validation result {val_result_id} for epoch {epoch}")
+                        sys.stdout.flush()
+
+                except Exception as e:
+                    print(f"[YOLO] Warning: Failed to save validation result for epoch {epoch}: {e}")
+                    sys.stdout.flush()
 
                 # Create MetricsResult for our system
                 metrics = MetricsResult(
@@ -1441,16 +1717,15 @@ class UltralyticsAdapter(TrainingAdapter):
         """
         Not used - YOLO handles validation internally.
 
-        TODO: Integrate validation result saving into _convert_yolo_results()
-        by calling self._save_validation_result() for each epoch.
-
         YOLO automatically computes detection metrics (mAP, precision, recall)
-        and saves them to results.csv. We should parse those results and save
-        them to the validation_results table using ValidationMetricsCalculator
-        or by directly creating ValidationResult entries.
+        and saves them to results.csv. The _convert_yolo_results() method
+        parses these results and saves them to the validation_results table
+        using ValidationMetricsCalculator.
 
-        For now, YOLO validation metrics are only logged to TrainingMetric table
-        via callbacks in _convert_yolo_results().
+        Validation results are:
+        - Logged to TrainingMetric table via callbacks
+        - Saved to validation_results table via _save_validation_result()
+        - Reported to MLflow via callbacks
         """
         pass
 
@@ -1474,33 +1749,52 @@ class UltralyticsAdapter(TrainingAdapter):
             import json
             from pathlib import Path
             from collections import defaultdict
+            import torch
 
-            # Find predictions.json file
-            save_dir = Path(self.output_dir) / f'job_{self.job_id}'
-            predictions_file = save_dir / 'predictions.json'
-
-            if not predictions_file.exists():
-                print(f"[YOLO] predictions.json not found at {predictions_file}, skipping image results")
-                print(f"[YOLO] Make sure save_json=True is set in training args")
+            # Try to extract predictions directly from validator
+            if not hasattr(validator, 'pred') or validator.pred is None:
+                print(f"[YOLO] No predictions available in validator (validator.pred is None)")
                 sys.stdout.flush()
                 return
 
-            # Load predictions
-            with open(predictions_file, 'r') as f:
-                predictions = json.load(f)
-
-            print(f"[YOLO] Loaded {len(predictions)} predictions from JSON")
+            print(f"[YOLO] Extracting predictions directly from validator...")
             sys.stdout.flush()
 
-            # Group predictions by image_id
+            # Get predictions from validator
+            # validator.pred is a list of tensors, one per batch
+            # Each tensor has shape [num_detections, 6] where 6 = [x1, y1, x2, y2, conf, class_id]
+            all_preds = []
+            if isinstance(validator.pred, list):
+                for batch_pred in validator.pred:
+                    if isinstance(batch_pred, torch.Tensor):
+                        all_preds.append(batch_pred.cpu().numpy())
+                    elif isinstance(batch_pred, list):
+                        for pred in batch_pred:
+                            if isinstance(pred, torch.Tensor):
+                                all_preds.append(pred.cpu().numpy())
+
+            if not all_preds:
+                print(f"[YOLO] Could not extract predictions from validator")
+                sys.stdout.flush()
+                return
+
+            print(f"[YOLO] Extracted {len(all_preds)} prediction batches")
+            sys.stdout.flush()
+
+            # Group predictions by image index
             pred_by_image = defaultdict(list)
-            for pred in predictions:
-                image_id = pred['image_id']
-                pred_by_image[image_id].append({
-                    'bbox': pred['bbox'],  # [x, y, w, h] in absolute coordinates
-                    'class_id': pred['category_id'],
-                    'confidence': pred['score']
-                })
+            for img_idx, pred_array in enumerate(all_preds):
+                if pred_array is not None and len(pred_array) > 0:
+                    for detection in pred_array:
+                        # YOLO format: [x1, y1, x2, y2, confidence, class_id]
+                        if len(detection) >= 6:
+                            x1, y1, x2, y2, conf, cls_id = detection[:6]
+                            # Convert to [x, y, w, h] format
+                            pred_by_image[img_idx].append({
+                                'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                                'class_id': int(cls_id),
+                                'confidence': float(conf)
+                            })
 
             # Get image paths from validator's dataloader
             if not hasattr(validator, 'dataloader') or not validator.dataloader:
@@ -1810,22 +2104,54 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # YOLO inference
         start_time = time.time()
-        results = self.model(image_path, verbose=False)
+        print(f"[DEBUG] Running YOLO inference on {image_path}", file=sys.stderr)
+        print(f"[DEBUG] Model: {self.model}", file=sys.stderr)
+        print(f"[DEBUG] Task type: {self.task_type}", file=sys.stderr)
+        print(f"[DEBUG] Image path exists: {Path(image_path).exists()}", file=sys.stderr)
+
+        try:
+            print(f"[DEBUG] Calling self.model('{image_path}', verbose=False)...", file=sys.stderr)
+            results = self.model(image_path, verbose=False)
+            print(f"[DEBUG] YOLO call completed", file=sys.stderr)
+            print(f"[DEBUG] Results type: {type(results)}, length: {len(results) if results else 0}", file=sys.stderr)
+        except Exception as e:
+            print(f"[ERROR] YOLO inference failed: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            raise
+
         inference_time = (time.time() - start_time) * 1000
 
+        if not results or len(results) == 0:
+            raise RuntimeError(f"YOLO returned empty results for {image_path}")
+
         result = results[0]
+        print(f"[DEBUG] Result object: {result}", file=sys.stderr)
+        print(f"[DEBUG] Result boxes: {result.boxes if hasattr(result, 'boxes') else 'N/A'}", file=sys.stderr)
 
         # Extract predictions based on task
-        if self.task_type == TaskType.OBJECT_DETECTION:
+        print(f"[DEBUG] About to extract predictions for task: {self.task_type}", file=sys.stderr)
+        print(f"[DEBUG] self.task_type type: {type(self.task_type)}", file=sys.stderr)
+
+        # Convert task_type to string for comparison (handles both enum and string cases)
+        task_type_str = self.task_type.value if hasattr(self.task_type, 'value') else str(self.task_type)
+        print(f"[DEBUG] task_type_str: {task_type_str}", file=sys.stderr)
+
+        if task_type_str == 'object_detection':
+            print(f"[DEBUG] Calling _extract_detection_result", file=sys.stderr)
             return self._extract_detection_result(result, image_path, inference_time)
-        elif self.task_type == TaskType.INSTANCE_SEGMENTATION:
+        elif task_type_str == 'instance_segmentation':
+            print(f"[DEBUG] Calling _extract_segmentation_result", file=sys.stderr)
             return self._extract_segmentation_result(result, image_path, inference_time)
-        elif self.task_type == TaskType.POSE_ESTIMATION:
+        elif task_type_str == 'pose_estimation':
+            print(f"[DEBUG] Calling _extract_pose_result", file=sys.stderr)
             return self._extract_pose_result(result, image_path, inference_time)
-        elif self.task_type == TaskType.IMAGE_CLASSIFICATION:
+        elif task_type_str == 'image_classification':
+            print(f"[DEBUG] Calling _extract_classification_result", file=sys.stderr)
             return self._extract_classification_result(result, image_path, inference_time)
         else:
-            raise ValueError(f"Unsupported task type: {self.task_type}")
+            print(f"[ERROR] Unsupported task type: {task_type_str}", file=sys.stderr)
+            raise ValueError(f"Unsupported task type: {task_type_str}")
 
     def _extract_classification_result(
         self,
@@ -1895,11 +2221,18 @@ class UltralyticsAdapter(TrainingAdapter):
         from pathlib import Path
         from .base import InferenceResult, TaskType
 
+        print(f"[DEBUG] _extract_detection_result called", file=sys.stderr)
+
         # Extract boxes
         boxes = result.boxes
         predicted_boxes = []
 
-        if boxes is not None:
+        print(f"[DEBUG] boxes: {boxes}", file=sys.stderr)
+        print(f"[DEBUG] boxes is not None: {boxes is not None}", file=sys.stderr)
+        print(f"[DEBUG] len(boxes): {len(boxes) if boxes is not None else 'N/A'}", file=sys.stderr)
+
+        if boxes is not None and len(boxes) > 0:
+            print(f"[DEBUG] Processing {len(boxes)} boxes", file=sys.stderr)
             for i in range(len(boxes)):
                 box = boxes[i]
                 class_id = int(box.cls.item())
@@ -1925,8 +2258,13 @@ class UltralyticsAdapter(TrainingAdapter):
                     'confidence': float(box.conf.item()),
                     'format': 'yolo'
                 })
+        else:
+            print(f"[DEBUG] No boxes detected (boxes is None or empty)", file=sys.stderr)
 
-        return InferenceResult(
+        print(f"[DEBUG] predicted_boxes count: {len(predicted_boxes)}", file=sys.stderr)
+        print(f"[DEBUG] Creating InferenceResult...", file=sys.stderr)
+
+        inf_result = InferenceResult(
             image_path=image_path,
             image_name=Path(image_path).name,
             task_type=TaskType.OBJECT_DETECTION,
@@ -1935,6 +2273,11 @@ class UltralyticsAdapter(TrainingAdapter):
             preprocessing_time_ms=0.0,
             postprocessing_time_ms=0.0
         )
+
+        print(f"[DEBUG] InferenceResult created: {inf_result}", file=sys.stderr)
+        print(f"[DEBUG] Returning from _extract_detection_result", file=sys.stderr)
+
+        return inf_result
 
     def _extract_segmentation_result(
         self,
@@ -1977,18 +2320,39 @@ class UltralyticsAdapter(TrainingAdapter):
                     'format': 'yolo'
                 })
 
-        # Store mask if available
-        predicted_mask = None
+        # Extract mask polygons if available
+        predicted_masks = []
+        print(f"[DEBUG SEG] masks is not None: {masks is not None}", file=sys.stderr)
+        if masks is not None:
+            print(f"[DEBUG SEG] len(masks): {len(masks)}", file=sys.stderr)
+
         if masks is not None and len(masks) > 0:
-            # masks.data is a tensor of shape (N, H, W)
-            predicted_mask = masks.data.cpu().numpy()
+            print(f"[DEBUG SEG] masks has xy: {hasattr(masks, 'xy')}", file=sys.stderr)
+            print(f"[DEBUG SEG] masks.xy is not None: {masks.xy is not None}", file=sys.stderr)
+
+            # Convert masks to polygon format
+            for i in range(len(masks)):
+                if hasattr(masks, 'xy') and masks.xy is not None:
+                    # Get polygon coordinates (list of [x, y] points)
+                    polygon = masks.xy[i]
+                    print(f"[DEBUG SEG] Mask {i}: polygon points = {len(polygon) if polygon is not None else 0}", file=sys.stderr)
+
+                    if polygon is not None and len(polygon) > 0:
+                        predicted_masks.append({
+                            'instance_id': i,
+                            'class_id': predicted_boxes[i]['class_id'] if i < len(predicted_boxes) else 0,
+                            'polygon': polygon.tolist(),  # Convert numpy array to list
+                            'confidence': predicted_boxes[i]['confidence'] if i < len(predicted_boxes) else 0.0
+                        })
+
+        print(f"[DEBUG SEG] Total predicted_masks: {len(predicted_masks)}", file=sys.stderr)
 
         return InferenceResult(
             image_path=image_path,
             image_name=Path(image_path).name,
             task_type=TaskType.INSTANCE_SEGMENTATION,
             predicted_boxes=predicted_boxes,
-            predicted_mask=predicted_mask,
+            predicted_masks=predicted_masks if predicted_masks else None,
             inference_time_ms=inference_time,
             preprocessing_time_ms=0.0,
             postprocessing_time_ms=0.0

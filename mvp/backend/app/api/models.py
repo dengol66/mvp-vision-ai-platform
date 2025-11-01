@@ -15,6 +15,7 @@ sys.path.insert(0, str(training_dir))
 from model_registry import (
     TIMM_MODEL_REGISTRY,
     ULTRALYTICS_MODEL_REGISTRY,
+    HUGGINGFACE_MODEL_REGISTRY,
     get_all_models,
     get_model_info as get_registry_model_info
 )
@@ -34,7 +35,7 @@ class ModelInfo(BaseModel):
     description: str
     params: str
     input_size: int
-    task_type: str
+    task_types: List[str]  # Changed from task_type to task_types (plural, array)
     pretrained_available: bool
     recommended_batch_size: int
     recommended_lr: float
@@ -69,7 +70,7 @@ class ModelGuide(BaseModel):
 
 @router.get("/list", response_model=List[ModelInfo])
 async def list_models(
-    framework: Optional[str] = Query(None, description="Filter by framework (timm, ultralytics)"),
+    framework: Optional[str] = Query(None, description="Filter by framework (timm, ultralytics, huggingface)"),
     task_type: Optional[str] = Query(None, description="Filter by task type"),
     tags: Optional[str] = Query(None, description="Comma-separated tags to filter by"),
     priority: Optional[int] = Query(None, ge=0, le=2, description="Filter by priority (0=P0, 1=P1, 2=P2)")
@@ -80,7 +81,9 @@ async def list_models(
     Examples:
     - /models/list - All models
     - /models/list?framework=timm - Only timm models
+    - /models/list?framework=huggingface - Only HuggingFace models
     - /models/list?task_type=object_detection - Only detection models
+    - /models/list?task_type=super_resolution - Only super-resolution models
     - /models/list?tags=p0,latest - P0 and latest models
     - /models/list?priority=0 - Only P0 models
     """
@@ -94,8 +97,10 @@ async def list_models(
             continue
 
         # Filter by task type
-        if task_type and model_data.get("task_type") != task_type:
-            continue
+        if task_type:
+            model_task_types = model_data.get("task_types", [])
+            if task_type not in model_task_types:
+                continue
 
         # Filter by priority
         if priority is not None and model_data.get("priority") != priority:
@@ -117,7 +122,7 @@ async def list_models(
                 description=model_data["description"],
                 params=model_data["params"],
                 input_size=model_data["input_size"],
-                task_type=model_data["task_type"],
+                task_types=model_data["task_types"],
                 pretrained_available=model_data["pretrained_available"],
                 recommended_batch_size=model_data["recommended_batch_size"],
                 recommended_lr=model_data["recommended_lr"],
@@ -132,14 +137,23 @@ async def list_models(
     return models
 
 
-@router.get("/{framework}/{model_name}", response_model=Dict[str, Any])
-async def get_model(framework: str, model_name: str):
+@router.get("/get", response_model=Dict[str, Any])
+async def get_model_by_query(
+    framework: str = Query(..., description="Framework name (timm, ultralytics, huggingface)"),
+    model_name: str = Query(..., description="Model name (e.g., resnet50, yolo11n, google/vit-base-patch16-224)")
+):
     """
-    Get detailed information for a specific model.
+    Get detailed information for a specific model using query parameters.
+
+    This endpoint is preferred for HuggingFace models which contain '/' in their names.
+
+    Examples:
+    - /models/get?framework=timm&model_name=resnet50
+    - /models/get?framework=huggingface&model_name=google/vit-base-patch16-224
 
     Args:
-        framework: Framework name (timm, ultralytics)
-        model_name: Model name (e.g., resnet50, yolo11n)
+        framework: Framework name
+        model_name: Model name
 
     Returns:
         Complete model information including all metadata
@@ -162,10 +176,96 @@ async def get_model(framework: str, model_name: str):
     return response
 
 
-@router.get("/{framework}/{model_name}/guide", response_model=Dict[str, Any])
+@router.get("/{framework}/{model_name:path}", response_model=Dict[str, Any])
+async def get_model(framework: str, model_name: str):
+    """
+    Get detailed information for a specific model using path parameters.
+
+    NOTE: For HuggingFace models with '/' in names, use /models/get endpoint instead.
+
+    Args:
+        framework: Framework name (timm, ultralytics, huggingface)
+        model_name: Model name (e.g., resnet50, yolo11n, google/vit-base-patch16-224)
+
+    Returns:
+        Complete model information including all metadata
+    """
+    model_info = get_registry_model_info(framework, model_name)
+
+    if not model_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_name}' not found in framework '{framework}'"
+        )
+
+    # Add framework and model_name to response
+    response = {
+        "framework": framework,
+        "model_name": model_name,
+        **model_info
+    }
+
+    return response
+
+
+@router.get("/guide", response_model=Dict[str, Any])
+async def get_model_guide_by_query(
+    framework: str = Query(..., description="Framework name"),
+    model_name: str = Query(..., description="Model name")
+):
+    """
+    Get complete guide information for a model using query parameters.
+
+    This endpoint is preferred for HuggingFace models which contain '/' in their names.
+
+    Examples:
+    - /models/guide?framework=timm&model_name=resnet50
+    - /models/guide?framework=huggingface&model_name=google/vit-base-patch16-224
+
+    Returns:
+        Complete guide information including benchmarks, use cases, pros/cons, etc.
+    """
+    model_info = get_registry_model_info(framework, model_name)
+
+    if not model_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_name}' not found in framework '{framework}'"
+        )
+
+    # Build guide response
+    guide = {
+        "model": {
+            "framework": framework,
+            "model_name": model_name,
+            "display_name": model_info["display_name"],
+            "description": model_info["description"],
+            "params": model_info["params"],
+            "input_size": model_info["input_size"],
+            "task_types": model_info["task_types"],
+            "tags": model_info["tags"],
+        },
+        "benchmark": model_info.get("benchmark", {}),
+        "use_cases": model_info.get("use_cases", []),
+        "pros": model_info.get("pros", []),
+        "cons": model_info.get("cons", []),
+        "when_to_use": model_info.get("when_to_use", ""),
+        "when_not_to_use": model_info.get("when_not_to_use"),
+        "alternatives": model_info.get("alternatives", []),
+        "recommended_settings": model_info.get("recommended_settings", {}),
+        "real_world_examples": model_info.get("real_world_examples", []),
+        "special_features": model_info.get("special_features"),  # For YOLO-World
+    }
+
+    return guide
+
+
+@router.get("/{framework}/{model_name:path}/guide", response_model=Dict[str, Any])
 async def get_model_guide(framework: str, model_name: str):
     """
     Get complete guide information for a model (for ModelGuideDrawer UI).
+
+    NOTE: For HuggingFace models with '/' in names, use /models/guide endpoint instead.
 
     This includes all fields needed for the guide panel:
     - Quick stats (benchmark)
@@ -199,7 +299,7 @@ async def get_model_guide(framework: str, model_name: str):
             "description": model_info["description"],
             "params": model_info["params"],
             "input_size": model_info["input_size"],
-            "task_type": model_info["task_type"],
+            "task_types": model_info["task_types"],
             "tags": model_info["tags"],
         },
         "benchmark": model_info.get("benchmark", {}),
@@ -224,8 +324,9 @@ async def compare_models(
     """
     Compare multiple models side-by-side.
 
-    Example:
+    Examples:
     - /models/compare?models=timm:resnet50,ultralytics:yolo11n,timm:efficientnetv2_s
+    - /models/compare?models=timm:resnet50,huggingface:google/vit-base-patch16-224
 
     Returns:
         Comparison data for specified models
@@ -244,7 +345,7 @@ async def compare_models(
                     "model_name": model_name,
                     "display_name": model_info["display_name"],
                     "params": model_info["params"],
-                    "task_type": model_info["task_type"],
+                    "task_types": model_info["task_types"],
                     "benchmark": model_info.get("benchmark", {}),
                     "tags": model_info["tags"],
                 })

@@ -7,6 +7,7 @@ import TrainingPanel from '@/components/TrainingPanel'
 import ProjectDetail from '@/components/ProjectDetail'
 import CreateProjectForm from '@/components/CreateProjectForm'
 import TrainingConfigPanel from '@/components/TrainingConfigPanel'
+import ImageToolsPanel from '@/components/ImageToolsPanel'
 import LoginModal from '@/components/LoginModal'
 import RegisterModal from '@/components/RegisterModal'
 import ProfileModal from '@/components/ProfileModal'
@@ -46,6 +47,9 @@ export default function Home() {
   // Admin panel states
   const [showAdminProjects, setShowAdminProjects] = useState(false)
   const [showAdminUsers, setShowAdminUsers] = useState(false)
+
+  // Image tools state
+  const [showImageTools, setShowImageTools] = useState(false)
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -195,6 +199,17 @@ export default function Home() {
   const handleOpenAdminUsers = () => {
     setShowAdminUsers(true)
     setShowAdminProjects(false)
+    setShowImageTools(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
+  const handleOpenImageTools = () => {
+    setShowImageTools(true)
+    setShowAdminProjects(false)
+    setShowAdminUsers(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -203,6 +218,7 @@ export default function Home() {
 
   const handleLogout = () => {
     // Reset all workspace states when logging out
+    setShowImageTools(false)
     setShowAdminUsers(false)
     setShowAdminProjects(false)
     setSelectedProjectId(null)
@@ -219,6 +235,7 @@ export default function Home() {
         onProjectSelect={handleProjectSelect}
         selectedProjectId={selectedProjectId}
         onCreateProject={handleCreateProject}
+        onOpenImageTools={handleOpenImageTools}
         onOpenLogin={() => setShowLoginModal(true)}
         onOpenRegister={() => setShowRegisterModal(true)}
         onOpenProfile={() => setShowProfileModal(true)}
@@ -254,7 +271,10 @@ export default function Home() {
 
         {/* Workspace Panel - Right (Dynamic Content) */}
         <div style={{ width: `${100 - centerWidth}%` }} className="flex-1">
-          {showAdminProjects ? (
+          {showImageTools ? (
+            // Show image tools panel
+            <ImageToolsPanel />
+          ) : showAdminProjects ? (
             // Show admin projects panel
             <AdminProjectsPanel />
           ) : showAdminUsers ? (

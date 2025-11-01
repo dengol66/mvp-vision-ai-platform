@@ -138,8 +138,6 @@ export default function TrainingConfigPanel({
   const allTaskTypes = [
     { value: 'image_classification', label: '이미지 분류 (Image Classification)' },
     { value: 'object_detection', label: '객체 탐지 (Object Detection)' },
-    { value: 'semantic_segmentation', label: '의미론적 분할 (Semantic Segmentation)' },
-    { value: 'instance_segmentation', label: '인스턴스 분할 (Instance Segmentation)' },
     { value: 'pose_estimation', label: '포즈 추정 (Pose Estimation)' },
   ]
 
@@ -185,32 +183,9 @@ export default function TrainingConfigPanel({
     return metricsByTask[taskType] || metricsByTask['image_classification']
   }
 
-  // Update framework and model when task type changes
-  useEffect(() => {
-    const frameworks = getFrameworkOptions()
-
-    // If current framework doesn't support the task type, change it
-    if (frameworks.length > 0 && !frameworks.find(fw => fw.value === framework)) {
-      setFramework(frameworks[0].value)
-    }
-
-    const models = getModelOptions()
-
-    // If current model doesn't support the task type, change it
-    if (models.length > 0 && !models.find(m => m.value === modelName)) {
-      setModelName(models[0].value)
-    }
-  }, [taskType])
-
-  // Update model when framework changes
-  useEffect(() => {
-    const models = getModelOptions()
-
-    // If current model is not in the filtered list, change it
-    if (models.length > 0 && !models.find(m => m.value === modelName)) {
-      setModelName(models[0].value)
-    }
-  }, [framework])
+  // REMOVED: These useEffect hooks were resetting modelName based on hardcoded allModels array
+  // which didn't include newer models like yolo11n. Since we now use ModelSelector with API data,
+  // we don't need these validation hooks. The ModelSelector ensures valid model selection.
 
   // Update primary metric when task type changes
   useEffect(() => {
@@ -312,17 +287,26 @@ export default function TrainingConfigPanel({
   }
 
   const handleModelSelect = (model: ModelInfo) => {
+    console.log('[DEBUG] handleModelSelect called with model:', model)
+    console.log('[DEBUG]   model.framework:', model.framework)
+    console.log('[DEBUG]   model.model_name:', model.model_name)
+    console.log('[DEBUG]   model.task_types:', model.task_types)
+
     setSelectedModel(model)
     setFramework(model.framework)
     setModelName(model.model_name)
-    setTaskType(model.task_type)
+    setTaskType(model.task_types[0])  // Use first task type
+
+    console.log('[DEBUG] After setState calls - new values:')
+    console.log('[DEBUG]   framework:', model.framework)
+    console.log('[DEBUG]   modelName:', model.model_name)
 
     // Apply recommended settings
     setBatchSize(model.recommended_batch_size)
     setLearningRate(model.recommended_lr)
 
     // Show prompts modal for YOLO-World
-    if (model.task_type === 'zero_shot_detection') {
+    if (model.task_types.includes('zero_shot_detection')) {
       setShowPromptsModal(true)
     } else {
       setCustomPrompts([])
@@ -357,10 +341,19 @@ export default function TrainingConfigPanel({
         custom_prompts: customPrompts.length > 0 ? customPrompts : undefined,
       }
 
+      // DEBUG: Log what we're sending
+      console.log('[DEBUG] Training config before submit:')
+      console.log('[DEBUG]   framework:', framework)
+      console.log('[DEBUG]   modelName state:', modelName)
+      console.log('[DEBUG]   selectedModel:', selectedModel)
+      console.log('[DEBUG]   config.model_name:', config.model_name)
+
       const requestBody: any = { config }
       if (projectId) {
         requestBody.project_id = projectId
       }
+
+      console.log('[DEBUG] Request body:', JSON.stringify(requestBody, null, 2))
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs`, {
         method: 'POST',
@@ -497,7 +490,7 @@ export default function TrainingConfigPanel({
               </div>
 
               {/* YOLO-World Custom Prompts */}
-              {selectedModel && selectedModel.task_type === 'zero_shot_detection' && (
+              {selectedModel && selectedModel.task_types.includes('zero_shot_detection') && (
                 <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
                   <div className="flex items-start justify-between mb-3">
                     <div>

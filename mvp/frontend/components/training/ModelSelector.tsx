@@ -13,19 +13,14 @@ interface ModelSelectorProps {
 }
 
 const FILTER_OPTIONS = {
-  priority: [
-    { value: '0', label: 'P0 (우선 검증)' },
-    { value: '1', label: 'P1 (핵심 확장)' },
-    { value: '2', label: 'P2 (전체 커버리지)' },
-  ],
   framework: [
     { value: 'timm', label: 'timm' },
     { value: 'ultralytics', label: 'Ultralytics' },
+    { value: 'huggingface', label: 'HuggingFace' },
   ],
   taskType: [
     { value: 'image_classification', label: '이미지 분류' },
     { value: 'object_detection', label: '객체 탐지' },
-    { value: 'instance_segmentation', label: '인스턴스 분할' },
     { value: 'pose_estimation', label: '포즈 추정' },
     { value: 'zero_shot_detection', label: '제로샷 탐지' },
   ],
@@ -43,7 +38,6 @@ export default function ModelSelector({
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('')
-  const [priorityFilter, setPriorityFilter] = useState<string>('')
   const [frameworkFilter, setFrameworkFilter] = useState<string>('')
   const [taskTypeFilter, setTaskTypeFilter] = useState<string>('')
   const [showFilters, setShowFilters] = useState(false)
@@ -61,7 +55,7 @@ export default function ModelSelector({
   // Apply filters when models or filters change
   useEffect(() => {
     applyFilters()
-  }, [models, searchQuery, priorityFilter, frameworkFilter, taskTypeFilter])
+  }, [models, searchQuery, frameworkFilter, taskTypeFilter])
 
   const fetchModels = async () => {
     try {
@@ -98,11 +92,6 @@ export default function ModelSelector({
       )
     }
 
-    // Priority filter
-    if (priorityFilter) {
-      filtered = filtered.filter((model) => model.priority.toString() === priorityFilter)
-    }
-
     // Framework filter
     if (frameworkFilter) {
       filtered = filtered.filter((model) => model.framework === frameworkFilter)
@@ -110,7 +99,7 @@ export default function ModelSelector({
 
     // Task type filter
     if (taskTypeFilter) {
-      filtered = filtered.filter((model) => model.task_type === taskTypeFilter)
+      filtered = filtered.filter((model) => model.task_types.includes(taskTypeFilter))
     }
 
     setFilteredModels(filtered)
@@ -118,13 +107,12 @@ export default function ModelSelector({
 
   const clearFilters = () => {
     setSearchQuery('')
-    setPriorityFilter('')
     setFrameworkFilter('')
     setTaskTypeFilter('')
   }
 
   const hasActiveFilters =
-    searchQuery || priorityFilter || frameworkFilter || taskTypeFilter
+    searchQuery || frameworkFilter || taskTypeFilter
 
   const handleViewGuide = (framework: string, modelName: string) => {
     setGuideFramework(framework)
@@ -186,7 +174,7 @@ export default function ModelSelector({
             필터
             {hasActiveFilters && (
               <span className="ml-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold">
-                {[priorityFilter, frameworkFilter, taskTypeFilter].filter(Boolean).length}
+                {[frameworkFilter, taskTypeFilter].filter(Boolean).length}
               </span>
             )}
           </button>
@@ -206,33 +194,6 @@ export default function ModelSelector({
         {/* Filter Options */}
         {showFilters && (
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-            {/* Priority Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                우선순위
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {FILTER_OPTIONS.priority.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() =>
-                      setPriorityFilter(
-                        priorityFilter === option.value ? '' : option.value
-                      )
-                    }
-                    className={cn(
-                      'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                      priorityFilter === option.value
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Framework Filter */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
