@@ -40,11 +40,13 @@ interface ValidationSummary {
 interface ValidationDashboardProps {
   jobId: number;
   currentEpoch?: number;
+  jobStatus?: string;
 }
 
 export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
   jobId,
-  currentEpoch
+  currentEpoch,
+  jobStatus
 }) => {
   const [summary, setSummary] = useState<ValidationSummary | null>(null);
   const [selectedEpoch, setSelectedEpoch] = useState<number | null>(null);
@@ -63,8 +65,14 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
 
   // Fetch validation summary on mount
   useEffect(() => {
+    // Don't fetch if job is pending
+    if (jobStatus === 'pending') {
+      setLoading(false);
+      return;
+    }
+
     fetchValidationSummary();
-  }, [jobId]);
+  }, [jobId, jobStatus]);
 
   // Fetch specific epoch when selected or currentEpoch changes
   useEffect(() => {
@@ -136,6 +144,19 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
       console.error('Error fetching validation result:', err);
     }
   };
+
+  // Show message for pending status (no spinner)
+  if (jobStatus === 'pending') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-sm text-gray-500">
+            학습을 시작하면 검증 메트릭이 표시됩니다
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

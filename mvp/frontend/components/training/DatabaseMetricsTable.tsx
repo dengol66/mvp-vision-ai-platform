@@ -35,6 +35,7 @@ interface DatabaseMetricsTableProps {
   selectedMetrics?: string[];
   onMetricToggle?: (metricKey: string) => void;
   onCheckpointSelect?: (checkpointPath: string, epoch: number) => void;
+  jobStatus?: string;
 }
 
 export default function DatabaseMetricsTable({
@@ -43,13 +44,15 @@ export default function DatabaseMetricsTable({
   selectedMetrics = [],
   onMetricToggle,
   onCheckpointSelect,
+  jobStatus,
 }: DatabaseMetricsTableProps) {
   console.log('[DatabaseMetricsTable] Received metrics:', metrics);
   console.log('[DatabaseMetricsTable] Metrics length:', metrics?.length);
+  console.log('[DatabaseMetricsTable] Job status:', jobStatus);
 
-  // Fetch metric schema for dynamic columns
+  // Fetch metric schema for dynamic columns (don't fetch if pending)
   const { data: metricSchema, isLoading: schemaLoading } = useSWR<MetricSchema>(
-    jobId ? `/training/jobs/${jobId}/metric-schema` : null,
+    jobId && jobStatus !== 'pending' ? `/training/jobs/${jobId}/metric-schema` : null,
     fetcher,
     {
       refreshInterval: 0, // Only fetch once
@@ -109,6 +112,19 @@ export default function DatabaseMetricsTable({
   // Early return AFTER all hooks
   if (!metrics || metrics.length === 0) {
     console.log('[DatabaseMetricsTable] No metrics, showing empty state');
+
+    // Show message without spinner for pending status
+    if (jobStatus === 'pending') {
+      return (
+        <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+          <p className="text-sm text-gray-500">
+            학습을 시작하면 메트릭이 표시됩니다
+          </p>
+        </div>
+      );
+    }
+
+    // Show spinner for running status
     return (
       <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400 mb-3"></div>

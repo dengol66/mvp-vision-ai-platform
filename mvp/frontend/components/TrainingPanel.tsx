@@ -625,15 +625,6 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto">
-        {/* Show message if not started yet */}
-        {job.status === 'pending' && (
-          <div className="p-6">
-            <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
-              <p className="text-sm text-gray-500">학습을 시작하면 메트릭과 실험 정보가 표시됩니다</p>
-            </div>
-          </div>
-        )}
-
         {/* Tabs - Always show */}
         <>
           {/* Tab Navigation - Sticky */}
@@ -774,28 +765,32 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               <MLflowMetricsCharts
                 jobId={job.id}
                 selectedMetrics={selectedMetrics}
+                jobStatus={job.status}
               />
             </div>
 
-            {/* Metrics Table */}
-            <div>
-              <DatabaseMetricsTable
-                jobId={job.id}
-                metrics={metrics}
-                selectedMetrics={selectedMetrics}
-                onMetricToggle={(metricKey) => {
-                  setSelectedMetrics(prev =>
-                    prev.includes(metricKey)
-                      ? prev.filter(m => m !== metricKey)
-                      : [...prev, metricKey]
-                  )
-                }}
-                onCheckpointSelect={(checkpointPath, epoch) => {
-                  console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
-                  // Will implement resume dialog in next step
-                }}
-              />
-            </div>
+            {/* Metrics Table - Hide when pending */}
+            {job.status !== 'pending' && (
+              <div>
+                <DatabaseMetricsTable
+                  jobId={job.id}
+                  metrics={metrics}
+                  selectedMetrics={selectedMetrics}
+                  jobStatus={job.status}
+                  onMetricToggle={(metricKey) => {
+                    setSelectedMetrics(prev =>
+                      prev.includes(metricKey)
+                        ? prev.filter(m => m !== metricKey)
+                        : [...prev, metricKey]
+                    )
+                  }}
+                  onCheckpointSelect={(checkpointPath, epoch) => {
+                    console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
+                    // Will implement resume dialog in next step
+                  }}
+                />
+              </div>
+            )}
 
             {/* Final Metric */}
             {job.final_accuracy !== null && (
@@ -811,10 +806,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               {/* Validation Tab */}
               {activeTab === 'validation' && (
                 <>
-                  {metrics.length > 0 ? (
+                  {job.status === 'pending' || metrics.length > 0 ? (
                     <ValidationDashboard
                       jobId={job.id}
                       currentEpoch={metrics[metrics.length - 1]?.epoch}
+                      jobStatus={job.status}
                     />
                   ) : (
                     <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">

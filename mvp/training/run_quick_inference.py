@@ -144,6 +144,15 @@ def run_inference(
 
     result = results[0]
 
+    # Debug logging
+    print(f"[DEBUG] result type: {type(result)}", file=sys.stderr)
+    print(f"[DEBUG] result.task_type: {result.task_type}", file=sys.stderr)
+    print(f"[DEBUG] result.task_type type: {type(result.task_type)}", file=sys.stderr)
+    print(f"[DEBUG] result.predicted_label: {result.predicted_label}", file=sys.stderr)
+    print(f"[DEBUG] result.top5_predictions: {result.top5_predictions}", file=sys.stderr)
+    print(f"[DEBUG] TaskType.IMAGE_CLASSIFICATION: {TaskType.IMAGE_CLASSIFICATION}", file=sys.stderr)
+    print(f"[DEBUG] Comparison result: {result.task_type == TaskType.IMAGE_CLASSIFICATION}", file=sys.stderr)
+
     # Convert result to dict
     result_dict = {
         "image_path": result.image_path,
@@ -155,38 +164,32 @@ def run_inference(
     }
 
     # Add task-specific results
-    if result.task_type == TaskType.IMAGE_CLASSIFICATION:
+    # Convert task_type to string for comparison (handles both enum and string cases)
+    task_type_str = result.task_type.value if hasattr(result.task_type, 'value') else str(result.task_type)
+
+    if task_type_str == 'image_classification':
         result_dict["predicted_label"] = result.predicted_label
         result_dict["predicted_label_id"] = result.predicted_label_id
         result_dict["confidence"] = result.confidence
         result_dict["top5_predictions"] = result.top5_predictions or []
 
-    elif result.task_type == TaskType.OBJECT_DETECTION:
+    elif task_type_str == 'object_detection':
         result_dict["predicted_boxes"] = result.predicted_boxes or []
         result_dict["num_detections"] = len(result.predicted_boxes) if result.predicted_boxes else 0
 
-    elif result.task_type in [TaskType.INSTANCE_SEGMENTATION, TaskType.SEMANTIC_SEGMENTATION]:
+    elif task_type_str in ['instance_segmentation', 'semantic_segmentation']:
         result_dict["predicted_boxes"] = result.predicted_boxes or []
         result_dict["predicted_mask_path"] = result.predicted_mask_path
         result_dict["num_instances"] = len(result.predicted_boxes) if result.predicted_boxes else 0
 
-    elif result.task_type == TaskType.POSE_ESTIMATION:
+    elif task_type_str == 'pose_estimation':
         result_dict["predicted_keypoints"] = result.predicted_keypoints or []
         result_dict["num_persons"] = len(result.predicted_keypoints) if result.predicted_keypoints else 0
 
-    elif result.task_type == TaskType.SUPER_RESOLUTION:
+    elif task_type_str == 'super_resolution':
         result_dict["predicted_label"] = result.predicted_label
         result_dict["confidence"] = result.confidence
         result_dict["upscaled_image_path"] = result.upscaled_image_path
-
-    elif result.task_type in [TaskType.SEMANTIC_SEGMENTATION, TaskType.INSTANCE_SEGMENTATION]:
-        result_dict["predicted_label"] = result.predicted_label
-        result_dict["confidence"] = result.confidence
-        result_dict["predicted_mask_path"] = result.predicted_mask_path
-        if result.extra_data:
-            result_dict["overlay_path"] = result.extra_data.get("overlay_path")
-            result_dict["num_classes"] = result.extra_data.get("num_classes")
-            result_dict["unique_classes"] = result.extra_data.get("unique_classes")
 
     return result_dict
 

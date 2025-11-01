@@ -318,6 +318,9 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           if (response.ok) {
             const result = await response.json()
             console.log('[DEBUG] Inference result received:', result)
+            console.log('[DEBUG] Full result JSON:', JSON.stringify(result, null, 2))
+            console.log('[DEBUG] task_type:', result.task_type)
+            console.log('[DEBUG] top5_predictions:', result.top5_predictions)
             console.log('[DEBUG] Has upscaled_image_url:', !!result.upscaled_image_url)
             console.log('[DEBUG] upscaled_image_url value:', result.upscaled_image_url)
 
@@ -401,9 +404,18 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   }
 
   const handleImageSelect = (imageId: string) => {
+    console.log('[DEBUG] handleImageSelect called with imageId:', imageId)
     const image = images.find(img => img.id === imageId)
-    if (!image) return
+    console.log('[DEBUG] Found image:', image)
+    if (!image) {
+      console.log('[DEBUG] Image not found, returning')
+      return
+    }
 
+    console.log('[DEBUG] Setting selectedImageId to:', imageId)
+    console.log('[DEBUG] Image result:', image.result)
+    console.log('[DEBUG] Image task_type:', image.result?.task_type)
+    console.log('[DEBUG] Image top5_predictions:', image.result?.top5_predictions)
     setSelectedImageId(imageId)
 
     // Show slide panel for super-resolution results

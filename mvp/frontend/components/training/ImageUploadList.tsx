@@ -163,7 +163,11 @@ export default function ImageUploadList({
         {images.map((image) => (
           <div
             key={image.id}
-            onClick={() => onImageSelect(image.id)}
+            onClick={() => {
+              console.log('[ImageUploadList] Image clicked, id:', image.id)
+              console.log('[ImageUploadList] Calling onImageSelect...')
+              onImageSelect(image.id)
+            }}
             className={cn(
               'relative group cursor-pointer rounded-lg border-2 p-2 transition-all',
               selectedImageId === image.id
