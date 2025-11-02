@@ -21,15 +21,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY mvp/backend/ .
 
-# Copy training module (needed by model_registry)
-COPY mvp/training/ /training/
+# Copy training module to /mvp/training/ (code expects this path)
+RUN mkdir -p /mvp/training
+COPY mvp/training/ /mvp/training/
 
 # Copy sample datasets to /app/datasets
 # Note: sample_datasets should be in mvp/backend/sample_datasets/
 COPY mvp/backend/sample_datasets/ /app/datasets/
 
 # Create necessary directories
-RUN mkdir -p outputs uploads
+RUN mkdir -p outputs uploads /app/data/outputs /app/data/logs
 
 # Expose port (Railway will set PORT env var)
 EXPOSE ${PORT:-8000}
