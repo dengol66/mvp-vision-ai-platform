@@ -32,6 +32,7 @@ tests/
 outputs/
 uploads/
 datasets/
+!sample_datasets/
 mlruns/
 
 # Database
