@@ -62,7 +62,8 @@ export default function ModelSelector({
       setLoading(true)
       setError(null)
 
-      const response = await fetch('http://localhost:8000/api/v1/models/list')
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const response = await fetch(`${apiUrl}/models/list`)
 
       if (!response.ok) {
         throw new Error(`Failed to fetch models: ${response.statusText}`)

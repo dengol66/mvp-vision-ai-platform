@@ -4,7 +4,8 @@ import React, { useMemo } from "react";
 import { CheckCircle2, XCircle, Star } from "lucide-react";
 import useSWR from "swr";
 
-const fetcher = (url: string) => fetch(`http://localhost:8000/api/v1${url}`).then((res) => res.json());
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const fetcher = (url: string) => fetch(`${API_URL}${url}`).then((res) => res.json());
 
 interface TrainingMetric {
   id: number;
