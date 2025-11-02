@@ -86,7 +86,7 @@ async def start_background_tasks():
     print("[STARTUP] Initializing database tables...")
     from app.db.database import init_db, SessionLocal
     from app.db.models import User
-    from app.utils.auth import get_password_hash
+    from app.core.security import get_password_hash
 
     try:
         init_db()
