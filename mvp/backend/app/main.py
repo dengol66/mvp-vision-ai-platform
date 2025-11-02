@@ -84,13 +84,41 @@ async def start_background_tasks():
 
     # Initialize database tables
     print("[STARTUP] Initializing database tables...")
-    from app.db.database import init_db
+    from app.db.database import init_db, SessionLocal
+    from app.db.models import User
+    from app.utils.auth import get_password_hash
+
     try:
         init_db()
         print("[STARTUP] Database tables initialized successfully")
     except Exception as e:
         print(f"[STARTUP] Database initialization error: {e}")
         # Don't crash the app if tables already exist
+
+    # Create default admin user if no users exist
+    try:
+        db = SessionLocal()
+        user_count = db.query(User).count()
+
+        if user_count == 0:
+            admin_email = "admin@example.com"
+            admin_password = "admin123"
+
+            admin_user = User(
+                email=admin_email,
+                hashed_password=get_password_hash(admin_password),
+                full_name="Admin User"
+            )
+            db.add(admin_user)
+            db.commit()
+            print(f"[STARTUP] Created default admin user: {admin_email} / {admin_password}")
+            print("[STARTUP] ⚠️  IMPORTANT: Change the default password after first login!")
+        else:
+            print(f"[STARTUP] Found {user_count} existing user(s)")
+
+        db.close()
+    except Exception as e:
+        print(f"[STARTUP] Error creating admin user: {e}")
 
     async def cleanup_old_inference_sessions():
         """
