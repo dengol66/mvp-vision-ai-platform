@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DBSession
 
 from app.db.database import get_db
-from app.db.models import Session as SessionModel, Message as MessageModel, TrainingJob
+from app.db.models import Session as SessionModel, Message as MessageModel, TrainingJob, User
 from app.schemas import chat
 from app.services.conversation_manager import ConversationManager
+from app.utils.dependencies import get_current_user
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -100,6 +101,31 @@ async def get_capabilities():
                 "name": "yolov8m",
                 "display_name": "YOLOv8 Medium",
                 "description": "Medium object detection model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            # Ultralytics YOLOv11 models
+            {
+                "name": "yolo11n",
+                "display_name": "YOLO11 Nano",
+                "description": "Latest lightweight YOLO model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolo11s",
+                "display_name": "YOLO11 Small",
+                "description": "Latest small YOLO model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolo11m",
+                "display_name": "YOLO11 Medium",
+                "description": "Latest medium YOLO model",
                 "framework": "ultralytics",
                 "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
                 "supported": True
@@ -387,7 +413,11 @@ async def export_chat_log(session_id: int, db: DBSession = Depends(get_db)):
 
 
 @router.post("/message", response_model=chat.ChatResponse)
-async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db)):
+async def send_message(
+    request: chat.ChatRequest,
+    db: DBSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)  # Authentication required
+):
     """
     Send a message and get AI response.
 
@@ -395,8 +425,13 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
     1. Creates or retrieves a session
     2. Delegates to ConversationManager for processing
     3. Returns response with state information
+
+    Requires authentication: User must be logged in.
     """
     logger.debug(f"Received chat request: session_id={request.session_id}, message={request.message[:50]}...")
+
+    # Get authenticated user ID
+    user_id = current_user.id
 
     try:
         # Create manager
@@ -417,7 +452,8 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
         # Process message through ConversationManager
         result = await manager.process_message(
             session_id=session_id,
-            user_message=request.message
+            user_message=request.message,
+            user_id=user_id  # Pass authenticated user ID
         )
 
         # Get the latest messages
@@ -467,6 +503,20 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
                         "notes": training_job.notes,
                     }
                 }
+
+        # Phase 1: Populate action-specific fields from ConversationManager result
+        if result.get("dataset_analysis"):
+            response.dataset_analysis = result["dataset_analysis"]
+        if result.get("model_search_results"):
+            response.model_search_results = result["model_search_results"]
+        if result.get("recommended_models"):
+            response.model_recommendations = result["recommended_models"]
+        if result.get("available_datasets"):
+            response.available_datasets = result["available_datasets"]
+        if result.get("training_status"):
+            response.training_status = result["training_status"]
+        if result.get("inference_results"):
+            response.inference_results = result["inference_results"]
 
         logger.debug(f"Response sent for session {session_id}")
         return response

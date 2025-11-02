@@ -39,7 +39,8 @@ class ConversationManager:
     async def process_message(
         self,
         session_id: int,
-        user_message: str
+        user_message: str,
+        user_id: int  # Required: Current logged-in user ID
     ) -> Dict[str, Any]:
         """
         Process user message through conversation flow
@@ -47,6 +48,7 @@ class ConversationManager:
         Args:
             session_id: Current session ID
             user_message: User's message text
+            user_id: Current user ID (for project ownership, etc.) - REQUIRED
 
         Returns:
             dict: {
@@ -82,9 +84,18 @@ class ConversationManager:
             # 2. Build conversation context (last 5 messages)
             context = self._build_context(session)
 
+            # 2.5. Handle dataset listing keywords (LLM sometimes fails to route to list_datasets)
+            dataset_keywords = ['기본 데이터셋', '기본으로 제공', '사용 가능한 데이터셋', '어떤 데이터셋', 'built-in dataset', '제공되는 데이터셋']
+            if any(keyword in user_message for keyword in dataset_keywords):
+                logger.info(f"[Session {session_id}] Detected dataset listing keyword, forcing list_datasets action")
+                action_response = GeminiActionResponse(
+                    action=ActionType.LIST_DATASETS,
+                    message="사용 가능한 데이터셋을 확인하고 있습니다...",
+                    current_config=temp_data.get("config")
+                )
             # 3. Handle simple option selection in SELECTING_PROJECT state
             # (LLM sometimes fails to parse simple "1", "2", "3" inputs correctly)
-            if current_state == ConversationState.SELECTING_PROJECT:
+            elif current_state == ConversationState.SELECTING_PROJECT:
                 direct_action = self._handle_project_selection(user_message, temp_data)
                 if direct_action:
                     logger.info(f"[Session {session_id}] Direct action (bypassing LLM): {direct_action.action}")
@@ -132,7 +143,8 @@ class ConversationManager:
             result = await self.action_handlers.handle_action(
                 action_response=action_response,
                 session=session,
-                user_message=user_message
+                user_message=user_message,
+                user_id=user_id  # Pass user ID for ownership
             )
             logger.warning(f"[CM] handle_action returned")
 
@@ -207,6 +219,20 @@ class ConversationManager:
                 response["selected_project_id"] = selected_project_id
                 logger.info(f"[Session {session_id}] Project selected: {selected_project_id}")
 
+            # Phase 1: Include action-specific data for frontend
+            if "dataset_analysis" in updated_temp_data:
+                response["dataset_analysis"] = updated_temp_data["dataset_analysis"]
+            if "model_search_results" in updated_temp_data:
+                response["model_search_results"] = updated_temp_data["model_search_results"]
+            if "recommended_models" in updated_temp_data:
+                response["recommended_models"] = updated_temp_data["recommended_models"]
+            if "available_datasets" in updated_temp_data:
+                response["available_datasets"] = updated_temp_data["available_datasets"]
+            if "training_status" in updated_temp_data:
+                response["training_status"] = updated_temp_data["training_status"]
+            if "inference_results" in updated_temp_data:
+                response["inference_results"] = updated_temp_data["inference_results"]
+
             return response
 
         except Exception as e:
@@ -239,8 +265,16 @@ class ConversationManager:
 
         # Check if we're already showing project list (user is selecting from list)
         if "available_projects" in temp_data:
-            # User is selecting a specific project from the list
-            # Let LLM handle this (it will route to SELECT_PROJECT action)
+            # User is selecting a specific project from the list by number
+            # Handle numeric selection directly
+            if msg.replace("번", "").isdigit():
+                project_number = msg.replace("번", "")
+                return GeminiActionResponse(
+                    action=ActionType.SELECT_PROJECT,
+                    message=f"프로젝트 {project_number}번을 선택합니다...",
+                    project_identifier=project_number
+                )
+            # Otherwise, let LLM handle name-based selection
             return None
 
         # We're at the initial selection screen (신규/기존/건너뛰기)
