@@ -30,17 +30,18 @@ COPY mvp/training/ /mvp/training/
 COPY mvp/backend/sample_datasets/ /app/datasets/
 
 # Create necessary directories
-RUN mkdir -p outputs uploads /app/data/outputs /app/data/logs
+RUN mkdir -p outputs uploads /app/data/outputs /app/data/logs /app/mlruns
 
-# Expose port (Railway will set PORT env var)
+# Make start script executable
+RUN chmod +x start.sh
+
+# Expose ports (Railway will set PORT env var for FastAPI)
 EXPOSE ${PORT:-8000}
+EXPOSE 5000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:${PORT:-8000}/health')" || exit 1
 
-# Start server
-# Railway will provide PORT environment variable
-# Note: Run migrations manually after first deployment
-# Railway CLI: railway run python -c "from app.db.database import init_db; init_db()"
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Start both MLflow server and FastAPI application
+CMD ["./start.sh"]
