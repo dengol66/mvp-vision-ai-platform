@@ -1,0 +1,14 @@
+# ultralytics Service Dependencies
+# Object Detection, Segmentation, Pose: YOLO family
+
+# Deep Learning Framework
+torch==2.1.1
+torchvision==0.16.1
+
+# Model Library
+ultralytics==8.0.228
+
+# Common
+numpy<2.0
+pillow==10.1.0
+opencv-python-headless==4.8.1.78

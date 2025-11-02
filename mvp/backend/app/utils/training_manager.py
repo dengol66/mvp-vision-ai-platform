@@ -738,12 +738,12 @@ class TrainingManager:
         print(f"[TrainingManager] Config: {job_config}")
 
         try:
-            # Initialize Training Service client
-            client = TrainingServiceClient()
+            # Initialize Training Service client with framework-specific routing
+            client = TrainingServiceClient(framework=job.framework)
 
             # Check if Training Service is healthy
             if not client.health_check():
-                raise Exception("Training Service is not healthy")
+                raise Exception(f"Training Service for framework '{job.framework}' is not healthy")
 
             # Start training
             client.start_training(job_config)

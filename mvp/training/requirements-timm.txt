@@ -1,0 +1,17 @@
+# timm Service Dependencies
+# Image Classification: ResNet, EfficientNet, ViT, etc.
+
+# Deep Learning Framework
+torch==2.1.1
+torchvision==0.16.1
+
+# Model Library
+timm==0.9.12
+
+# Training Utilities
+pillow==10.1.0
+opencv-python-headless==4.8.1.78
+albumentations==1.3.1
+
+# Common
+numpy<2.0

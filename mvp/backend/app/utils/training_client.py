@@ -1,7 +1,7 @@
 """
 Training Service HTTP Client
 
-Communicates with separate Training Service for executing training jobs.
+Communicates with framework-specific Training Services for executing training jobs.
 """
 
 import os
@@ -13,20 +13,35 @@ logger = logging.getLogger(__name__)
 
 
 class TrainingServiceClient:
-    """Client for Training Service API."""
+    """Client for Training Service API with framework-specific routing."""
 
-    def __init__(self, training_service_url: Optional[str] = None):
+    # Framework to service URL mapping
+    FRAMEWORK_SERVICES = {
+        "timm": "TIMM_SERVICE_URL",
+        "ultralytics": "ULTRALYTICS_SERVICE_URL",
+        "huggingface": "HUGGINGFACE_SERVICE_URL",
+    }
+
+    def __init__(self, framework: Optional[str] = None):
         """
         Initialize Training Service client.
 
         Args:
-            training_service_url: URL of Training Service (from env if not provided)
+            framework: Framework name (timm, ultralytics, huggingface)
+                      If None, uses default TRAINING_SERVICE_URL
         """
-        self.base_url = training_service_url or os.getenv(
-            "TRAINING_SERVICE_URL",
-            "http://localhost:8001"  # Default for local development
-        )
-        logger.info(f"[TrainingClient] Using Training Service URL: {self.base_url}")
+        # Get framework-specific URL or fallback to default
+        if framework and framework in self.FRAMEWORK_SERVICES:
+            env_var = self.FRAMEWORK_SERVICES[framework]
+            self.base_url = os.getenv(env_var)
+
+            if not self.base_url:
+                logger.warning(f"[TrainingClient] {env_var} not set, using default")
+                self.base_url = os.getenv("TRAINING_SERVICE_URL", "http://localhost:8001")
+        else:
+            self.base_url = os.getenv("TRAINING_SERVICE_URL", "http://localhost:8001")
+
+        logger.info(f"[TrainingClient] Framework: {framework}, URL: {self.base_url}")
 
     def start_training(self, job_config: Dict[str, Any]) -> bool:
         """
