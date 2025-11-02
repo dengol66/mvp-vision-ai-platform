@@ -13,27 +13,22 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements first (for better caching)
 # Note: Railway build context is at repository root
-COPY mvp/backend/requirements.txt ./backend-requirements.txt
-COPY mvp/training/requirements.txt ./training-requirements.txt
+COPY mvp/backend/requirements.txt .
 
-# Install Python dependencies
-# Backend dependencies (lightweight)
+# Install Python dependencies (backend only - lightweight)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r backend-requirements.txt
-
-# Training dependencies (heavyweight - PyTorch, ultralytics, etc.)
-# Note: This increases image size but enables training in production
-RUN pip install --no-cache-dir -r training-requirements.txt
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY mvp/backend/ .
 
-# Copy training module to /mvp/training/ (code expects this path)
+# Copy training module metadata only (for model_registry imports)
+# Actual training runs in separate Training Service
 RUN mkdir -p /mvp/training
-COPY mvp/training/ /mvp/training/
+COPY mvp/training/model_registry.py /mvp/training/
+COPY mvp/training/__init__.py /mvp/training/ 2>/dev/null || touch /mvp/training/__init__.py
 
-# Copy sample datasets to /app/datasets
-# Note: sample_datasets should be in mvp/backend/sample_datasets/
+# Copy sample datasets to /app/datasets (shared via volume in production)
 COPY mvp/backend/sample_datasets/ /app/datasets/
 
 # Create necessary directories

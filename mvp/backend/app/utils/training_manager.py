@@ -18,6 +18,7 @@ class ExecutionMode(Enum):
     """Training execution mode."""
     SUBPROCESS = "subprocess"  # Local subprocess (MVP compatible)
     DOCKER = "docker"          # Docker container
+    API = "api"                 # Separate Training Service (Production)
 
 
 class TrainingManager:
@@ -93,6 +94,8 @@ class TrainingManager:
             return self._start_training_subprocess(job_id, checkpoint_path, resume)
         elif self.execution_mode == ExecutionMode.DOCKER:
             return self._start_training_docker(job_id, checkpoint_path, resume)
+        elif self.execution_mode == ExecutionMode.API:
+            return self._start_training_api(job_id, checkpoint_path, resume)
         else:
             raise ValueError(f"Unsupported execution mode: {self.execution_mode}")
 
@@ -685,3 +688,76 @@ class TrainingManager:
 
         # Fallback to system python
         return "python"
+
+    def _start_training_api(self, job_id: int, checkpoint_path: Optional[str] = None, resume: bool = False) -> bool:
+        """
+        Start training via Training Service API (Production mode).
+
+        Args:
+            job_id: Training job ID
+            checkpoint_path: Optional checkpoint path
+            resume: If True, resume from checkpoint
+
+        Returns:
+            True if training started successfully
+        """
+        from app.utils.training_client import TrainingServiceClient
+
+        # Get job from database
+        job = self.db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            print(f"[TrainingManager] Job {job_id} not found")
+            return False
+
+        if job.status != "pending":
+            print(f"[TrainingManager] Job {job_id} status is {job.status}, expected 'pending'")
+            return False
+
+        # Prepare training config
+        job_config = {
+            "job_id": job_id,
+            "framework": job.framework,
+            "task_type": job.task_type,
+            "model_name": job.model_name,
+            "dataset_path": job.dataset_path,
+            "dataset_format": job.dataset_format,
+            "num_classes": job.num_classes or 1000,
+            "output_dir": job.output_dir,
+            "epochs": job.epochs,
+            "batch_size": job.batch_size,
+            "learning_rate": job.learning_rate,
+            "optimizer": "adam",
+            "device": "cpu",  # Railway doesn't have GPU
+            "image_size": 224,
+            "pretrained": True,
+            "checkpoint_path": checkpoint_path,
+            "resume": resume
+        }
+
+        print(f"[TrainingManager] Starting training via API for job {job_id}")
+        print(f"[TrainingManager] Config: {job_config}")
+
+        try:
+            # Initialize Training Service client
+            client = TrainingServiceClient()
+
+            # Check if Training Service is healthy
+            if not client.health_check():
+                raise Exception("Training Service is not healthy")
+
+            # Start training
+            client.start_training(job_config)
+
+            # Update job status
+            job.status = "running"
+            self.db.commit()
+
+            print(f"[TrainingManager] Training started successfully for job {job_id}")
+            return True
+
+        except Exception as e:
+            print(f"[TrainingManager] Failed to start training: {e}")
+            job.status = "failed"
+            job.error_message = f"Failed to start training: {str(e)}"
+            self.db.commit()
+            return False
