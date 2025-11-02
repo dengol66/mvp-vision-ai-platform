@@ -13,11 +13,17 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements first (for better caching)
 # Note: Railway build context is at repository root
-COPY mvp/backend/requirements.txt .
+COPY mvp/backend/requirements.txt ./backend-requirements.txt
+COPY mvp/training/requirements.txt ./training-requirements.txt
 
 # Install Python dependencies
+# Backend dependencies (lightweight)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r backend-requirements.txt
+
+# Training dependencies (heavyweight - PyTorch, ultralytics, etc.)
+# Note: This increases image size but enables training in production
+RUN pip install --no-cache-dir -r training-requirements.txt
 
 # Copy application code
 COPY mvp/backend/ .
