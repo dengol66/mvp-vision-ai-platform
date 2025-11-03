@@ -3,6 +3,8 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
+import requests
+import os
 
 # Import model registries (optional in production API mode)
 import sys
@@ -26,7 +28,7 @@ try:
     MODEL_REGISTRY_AVAILABLE = True
 except ImportError:
     # Production API mode: model_registry not available
-    # Use static model definitions instead
+    # Will fetch models from Training Services instead
     MODEL_REGISTRY_AVAILABLE = False
 
     # Static model definitions for production (minimal set)
@@ -119,15 +121,89 @@ except ImportError:
         },
     ]
 
+    def fetch_models_from_service(service_url: str, timeout: int = 5) -> List[Dict[str, Any]]:
+        """
+        Fetch models from a Training Service.
+
+        Args:
+            service_url: Base URL of the Training Service
+            timeout: Request timeout in seconds
+
+        Returns:
+            List of model dictionaries, empty list if service unavailable
+        """
+        try:
+            response = requests.get(f"{service_url}/models/list", timeout=timeout)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("models", [])
+        except Exception as e:
+            print(f"[WARNING] Failed to fetch models from {service_url}: {e}")
+
+        return []
+
     def get_all_models():
-        """Return list of all models (API mode uses static definitions)."""
-        return STATIC_MODELS
+        """
+        Get all models from Training Services or static definitions.
+
+        In production (Railway), fetches models from Training Services via HTTP.
+        Falls back to static definitions if services unavailable.
+        """
+        models = []
+
+        # Try to fetch from Training Services
+        training_services = {
+            "timm": os.getenv("TIMM_SERVICE_URL"),
+            "ultralytics": os.getenv("ULTRALYTICS_SERVICE_URL"),
+            "huggingface": os.getenv("HUGGINGFACE_SERVICE_URL"),
+        }
+
+        services_available = False
+        for framework, service_url in training_services.items():
+            if service_url:
+                service_models = fetch_models_from_service(service_url)
+                if service_models:
+                    models.extend(service_models)
+                    services_available = True
+
+        # Fallback to static models if no services available
+        if not services_available:
+            print("[INFO] No Training Services available, using static model definitions")
+            models = STATIC_MODELS
+
+        return models
 
     def get_registry_model_info(framework: str, model_name: str):
-        """Get specific model info by framework and name."""
+        """
+        Get specific model info by framework and name.
+
+        Tries Training Services first, falls back to static definitions.
+        """
+        # Try to fetch from Training Service
+        training_services = {
+            "timm": os.getenv("TIMM_SERVICE_URL"),
+            "ultralytics": os.getenv("ULTRALYTICS_SERVICE_URL"),
+            "huggingface": os.getenv("HUGGINGFACE_SERVICE_URL"),
+        }
+
+        service_url = training_services.get(framework)
+        if service_url:
+            try:
+                response = requests.get(f"{service_url}/models/{model_name}", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    # Remove framework and model_name from response (they're redundant)
+                    data.pop("framework", None)
+                    data.pop("model_name", None)
+                    return data
+            except Exception as e:
+                print(f"[WARNING] Failed to fetch model {model_name} from {service_url}: {e}")
+
+        # Fallback to static definitions
         for model in STATIC_MODELS:
             if model["framework"] == framework and model["model_name"] == model_name:
                 return model
+
         return None
 
 router = APIRouter(prefix="/models", tags=["models"])

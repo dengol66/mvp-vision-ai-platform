@@ -12,9 +12,26 @@ import subprocess
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
-app = FastAPI(title="Training Service")
+# Import model registry
+try:
+    from model_registry import get_all_models, get_model_info
+    from model_registry.timm_models import TIMM_MODEL_REGISTRY
+    from model_registry.ultralytics_models import ULTRALYTICS_MODEL_REGISTRY
+    from model_registry.huggingface_models import HUGGINGFACE_MODEL_REGISTRY
+    MODEL_REGISTRY_AVAILABLE = True
+except ImportError as e:
+    print(f"[WARNING] Model registry not available: {e}")
+    MODEL_REGISTRY_AVAILABLE = False
+    TIMM_MODEL_REGISTRY = {}
+    ULTRALYTICS_MODEL_REGISTRY = {}
+    HUGGINGFACE_MODEL_REGISTRY = {}
+
+# Detect framework from environment variable
+FRAMEWORK = os.environ.get("FRAMEWORK", "unknown")
+
+app = FastAPI(title=f"Training Service ({FRAMEWORK})")
 
 # In-memory job status (in production, use Redis/DB)
 job_status: Dict[int, Dict[str, Any]] = {}
@@ -117,6 +134,78 @@ async def get_job_status(job_id: int):
     return {
         "job_id": job_id,
         **job_status[job_id]
+    }
+
+
+@app.get("/models/list")
+async def list_models():
+    """
+    List all models available in this Training Service.
+
+    Returns models specific to this framework (timm, ultralytics, or huggingface).
+    """
+    if not MODEL_REGISTRY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Model registry not available in this Training Service"
+        )
+
+    # Get models for this framework
+    models = []
+
+    if FRAMEWORK == "timm":
+        for model_name, info in TIMM_MODEL_REGISTRY.items():
+            models.append({
+                "framework": "timm",
+                "model_name": model_name,
+                **info
+            })
+    elif FRAMEWORK == "ultralytics":
+        for model_name, info in ULTRALYTICS_MODEL_REGISTRY.items():
+            models.append({
+                "framework": "ultralytics",
+                "model_name": model_name,
+                **info
+            })
+    elif FRAMEWORK == "huggingface":
+        for model_name, info in HUGGINGFACE_MODEL_REGISTRY.items():
+            models.append({
+                "framework": "huggingface",
+                "model_name": model_name,
+                **info
+            })
+    else:
+        # Unknown framework - return all models
+        models = get_all_models()
+
+    return {
+        "framework": FRAMEWORK,
+        "model_count": len(models),
+        "models": models
+    }
+
+
+@app.get("/models/{model_name}")
+async def get_model(model_name: str):
+    """Get detailed information for a specific model."""
+    if not MODEL_REGISTRY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Model registry not available in this Training Service"
+        )
+
+    model_info = get_model_info(FRAMEWORK, model_name)
+
+    if not model_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_name}' not found in framework '{FRAMEWORK}'"
+        )
+
+    return {
+        "framework": FRAMEWORK,
+        "model_name": model_name,
+        **model_info
     }
 
 
