@@ -1,14 +1,17 @@
 """
 Datasets API endpoints for dataset analysis and management.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 import logging
 import os
+from sqlalchemy.orm import Session
 
 from app.utils.dataset_analyzer import DatasetAnalyzer
+from app.db.database import get_db
+from app.db.models import Dataset
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,79 +32,36 @@ class DatasetAnalyzeResponse(BaseModel):
     suggestions: Optional[List[str]] = None
 
 
-def _get_r2_sample_dataset_metadata(dataset_path: str) -> Optional[DatasetAnalyzeResponse]:
+def _get_dataset_metadata_from_db(dataset_id: str, db: Session) -> Optional[DatasetAnalyzeResponse]:
     """
-    Check if dataset_path matches a R2 sample dataset ID and return pre-validated metadata.
+    Check if dataset_id exists in database and return metadata.
 
-    R2 sample datasets are pre-validated and don't require filesystem scanning.
+    Works for all public datasets (including platform samples).
     """
-    # R2 dataset metadata mapping
-    R2_DATASET_METADATA = {
-        "det-coco8": {
-            "format": "yolo",
-            "task_type": "object_detection",
-            "num_classes": 80,
-            "num_images": 8,
-            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
-        },
-        "det-coco128": {
-            "format": "yolo",
-            "task_type": "object_detection",
-            "num_classes": 80,
-            "num_images": 128,
-            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
-        },
-        "seg-coco8": {
-            "format": "yolo",
-            "task_type": "instance_segmentation",
-            "num_classes": 80,
-            "num_images": 8,
-            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
-        },
-        "seg-coco128": {
-            "format": "yolo",
-            "task_type": "instance_segmentation",
-            "num_classes": 80,
-            "num_images": 128,
-            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
-        },
-        "cls-imagenet-10": {
-            "format": "imagefolder",
-            "task_type": "image_classification",
-            "num_classes": 10,
-            "num_images": 100,
-            "sample_classes": ["n01440764", "n01443537", "n01484850", "n01491361"],
-        },
-        "cls-imagenette2-160": {
-            "format": "imagefolder",
-            "task_type": "image_classification",
-            "num_classes": 10,
-            "num_images": 9469,
-            "sample_classes": ["tench", "English springer", "cassette player", "chainsaw"],
-        },
-    }
+    # Query dataset from database
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.visibility == 'public').first()
 
-    # Check if dataset_path matches a R2 sample dataset ID
-    metadata = R2_DATASET_METADATA.get(dataset_path)
-    if not metadata:
+    if not dataset:
         return None
 
-    # Build pre-validated response
+    logger.info(f"Found dataset in database: {dataset_id}")
+
+    # Build response from database record
     dataset_info = {
-        "format": metadata["format"],
-        "confidence": 1.0,  # Pre-validated datasets have 100% confidence
-        "task_type": metadata["task_type"],
+        "format": dataset.format,
+        "confidence": 1.0,  # DB datasets are pre-validated
+        "task_type": dataset.task_type,
         "structure": {
-            "num_classes": metadata["num_classes"],
-            "num_images": metadata["num_images"],
-            "classes": metadata["sample_classes"],
+            "num_classes": dataset.num_classes,
+            "num_images": dataset.num_images,
+            "classes": dataset.class_names[:10] if dataset.class_names else [],  # First 10 classes
         },
         "statistics": {
-            "total_images": metadata["num_images"],
-            "source": "r2",
+            "total_images": dataset.num_images,
+            "source": dataset.storage_type,
             "validated": True,
         },
-        "samples_per_class": {},  # Not needed for R2 datasets
+        "samples_per_class": {},  # Not detailed for DB datasets
         "quality_checks": {
             "corrupted_files": [],
             "missing_labels": [],
@@ -109,7 +69,7 @@ def _get_r2_sample_dataset_metadata(dataset_path: str) -> Optional[DatasetAnalyz
             "resolution_variance": "uniform",
             "overall_status": "excellent",
         },
-        "preview_images": [],  # R2 datasets don't need preview
+        "preview_images": [],  # No preview for DB datasets
     }
 
     return DatasetAnalyzeResponse(
@@ -119,7 +79,7 @@ def _get_r2_sample_dataset_metadata(dataset_path: str) -> Optional[DatasetAnalyz
 
 
 @router.post("/analyze", response_model=DatasetAnalyzeResponse)
-async def analyze_dataset(request: DatasetAnalyzeRequest):
+async def analyze_dataset(request: DatasetAnalyzeRequest, db: Session = Depends(get_db)):
     """
     Analyze a dataset and return structure, statistics, and quality checks.
 
@@ -127,14 +87,14 @@ async def analyze_dataset(request: DatasetAnalyzeRequest):
     - Counts classes and samples
     - Calculates statistics (resolution, size, etc.)
     - Performs quality checks (corrupted files, class imbalance, etc.)
-    - Supports R2 sample datasets (pre-validated metadata)
+    - Supports public datasets from database (pre-validated metadata)
     """
     try:
-        # Check if this is a R2 sample dataset ID
-        r2_dataset = _get_r2_sample_dataset_metadata(request.path)
-        if r2_dataset:
-            logger.info(f"Recognized R2 sample dataset: {request.path}")
-            return r2_dataset
+        # Check if this is a public dataset in database
+        db_dataset = _get_dataset_metadata_from_db(request.path, db)
+        if db_dataset:
+            logger.info(f"Found public dataset in database: {request.path}")
+            return db_dataset
 
         # Validate path exists
         path = Path(request.path)
@@ -230,87 +190,15 @@ async def analyze_dataset(request: DatasetAnalyzeRequest):
         )
 
 
-# R2 Sample Datasets Metadata
-# These are platform-provided sample datasets stored in R2
-SAMPLE_DATASETS = [
-    {
-        "id": "det-coco8",
-        "name": "COCO8 (Object Detection)",
-        "description": "8 images COCO sample for object detection",
-        "format": "yolo",
-        "task_type": "object_detection",
-        "num_items": 8,
-        "size_mb": 0.42,
-        "source": "r2",
-        "path": "det-coco8",
-    },
-    {
-        "id": "det-coco128",
-        "name": "COCO128 (Object Detection)",
-        "description": "128 images COCO sample for object detection",
-        "format": "yolo",
-        "task_type": "object_detection",
-        "num_items": 128,
-        "size_mb": 6.66,
-        "source": "r2",
-        "path": "det-coco128",
-    },
-    {
-        "id": "seg-coco8",
-        "name": "COCO8-Seg (Instance Segmentation)",
-        "description": "8 images COCO sample for instance segmentation",
-        "format": "yolo",
-        "task_type": "instance_segmentation",
-        "num_items": 8,
-        "size_mb": 0.44,
-        "source": "r2",
-        "path": "seg-coco8",
-    },
-    {
-        "id": "seg-coco128",
-        "name": "COCO128-Seg (Instance Segmentation)",
-        "description": "128 images COCO sample for instance segmentation",
-        "format": "yolo",
-        "task_type": "instance_segmentation",
-        "num_items": 128,
-        "size_mb": 6.85,
-        "source": "r2",
-        "path": "seg-coco128",
-    },
-    {
-        "id": "cls-imagenet-10",
-        "name": "ImageNet-10 (Classification)",
-        "description": "10 classes ImageNet sample for image classification",
-        "format": "imagefolder",
-        "task_type": "image_classification",
-        "num_items": 100,
-        "size_mb": 0.07,
-        "source": "r2",
-        "path": "cls-imagenet-10",
-    },
-    {
-        "id": "cls-imagenette2-160",
-        "name": "Imagenette2-160 (Classification)",
-        "description": "Imagenette 160x160 for image classification",
-        "format": "imagefolder",
-        "task_type": "image_classification",
-        "num_items": 9469,
-        "size_mb": 102.05,
-        "source": "r2",
-        "path": "cls-imagenette2-160",
-    },
-]
-
-
 class SampleDatasetInfo(BaseModel):
-    """Sample dataset information from R2"""
+    """Sample dataset information"""
     id: str
     name: str
     description: str
     format: str
     task_type: str
     num_items: int
-    size_mb: float
+    size_mb: Optional[float] = None
     source: str
     path: str
 
@@ -331,27 +219,56 @@ class DatasetListResponse(BaseModel):
 
 @router.get("/available", response_model=List[SampleDatasetInfo])
 async def list_sample_datasets(
-    task_type: Optional[str] = Query(default=None, description="Filter by task type (image_classification, object_detection, etc.)")
+    task_type: Optional[str] = Query(default=None, description="Filter by task type (image_classification, object_detection, etc.)"),
+    tags: Optional[str] = Query(default=None, description="Filter by tags (comma-separated)"),
+    db: Session = Depends(get_db)
 ):
     """
-    List available R2 sample datasets.
+    List available public datasets from database.
 
-    These are platform-provided sample datasets that will be automatically
-    downloaded from R2 when training starts.
+    Returns all public datasets, including platform-provided samples.
+    Platform sample datasets have 'platform-sample' tag.
 
     Args:
         task_type: Optional filter by task type
+        tags: Optional filter by tags (comma-separated, e.g., "platform-sample,coco")
+        db: Database session
 
     Returns:
-        List of sample datasets with metadata
+        List of datasets with metadata
     """
-    datasets = SAMPLE_DATASETS
+    # Query public datasets
+    query = db.query(Dataset).filter(Dataset.visibility == 'public')
 
-    # Filter by task type if specified
+    # Filter by task type
     if task_type:
-        datasets = [ds for ds in datasets if ds["task_type"] == task_type]
+        query = query.filter(Dataset.task_type == task_type)
 
-    return datasets
+    # Filter by tags
+    if tags:
+        tag_list = [t.strip() for t in tags.split(',')]
+        # Check if dataset has any of the specified tags
+        for tag in tag_list:
+            query = query.filter(Dataset.tags.contains([tag]))
+
+    datasets = query.all()
+
+    # Convert to response format
+    result = []
+    for ds in datasets:
+        result.append({
+            "id": ds.id,
+            "name": ds.name,
+            "description": ds.description or f"Dataset for {ds.task_type}",
+            "format": ds.format,
+            "task_type": ds.task_type,
+            "num_items": ds.num_images,
+            "size_mb": None,  # Size not stored in DB yet
+            "source": ds.storage_type,
+            "path": ds.id,  # Use ID as path
+        })
+
+    return result
 
 
 @router.get("/list", response_model=DatasetListResponse)
