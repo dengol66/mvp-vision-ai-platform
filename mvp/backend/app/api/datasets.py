@@ -29,6 +29,95 @@ class DatasetAnalyzeResponse(BaseModel):
     suggestions: Optional[List[str]] = None
 
 
+def _get_r2_sample_dataset_metadata(dataset_path: str) -> Optional[DatasetAnalyzeResponse]:
+    """
+    Check if dataset_path matches a R2 sample dataset ID and return pre-validated metadata.
+
+    R2 sample datasets are pre-validated and don't require filesystem scanning.
+    """
+    # R2 dataset metadata mapping
+    R2_DATASET_METADATA = {
+        "det-coco8": {
+            "format": "yolo",
+            "task_type": "object_detection",
+            "num_classes": 80,
+            "num_images": 8,
+            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
+        },
+        "det-coco128": {
+            "format": "yolo",
+            "task_type": "object_detection",
+            "num_classes": 80,
+            "num_images": 128,
+            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
+        },
+        "seg-coco8": {
+            "format": "yolo",
+            "task_type": "instance_segmentation",
+            "num_classes": 80,
+            "num_images": 8,
+            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
+        },
+        "seg-coco128": {
+            "format": "yolo",
+            "task_type": "instance_segmentation",
+            "num_classes": 80,
+            "num_images": 128,
+            "sample_classes": ["person", "bicycle", "car", "motorcycle"],
+        },
+        "cls-imagenet-10": {
+            "format": "imagefolder",
+            "task_type": "image_classification",
+            "num_classes": 10,
+            "num_images": 100,
+            "sample_classes": ["n01440764", "n01443537", "n01484850", "n01491361"],
+        },
+        "cls-imagenette2-160": {
+            "format": "imagefolder",
+            "task_type": "image_classification",
+            "num_classes": 10,
+            "num_images": 9469,
+            "sample_classes": ["tench", "English springer", "cassette player", "chainsaw"],
+        },
+    }
+
+    # Check if dataset_path matches a R2 sample dataset ID
+    metadata = R2_DATASET_METADATA.get(dataset_path)
+    if not metadata:
+        return None
+
+    # Build pre-validated response
+    dataset_info = {
+        "format": metadata["format"],
+        "confidence": 1.0,  # Pre-validated datasets have 100% confidence
+        "task_type": metadata["task_type"],
+        "structure": {
+            "num_classes": metadata["num_classes"],
+            "num_images": metadata["num_images"],
+            "classes": metadata["sample_classes"],
+        },
+        "statistics": {
+            "total_images": metadata["num_images"],
+            "source": "r2",
+            "validated": True,
+        },
+        "samples_per_class": {},  # Not needed for R2 datasets
+        "quality_checks": {
+            "corrupted_files": [],
+            "missing_labels": [],
+            "class_imbalance": False,
+            "resolution_variance": "uniform",
+            "overall_status": "excellent",
+        },
+        "preview_images": [],  # R2 datasets don't need preview
+    }
+
+    return DatasetAnalyzeResponse(
+        status="success",
+        dataset_info=dataset_info
+    )
+
+
 @router.post("/analyze", response_model=DatasetAnalyzeResponse)
 async def analyze_dataset(request: DatasetAnalyzeRequest):
     """
@@ -38,8 +127,15 @@ async def analyze_dataset(request: DatasetAnalyzeRequest):
     - Counts classes and samples
     - Calculates statistics (resolution, size, etc.)
     - Performs quality checks (corrupted files, class imbalance, etc.)
+    - Supports R2 sample datasets (pre-validated metadata)
     """
     try:
+        # Check if this is a R2 sample dataset ID
+        r2_dataset = _get_r2_sample_dataset_metadata(request.path)
+        if r2_dataset:
+            logger.info(f"Recognized R2 sample dataset: {request.path}")
+            return r2_dataset
+
         # Validate path exists
         path = Path(request.path)
         if not path.exists():
