@@ -226,14 +226,21 @@ async def get_config_schema(task_type: str):
     """
     try:
         # Import config schemas (lightweight, no torch dependencies)
-        from config_schemas import get_timm_schema, get_ultralytics_schema, get_huggingface_schema
+        # Use conditional imports to handle frameworks that don't have schemas yet
+        from config_schemas import get_timm_schema, get_ultralytics_schema
 
         # Map framework to schema getter
         schema_map = {
             'timm': get_timm_schema,
             'ultralytics': get_ultralytics_schema,
-            'huggingface': get_huggingface_schema,
         }
+
+        # Try to import huggingface schema if available
+        try:
+            from config_schemas import get_huggingface_schema
+            schema_map['huggingface'] = get_huggingface_schema
+        except ImportError:
+            pass  # huggingface schema not implemented yet
 
         schema_getter = schema_map.get(FRAMEWORK.lower())
         if not schema_getter:
