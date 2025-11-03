@@ -25,7 +25,14 @@ COPY mvp/backend/ .
 # Copy sample datasets to /app/datasets (shared via volume in production)
 COPY mvp/backend/sample_datasets/ /app/datasets/
 
-# Note: Training code is NOT copied to Backend
+# Copy necessary training files for config schema (no heavy dependencies)
+# config_schemas.py and adapters/base.py have no torch/ML dependencies
+COPY mvp/training/config_schemas.py /app/training/config_schemas.py
+COPY mvp/training/adapters/__init__.py /app/training/adapters/__init__.py
+COPY mvp/training/adapters/base.py /app/training/adapters/base.py
+COPY mvp/training/platform_sdk/ /app/training/platform_sdk/
+
+# Note: Heavy training code (model implementations) is NOT copied to Backend
 # Backend communicates with Training Services via HTTP API
 # model_registry imports are handled dynamically with try/except
 
