@@ -12,3 +12,12 @@ ultralytics==8.0.228
 numpy<2.0
 pillow==10.1.0
 opencv-python-headless==4.8.1.78
+
+# S3/R2 Storage
+boto3==1.34.19
+
+# MLflow for experiment tracking
+mlflow==2.9.2
+
+# Requests for HTTP API calls (TrainingLogger)
+requests==2.31.0
