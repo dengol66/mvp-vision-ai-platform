@@ -41,11 +41,44 @@ async def create_training_job(
     # Validate required fields
     config = job_request.config
 
-    if not config.dataset_path or config.dataset_path == "None":
+    # Must provide either dataset_id or dataset_path
+    if not config.dataset_id and not config.dataset_path:
         raise HTTPException(
             status_code=400,
-            detail="dataset_path is required and cannot be empty"
+            detail="Either dataset_id or dataset_path must be provided"
         )
+
+    # Resolve dataset from database if dataset_id provided
+    dataset_id = None
+    dataset_path = None
+    dataset_format = config.dataset_format
+
+    if config.dataset_id:
+        # Look up dataset in database
+        dataset = db.query(models.Dataset).filter(models.Dataset.id == config.dataset_id).first()
+        if not dataset:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset with id '{config.dataset_id}' not found"
+            )
+
+        # Check access permissions (for now, only public datasets allowed)
+        if dataset.visibility != 'public':
+            raise HTTPException(
+                status_code=403,
+                detail=f"Dataset '{config.dataset_id}' is not publicly accessible"
+            )
+
+        # Use dataset information from DB
+        dataset_id = dataset.id
+        dataset_path = config.dataset_id  # Use ID as path for Training Service
+        dataset_format = dataset.format
+        logger.info(f"[DATASET] Using dataset from DB: {dataset_id} (format: {dataset_format})")
+
+    elif config.dataset_path:
+        # Legacy: direct path provided
+        dataset_path = config.dataset_path
+        logger.info(f"[DATASET] Using direct path (legacy): {dataset_path}")
 
     if not config.model_name:
         raise HTTPException(
@@ -116,8 +149,9 @@ async def create_training_job(
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
-        dataset_path=job_request.config.dataset_path,
-        dataset_format=job_request.config.dataset_format,
+        dataset_id=dataset_id,  # Store dataset ID if from DB
+        dataset_path=dataset_path,  # Use resolved path
+        dataset_format=dataset_format,  # Use format from DB or config
         output_dir=job_output_dir,
         epochs=job_request.config.epochs,
         batch_size=job_request.config.batch_size,
