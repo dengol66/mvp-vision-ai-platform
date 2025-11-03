@@ -10,6 +10,88 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Key Concept:** Natural language → LLM Intent Parser → Training Config → Temporal Workflow → Kubernetes Training Pod
 
+## Code Quality & Implementation Standards
+
+### ⚠️ CRITICAL: No Shortcuts, No Workarounds
+
+**This project prioritizes correct implementation over quick solutions.**
+
+#### Forbidden Practices
+
+❌ **NEVER use these shortcuts:**
+- Hardcoded data (예: `STATIC_MODELS = [...]`)
+- Temporary workarounds (예: "임시로 이렇게 하고 나중에 고치자")
+- Dummy data (예: mock responses, fake data)
+- "Quick fixes" that don't align with architecture
+- Solutions that "pretend" to work but don't actually solve the problem
+
+✅ **ALWAYS implement properly:**
+- Follow the planned architecture
+- Use dynamic data loading (예: from database, API, registry)
+- Implement complete solutions even if it takes more time
+- If something needs to be fixed, fix it the right way now, not later
+
+#### Implementation Philosophy
+
+```
+"If we don't implement it correctly now, we'll have to redo it later anyway."
+```
+
+**Key Principles:**
+1. **Quality over Speed**: Better to take time and implement correctly
+2. **Architecture Compliance**: Follow the planned design, don't deviate
+3. **Production-Ready**: Every feature should work in both local AND production
+4. **Dependency Isolation**: Critical goal - never compromise on this
+
+#### Example: Model Registry
+
+❌ **Wrong (Hardcoded):**
+```python
+STATIC_MODELS = [
+    {"model_name": "yolo11n", "framework": "ultralytics"},
+    {"model_name": "yolo11s", "framework": "ultralytics"},  # Arbitrary models!
+]
+```
+
+✅ **Correct (Dynamic from Training Services):**
+```python
+# Backend fetches from Training Service API
+models = requests.get(f"{ULTRALYTICS_SERVICE_URL}/models/list").json()
+# Returns actual implemented models: yolo11n, yolo11n-seg, yolo11n-pose, yolo_world_v2_s, sam2_t
+```
+
+### Production Branch Goals
+
+**Branch: `production`**
+
+**Mission:** Make production deployment work EXACTLY like local development.
+
+**Specific Goals:**
+1. ✅ All APIs work identically (local SQLite vs production PostgreSQL)
+2. ✅ LLM chat functions properly in production
+3. ✅ Dependency isolation (Backend ↔ Training Services via HTTP API)
+4. ✅ Dynamic model registration (no hardcoded models)
+5. ✅ Framework-specific Training Services (timm, ultralytics, huggingface)
+6. ✅ Environment variable configuration (not code changes)
+
+**Success Criteria:**
+- Same source code works in both environments
+- Only difference: environment variables (`.env` vs Railway Variables)
+- All features tested in production match local behavior
+
+### When Implementing Features
+
+**Before writing code, ask:**
+1. Does this follow the architecture plan?
+2. Is this a proper solution or a workaround?
+3. Will this work in BOTH local and production?
+4. Am I using dynamic data or hardcoding?
+
+**If the answer to any question is uncertain:**
+- Re-read the relevant documentation
+- Ask the user for clarification
+- DON'T proceed with a "quick fix"
+
 ## Architecture Overview
 
 ### High-Level Flow
