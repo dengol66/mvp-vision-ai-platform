@@ -252,29 +252,13 @@ async def get_config_schema(task_type: str):
         # Get schema
         schema = schema_getter()
 
-        # Convert to dict for JSON response
+        # Use the built-in to_dict() method for proper serialization
+        schema_dict = schema.to_dict()
+
         return {
             "framework": FRAMEWORK,
             "task_type": task_type,
-            "schema": {
-                "fields": [
-                    {
-                        "name": field.name,
-                        "type": field.type,
-                        "default": field.default,
-                        "options": field.options,
-                        "min": field.min,
-                        "max": field.max,
-                        "step": field.step,
-                        "description": field.description,
-                        "group": field.group,
-                        "required": field.required,
-                        "advanced": field.advanced,
-                    }
-                    for field in schema.fields
-                ],
-                "groups": schema.groups
-            }
+            "schema": schema_dict
         }
 
     except ImportError as e:
