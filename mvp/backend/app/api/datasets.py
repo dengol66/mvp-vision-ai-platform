@@ -1,15 +1,21 @@
 """
 Datasets API endpoints for dataset analysis and management.
 """
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 import logging
 import os
+import tempfile
+import zipfile
+import shutil
+from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.utils.dataset_analyzer import DatasetAnalyzer
+from app.utils.r2_storage import r2_storage
 from app.db.database import get_db
 from app.db.models import Dataset
 
@@ -363,3 +369,162 @@ async def list_datasets(
     except Exception as e:
         logger.error(f"Error listing datasets: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list datasets: {str(e)}")
+
+
+class DatasetUploadResponse(BaseModel):
+    """Response model for dataset upload"""
+    status: str  # 'success' or 'error'
+    dataset_id: Optional[str] = None
+    message: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@router.post("/upload", response_model=DatasetUploadResponse)
+async def upload_dataset(
+    file: UploadFile = File(...),
+    visibility: str = Query("private", regex="^(public|private|organization)$"),
+    user_id: str = Query("platform"),  # TODO: Get from auth token
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a DICE Format dataset (zip file) to R2 and register in database.
+
+    Steps:
+    1. Validate uploaded file is a zip
+    2. Save to temporary location
+    3. Validate DICE Format (annotations.json, meta.json, images/)
+    4. Upload to R2
+    5. Register metadata in database
+    6. Clean up temporary files
+
+    Args:
+        file: Uploaded zip file (DICE Format dataset)
+        visibility: Dataset visibility (public/private/organization)
+        user_id: User ID (from auth token)
+        db: Database session
+
+    Returns:
+        Upload status and dataset metadata
+    """
+    logger.info(f"Uploading dataset: {file.filename}")
+
+    # Validate file extension
+    if not file.filename.endswith('.zip'):
+        return DatasetUploadResponse(
+            status="error",
+            message="Only zip files are supported"
+        )
+
+    temp_zip_path = None
+    try:
+        # Create temporary file for upload
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+            temp_zip_path = Path(tmp_file.name)
+
+            # Save uploaded file
+            content = await file.read()
+            tmp_file.write(content)
+            logger.info(f"Saved uploaded file to {temp_zip_path} ({len(content)} bytes)")
+
+        # Validate DICE Format
+        is_valid, metadata, error_msg = r2_storage.validate_dice_format(temp_zip_path)
+
+        if not is_valid:
+            logger.error(f"Invalid DICE Format: {error_msg}")
+            return DatasetUploadResponse(
+                status="error",
+                message=f"Invalid DICE Format: {error_msg}"
+            )
+
+        logger.info(f"Validated DICE Format: {metadata}")
+
+        # Check if dataset ID already exists
+        dataset_id = metadata['dataset_id']
+        existing = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+
+        if existing:
+            return DatasetUploadResponse(
+                status="error",
+                message=f"Dataset with ID '{dataset_id}' already exists"
+            )
+
+        # Upload to R2
+        logger.info(f"Uploading to R2: datasets/{dataset_id}.zip")
+        upload_success = r2_storage.upload_dataset_zip(temp_zip_path, dataset_id)
+
+        if not upload_success:
+            return DatasetUploadResponse(
+                status="error",
+                message="Failed to upload to R2 storage"
+            )
+
+        # Extract class names from metadata (if available)
+        # For this, we need to read annotations.json from zip
+        class_names = []
+        try:
+            with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+                annotations_files = [f for f in zip_ref.namelist() if f.endswith('annotations.json')]
+                if annotations_files:
+                    import json
+                    with zip_ref.open(annotations_files[0]) as ann_file:
+                        annotations_data = json.load(ann_file)
+                        classes = annotations_data.get('classes', [])
+                        class_names = [c.get('name') for c in classes if 'name' in c]
+        except Exception as e:
+            logger.warning(f"Could not extract class names: {e}")
+
+        # Register in database
+        new_dataset = Dataset(
+            id=dataset_id,
+            name=metadata['dataset_name'],
+            description=f"Uploaded via web UI - {metadata['task_type']}",
+            format="dice",  # DICE Format
+            task_type=metadata['task_type'],
+            storage_type="r2",
+            storage_path=f"datasets/{dataset_id}.zip",
+            visibility=visibility,
+            user_id=user_id,
+            num_classes=metadata['num_classes'],
+            num_images=metadata['total_images'],
+            class_names=class_names,
+            content_hash=metadata.get('content_hash'),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+
+        db.add(new_dataset)
+        db.commit()
+        db.refresh(new_dataset)
+
+        logger.info(f"Dataset registered in database: {dataset_id}")
+
+        return DatasetUploadResponse(
+            status="success",
+            dataset_id=dataset_id,
+            message=f"Dataset '{metadata['dataset_name']}' uploaded successfully",
+            metadata={
+                "dataset_id": dataset_id,
+                "dataset_name": metadata['dataset_name'],
+                "task_type": metadata['task_type'],
+                "num_classes": metadata['num_classes'],
+                "total_images": metadata['total_images'],
+                "visibility": visibility,
+                "storage_path": f"datasets/{dataset_id}.zip"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error uploading dataset: {str(e)}", exc_info=True)
+        return DatasetUploadResponse(
+            status="error",
+            message=f"Upload failed: {str(e)}"
+        )
+
+    finally:
+        # Clean up temporary file
+        if temp_zip_path and temp_zip_path.exists():
+            try:
+                temp_zip_path.unlink()
+                logger.info(f"Cleaned up temporary file: {temp_zip_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete temporary file: {e}")

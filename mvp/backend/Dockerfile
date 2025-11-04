@@ -32,8 +32,8 @@ COPY mvp/backend/sample_datasets/ /app/datasets/
 # - Training execution: POST /training/start
 # This maintains clean separation between Backend (API/DB) and Training (ML)
 
-# Create necessary directories
-RUN mkdir -p outputs uploads /app/data/outputs /app/data/logs /app/mlruns
+# Create necessary directories (ignore if already exists)
+RUN mkdir -p /app/outputs /app/uploads /app/data/outputs /app/data/logs /app/mlruns || true
 
 # Make start script executable
 RUN chmod +x start.sh
