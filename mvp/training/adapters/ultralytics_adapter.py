@@ -1083,7 +1083,8 @@ class UltralyticsAdapter(TrainingAdapter):
             job_id=self.job_id,
             model_config=self.model_config,
             training_config=self.training_config,
-            db_session=None  # No DB session in subprocess
+            db_session=None,  # No DB session in subprocess
+            project_id=self.project_id
         )
 
         # Get primary metric configuration from database

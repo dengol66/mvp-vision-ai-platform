@@ -91,6 +91,10 @@ def parse_args():
     parser.add_argument('--advanced_config', type=str, default=None,
                         help='Advanced configuration JSON string from Backend')
 
+    # Project ID for checkpoint organization
+    parser.add_argument('--project_id', type=int, default=None,
+                        help='Project ID for organizing checkpoints in R2')
+
     return parser.parse_args()
 
 
@@ -290,6 +294,7 @@ def main():
         training_config=training_config,
         output_dir=args.output_dir,
         job_id=args.job_id,
+        project_id=args.project_id,
         logger=logger
     )
 

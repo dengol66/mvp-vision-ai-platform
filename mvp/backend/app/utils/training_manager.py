@@ -121,7 +121,8 @@ class TrainingManager:
             "pretrained": True,
             "checkpoint_path": checkpoint_path,
             "resume": resume,
-            "advanced_config": job.advanced_config  # Pass advanced_config from Backend DB
+            "advanced_config": job.advanced_config,  # Pass advanced_config from Backend DB
+            "project_id": job.project_id  # Pass project_id for checkpoint organization
         }
 
         print(f"[TrainingManager] Starting training via API for job {job_id}")

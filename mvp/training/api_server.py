@@ -57,6 +57,7 @@ class TrainingRequest(BaseModel):
     checkpoint_path: Optional[str] = None
     resume: bool = False
     advanced_config: Optional[dict] = None  # Advanced configuration from Backend
+    project_id: Optional[int] = None  # Project ID for checkpoint organization
 
 
 def run_training(request: TrainingRequest):
@@ -102,6 +103,10 @@ def run_training(request: TrainingRequest):
         # Add advanced_config if provided
         if request.advanced_config:
             cmd.extend(["--advanced_config", json.dumps(request.advanced_config)])
+
+        # Add project_id if provided
+        if request.project_id is not None:
+            cmd.extend(["--project_id", str(request.project_id)])
 
         # Execute training (no capture_output to see logs in Railway)
         print(f"[run_training] Executing command: {' '.join(cmd)}")

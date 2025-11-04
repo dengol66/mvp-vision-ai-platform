@@ -527,21 +527,32 @@ def _upload_dataset_to_r2(
 def upload_checkpoint(
     checkpoint_path: str,
     job_id: int,
-    checkpoint_name: str = "best.pt"
+    checkpoint_name: str = "best.pt",
+    project_id: int = None
 ):
     """
     Upload training checkpoint to R2.
 
     Non-blocking: Warns on failure but doesn't crash.
 
+    Storage structure:
+    - With project: checkpoints/projects/{project_id}/jobs/{job_id}/{checkpoint_name}
+    - Without project (test jobs): checkpoints/test-jobs/job_{job_id}/{checkpoint_name}
+
     Args:
         checkpoint_path: Local path to checkpoint file
         job_id: Training job ID
         checkpoint_name: Name of checkpoint (e.g., "best.pt", "last.pt")
+        project_id: Optional project ID for organizing checkpoints
 
-    Example:
-        >>> upload_checkpoint("/path/to/weights/best.pt", job_id=123, checkpoint_name="best.pt")
-        # Uploads to: s3://vision-platform-prod/checkpoints/job_123/best.pt
+    Examples:
+        >>> # Project job
+        >>> upload_checkpoint("/path/to/best.pt", job_id=123, checkpoint_name="best.pt", project_id=5)
+        # Uploads to: s3://vision-platform-prod/checkpoints/projects/5/jobs/123/best.pt
+
+        >>> # Test job (no project)
+        >>> upload_checkpoint("/path/to/best.pt", job_id=456, checkpoint_name="best.pt")
+        # Uploads to: s3://vision-platform-prod/checkpoints/test-jobs/job_456/best.pt
     """
     try:
         import boto3
@@ -571,7 +582,12 @@ def upload_checkpoint(
         )
 
         bucket = 'vision-platform-prod'
-        key = f'checkpoints/job_{job_id}/{checkpoint_name}'
+
+        # Build path based on project_id
+        if project_id:
+            key = f'checkpoints/projects/{project_id}/jobs/{job_id}/{checkpoint_name}'
+        else:
+            key = f'checkpoints/test-jobs/job_{job_id}/{checkpoint_name}'
 
         print(f"[R2] Uploading checkpoint to R2: s3://{bucket}/{key}...")
         sys.stdout.flush()

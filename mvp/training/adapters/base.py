@@ -381,13 +381,15 @@ class TrainingAdapter(ABC):
         dataset_config: DatasetConfig,
         training_config: TrainingConfig,
         output_dir: str,
-        job_id: int
+        job_id: int,
+        project_id: int = None
     ):
         self.model_config = model_config
         self.dataset_config = dataset_config
         self.training_config = training_config
         self.output_dir = output_dir
         self.job_id = job_id
+        self.project_id = project_id
 
         self.model = None
         self.train_loader = None
@@ -1486,7 +1488,7 @@ class TrainingCallbacks:
     """
 
     def __init__(self, job_id: int, model_config: 'ModelConfig',
-                 training_config: 'TrainingConfig', db_session=None):
+                 training_config: 'TrainingConfig', db_session=None, project_id: int = None):
         """
         Initialize callbacks.
 
@@ -1495,11 +1497,13 @@ class TrainingCallbacks:
             model_config: Model configuration
             training_config: Training configuration
             db_session: Database session (optional, for DB updates)
+            project_id: Project ID (optional, for organizing checkpoints in R2)
         """
         self.job_id = job_id
         self.model_config = model_config
         self.training_config = training_config
         self.db_session = db_session
+        self.project_id = project_id
         self.mlflow_run = None
         self.mlflow_run_id = None
         self.mlflow_experiment_id = None
@@ -1859,7 +1863,8 @@ class TrainingCallbacks:
                     upload_checkpoint(
                         checkpoint_path=str(checkpoint_file),
                         job_id=self.job_id,
-                        checkpoint_name=checkpoint_name
+                        checkpoint_name=checkpoint_name,
+                        project_id=self.project_id
                     )
                     uploaded_count += 1
                 except Exception as e:
