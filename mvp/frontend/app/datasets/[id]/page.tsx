@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Sidebar from '@/components/Sidebar'
 import DatasetImageGallery from '@/components/datasets/DatasetImageGallery'
 import DatasetImageUpload from '@/components/datasets/DatasetImageUpload'
+import { ArrowLeft } from 'lucide-react'
 
 interface Dataset {
   id: string
@@ -67,39 +69,53 @@ export default function DatasetDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      <div className="h-screen flex">
+        <Sidebar onProjectSelect={() => {}} onCreateProject={() => {}} />
+        <div className="flex-1 flex items-center justify-center bg-gray-50">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600" />
+        </div>
       </div>
     )
   }
 
   if (error || !dataset) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <Link href="/datasets" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
-              ← Back to Datasets
-            </Link>
-          </div>
-        </header>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <p className="text-red-800">Error: {error || 'Dataset not found'}</p>
-          </div>
-        </main>
+      <div className="h-screen flex">
+        <Sidebar onProjectSelect={() => {}} onCreateProject={() => {}} />
+        <div className="flex-1 flex flex-col bg-gray-50">
+          <header className="bg-white border-b border-gray-200 px-6 py-4">
+            <button
+              onClick={() => router.push('/')}
+              className="text-violet-600 hover:text-violet-700 text-sm font-medium flex items-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              홈으로 돌아가기
+            </button>
+          </header>
+          <main className="flex-1 p-6">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+              <p className="text-red-800">Error: {error || 'Dataset not found'}</p>
+            </div>
+          </main>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link href="/datasets" className="text-blue-600 hover:text-blue-700 text-sm font-medium mb-4 inline-block">
-            ← Back to Datasets
-          </Link>
+    <div className="h-screen flex">
+      <Sidebar onProjectSelect={() => {}} onCreateProject={() => {}} />
+
+      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
+          <button
+            onClick={() => router.push('/')}
+            className="text-violet-600 hover:text-violet-700 text-sm font-medium mb-4 inline-flex items-center gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            홈으로 돌아가기
+          </button>
           <div className="flex items-start justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{dataset.name}</h1>
@@ -138,26 +154,26 @@ export default function DatasetDetailPage() {
               <p className="font-medium text-gray-900">{dataset.format}</p>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left column: Image Upload */}
-          <div className="lg:col-span-1">
-            <DatasetImageUpload datasetId={datasetId} onUploadSuccess={handleUploadSuccess} />
-          </div>
+        {/* Main content */}
+        <main className="flex-1 overflow-auto p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left column: Image Upload */}
+            <div className="lg:col-span-1">
+              <DatasetImageUpload datasetId={datasetId} onUploadSuccess={handleUploadSuccess} />
+            </div>
 
-          {/* Right column: Image Gallery */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Dataset Images</h3>
-              <DatasetImageGallery key={refreshKey} datasetId={datasetId} />
+            {/* Right column: Image Gallery */}
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Dataset Images</h3>
+                <DatasetImageGallery key={refreshKey} datasetId={datasetId} />
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   )
 }

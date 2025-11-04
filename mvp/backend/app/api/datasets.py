@@ -453,3 +453,67 @@ async def create_dataset(
             status="error",
             message=f"Failed to create dataset: {str(e)}"
         )
+
+
+class DeleteDatasetResponse(BaseModel):
+    """Response model for dataset deletion"""
+    status: str
+    message: str
+
+
+@router.delete("/{dataset_id}", response_model=DeleteDatasetResponse)
+async def delete_dataset(
+    dataset_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a dataset and all its associated data.
+
+    This will:
+    1. Delete all images from R2 storage
+    2. Delete the dataset record from database
+
+    Args:
+        dataset_id: Dataset ID to delete
+        db: Database session
+
+    Returns:
+        Deletion status
+    """
+    try:
+        # Find dataset in database
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+
+        if not dataset:
+            return DeleteDatasetResponse(
+                status="error",
+                message=f"Dataset not found: {dataset_id}"
+            )
+
+        # Delete all images from R2 storage
+        try:
+            prefix = f"datasets/{dataset_id}/"
+            deleted_count = r2_storage.delete_all_with_prefix(prefix)
+            logger.info(f"Deleted {deleted_count} objects from R2 with prefix: {prefix}")
+        except Exception as e:
+            logger.warning(f"Error deleting R2 objects for dataset {dataset_id}: {str(e)}")
+            # Continue with database deletion even if R2 deletion fails
+
+        # Delete dataset record from database
+        db.delete(dataset)
+        db.commit()
+
+        logger.info(f"Deleted dataset: {dataset_id} - {dataset.name}")
+
+        return DeleteDatasetResponse(
+            status="success",
+            message=f"Dataset '{dataset.name}' deleted successfully"
+        )
+
+    except Exception as e:
+        logger.error(f"Error deleting dataset: {str(e)}", exc_info=True)
+        db.rollback()
+        return DeleteDatasetResponse(
+            status="error",
+            message=f"Failed to delete dataset: {str(e)}"
+        )

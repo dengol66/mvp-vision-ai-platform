@@ -489,6 +489,59 @@ class R2Storage:
             logger.error(f"Failed to list images for {dataset_id}: {str(e)}")
             return []
 
+    def delete_all_with_prefix(self, prefix: str) -> int:
+        """
+        Delete all objects with a given prefix.
+
+        Args:
+            prefix: Prefix to filter objects (e.g., "datasets/abc-123/")
+
+        Returns:
+            Number of objects deleted
+        """
+        if not self.client:
+            logger.error("R2 client not initialized")
+            return 0
+
+        try:
+            deleted_count = 0
+            continuation_token = None
+
+            while True:
+                # List objects with prefix
+                list_params = {
+                    'Bucket': self.bucket_name,
+                    'Prefix': prefix
+                }
+                if continuation_token:
+                    list_params['ContinuationToken'] = continuation_token
+
+                response = self.client.list_objects_v2(**list_params)
+
+                # Delete objects if any found
+                if 'Contents' in response:
+                    objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+
+                    if objects_to_delete:
+                        delete_response = self.client.delete_objects(
+                            Bucket=self.bucket_name,
+                            Delete={'Objects': objects_to_delete}
+                        )
+                        deleted_count += len(delete_response.get('Deleted', []))
+
+                # Check if there are more objects to delete
+                if response.get('IsTruncated'):
+                    continuation_token = response.get('NextContinuationToken')
+                else:
+                    break
+
+            logger.info(f"Deleted {deleted_count} objects with prefix: {prefix}")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to delete objects with prefix {prefix}: {str(e)}")
+            return 0
+
 
 # Global R2 client instance
 r2_storage = R2Storage()

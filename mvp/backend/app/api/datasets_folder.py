@@ -62,10 +62,12 @@ async def upload_folder(
 
         logger.info(f"Received folder upload with {len(files)} files for dataset {dataset_id}")
 
-        # Analyze folder structure and find annotation.json
+        # Analyze folder structure and find annotation.json or annotations.json
         annotation_data = None
+        annotation_file = None
         image_files = []
         folder_structure = defaultdict(int)  # path -> count
+        root_folder = None  # Track root folder name to strip it
 
         for file in files:
             # Extract relative path from filename
@@ -76,23 +78,35 @@ async def upload_folder(
                 logger.warning(f"File without relative path: {file.filename}")
                 continue
 
-            # Check if it's annotation.json
-            if relative_path.endswith('annotation.json'):
-                logger.info(f"Found annotation.json at: {relative_path}")
+            # Detect root folder name from first file
+            if root_folder is None:
+                path_parts = Path(relative_path).parts
+                if len(path_parts) > 0:
+                    root_folder = path_parts[0]
+                    logger.info(f"Detected root folder: {root_folder}")
+
+            # Check if it's annotation.json or annotations.json
+            if relative_path.endswith('annotation.json') or relative_path.endswith('annotations.json'):
+                logger.info(f"Found annotations file at: {relative_path}")
                 try:
                     content = await file.read()
                     annotation_data = json.loads(content.decode('utf-8'))
+                    annotation_file = file
                     await file.seek(0)  # Reset file pointer for upload
                 except Exception as e:
-                    logger.error(f"Failed to parse annotation.json: {e}")
-                    raise HTTPException(status_code=400, detail="Invalid annotation.json format")
+                    logger.error(f"Failed to parse annotations file: {e}")
+                    raise HTTPException(status_code=400, detail="Invalid annotations file format")
 
-            # Track folder structure
+            # Track folder structure (without root folder)
             path_parts = Path(relative_path).parts
             if len(path_parts) > 1:
-                # Has subdirectories
-                folder_path = str(Path(*path_parts[:-1]))
-                folder_structure[folder_path] += 1
+                # Strip root folder from structure tracking
+                structure_parts = path_parts[1:] if root_folder and path_parts[0] == root_folder else path_parts
+                if len(structure_parts) > 1:
+                    # Has subdirectories after root
+                    # Use forward slash for consistency
+                    folder_path = '/'.join(structure_parts[:-1])
+                    folder_structure[folder_path] += 1
 
             # Check if it's an image
             if file.content_type and file.content_type.startswith('image/'):
@@ -127,14 +141,25 @@ async def upload_folder(
         # Upload files to R2
         logger.info(f"Uploading {len(image_files)} files to R2...")
         uploaded_count = 0
+        image_path_mapping = {}  # Map original paths to R2 URLs
 
         for item in image_files:
             file_obj = item['file']
             relative_path = item['relative_path']
             content_type = item['content_type']
 
-            # R2 path: datasets/{id}/images/{relative_path}
-            r2_key = f"datasets/{dataset_id}/images/{relative_path}"
+            # Strip root folder from path
+            path_without_root = relative_path
+            if root_folder:
+                path_parts = Path(relative_path).parts
+                if len(path_parts) > 1 and path_parts[0] == root_folder:
+                    # Use forward slash for R2/S3 compatibility (not Path which uses backslash on Windows)
+                    path_without_root = '/'.join(path_parts[1:])
+                    logger.debug(f"Stripped root folder: {relative_path} -> {path_without_root}")
+
+            # R2 path: datasets/{id}/{path_without_root}
+            # Ensure forward slashes (replace any backslashes from Windows paths)
+            r2_key = f"datasets/{dataset_id}/{path_without_root}".replace('\\', '/')
 
             # Upload to R2
             try:
@@ -149,6 +174,12 @@ async def upload_folder(
 
                 if success:
                     uploaded_count += 1
+                    # Generate presigned URL for this image
+                    presigned_url = r2_storage.generate_presigned_url(r2_key, expiration=86400 * 365)  # 1 year
+                    if presigned_url:
+                        # Store mapping from original path to R2 URL
+                        image_path_mapping[relative_path] = presigned_url
+                        image_path_mapping[path_without_root] = presigned_url
                 else:
                     logger.warning(f"Failed to upload: {relative_path}")
             except Exception as e:
@@ -158,7 +189,40 @@ async def upload_folder(
 
         # Upload annotation.json if exists
         if annotation_data:
-            annotation_r2_key = f"datasets/{dataset_id}/annotation.json"
+            # Update image paths in annotations to R2 presigned URLs
+            logger.info("Updating image paths in annotations to R2 URLs...")
+            updated_annotations = []
+
+            for ann in annotation_data.get('annotations', []):
+                updated_ann = ann.copy()
+                original_path = ann.get('image_path', '')
+
+                # Try to find R2 URL for this image
+                if original_path in image_path_mapping:
+                    updated_ann['image_path'] = image_path_mapping[original_path]
+                    logger.debug(f"Updated path: {original_path} -> {updated_ann['image_path']}")
+                else:
+                    # Try without root folder
+                    path_parts = Path(original_path).parts
+                    if root_folder and len(path_parts) > 0 and path_parts[0] == root_folder:
+                        # Use forward slash for R2/S3 compatibility
+                        path_without_root = '/'.join(path_parts[1:])
+                        if path_without_root in image_path_mapping:
+                            updated_ann['image_path'] = image_path_mapping[path_without_root]
+                            logger.debug(f"Updated path: {original_path} -> {updated_ann['image_path']}")
+                        else:
+                            logger.warning(f"No R2 URL found for image: {original_path}")
+                    else:
+                        logger.warning(f"No R2 URL found for image: {original_path}")
+
+                updated_annotations.append(updated_ann)
+
+            # Update annotation_data with new paths
+            annotation_data['annotations'] = updated_annotations
+
+            # Determine filename (annotations.json or annotation.json)
+            annotation_filename = "annotations.json" if annotation_file.filename.endswith("annotations.json") else "annotation.json"
+            annotation_r2_key = f"datasets/{dataset_id}/{annotation_filename}"
             annotation_bytes = json.dumps(annotation_data, indent=2).encode('utf-8')
 
             r2_storage.upload_bytes(
@@ -167,7 +231,7 @@ async def upload_folder(
                 content_type="application/json"
             )
             annotation_path = annotation_r2_key
-            logger.info(f"Uploaded annotation.json to: {annotation_r2_key}")
+            logger.info(f"Uploaded {annotation_filename} to: {annotation_r2_key} with {len(updated_annotations)} annotations")
 
         # Update existing Dataset record in DB
         dataset.labeled = labeled

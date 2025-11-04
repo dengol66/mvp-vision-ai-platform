@@ -455,6 +455,58 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 See `.claude/commands/commit.md` for full implementation.
 
+### /log-session - Session Timeline Logger
+
+Records the current conversation session to a timeline log for future reference.
+
+**Usage:**
+```
+/log-session
+```
+
+**What it does:**
+1. Analyzes the current conversation session
+2. Identifies key decisions and technical discussions
+3. Creates a timeline summary with:
+   - Discussion topics
+   - Major decisions with reasoning
+   - Implementation details
+   - Next steps
+   - Related documents
+4. Appends to `docs/CONVERSATION_LOG.md` (most recent at top)
+5. Maintains conversation context across sessions
+
+**When to use:**
+- After completing a major design discussion
+- Before ending a long coding session
+- When making important architectural decisions
+- To maintain continuity between sessions
+
+**Example output:**
+```markdown
+## [2025-01-04 13:00] 데이터셋 관리 설계 논의
+
+### 주요 결정사항
+1. **task_type은 데이터셋 속성이 아니다**
+   - 배경: 같은 이미지를 다양한 task에 활용 가능
+   - 결정: Dataset에서 task_type 제거, TrainingJob에 추가
+
+### 구현 내용
+- DatasetPanel 컴포넌트 생성
+- 버전닝 전략 확정 (Mutable + Snapshot)
+
+### 관련 문서
+- [DATASET_MANAGEMENT_DESIGN.md](docs/datasets/DATASET_MANAGEMENT_DESIGN.md)
+```
+
+**Benefits:**
+- Quick context recovery when switching sessions
+- Design decision history tracking
+- Better team communication
+- Complements detailed documentation
+
+See `.claude/commands/log-session.md` for full implementation.
+
 ## Documentation References
 
 All documentation is organized in the `/docs` folder by category. See [docs/README.md](./docs/README.md) for the complete index.

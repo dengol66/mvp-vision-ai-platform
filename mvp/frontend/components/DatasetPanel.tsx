@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, X, Upload, Eye, ArrowUpDown, ArrowUp, ArrowDown, Database } from 'lucide-react'
+import { Search, X, FolderPlus, Eye, ArrowUpDown, ArrowUp, ArrowDown, Database, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
-import DatasetUploadModal from './datasets/DatasetUploadModal'
+import CreateDatasetModal from './datasets/CreateDatasetModal'
 import DatasetImageGallery from './datasets/DatasetImageGallery'
 import DatasetImageUpload from './datasets/DatasetImageUpload'
 
@@ -12,7 +12,7 @@ interface Dataset {
   name: string
   description: string
   format: string
-  task_type: string
+  labeled: boolean
   num_items: number
   source: string
   size_mb?: number
@@ -20,7 +20,7 @@ interface Dataset {
   created_at?: string
 }
 
-type SortField = 'name' | 'format' | 'task_type' | 'num_items' | 'source'
+type SortField = 'name' | 'format' | 'labeled' | 'num_items' | 'source'
 type SortDirection = 'asc' | 'desc' | null
 
 export default function DatasetPanel() {
@@ -28,9 +28,12 @@ export default function DatasetPanel() {
   const [filteredDatasets, setFilteredDatasets] = useState<Dataset[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [deleteDatasetId, setDeleteDatasetId] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Sorting state
   const [sortField, setSortField] = useState<SortField | null>(null)
@@ -74,7 +77,6 @@ export default function DatasetPanel() {
         d.description.toLowerCase().includes(query) ||
         d.id.toLowerCase().includes(query) ||
         d.format.toLowerCase().includes(query) ||
-        d.task_type.toLowerCase().includes(query) ||
         d.source.toLowerCase().includes(query)
       )
     }
@@ -124,8 +126,8 @@ export default function DatasetPanel() {
     setSearchQuery('')
   }
 
-  const handleUploadSuccess = async (datasetId: string) => {
-    setShowUploadModal(false)
+  const handleCreateSuccess = async (datasetId: string) => {
+    setShowCreateModal(false)
     setRefreshKey(prev => prev + 1)
   }
 
@@ -138,12 +140,46 @@ export default function DatasetPanel() {
     setRefreshKey(prev => prev + 1)
   }
 
-  const taskTypeColors: Record<string, string> = {
-    image_classification: 'bg-blue-100 text-blue-800',
-    object_detection: 'bg-green-100 text-green-800',
-    instance_segmentation: 'bg-purple-100 text-purple-800',
-    semantic_segmentation: 'bg-pink-100 text-pink-800',
-    pose_estimation: 'bg-yellow-100 text-yellow-800',
+  const handleDeleteClick = (datasetId: string) => {
+    setDeleteDatasetId(datasetId)
+    setShowDeleteConfirm(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteDatasetId) return
+
+    setDeleting(true)
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const response = await fetch(`${baseUrl}/datasets/${deleteDatasetId}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (data.status === 'success') {
+        // Refresh dataset list
+        setRefreshKey(prev => prev + 1)
+        // Close the expanded view if the deleted dataset was selected
+        if (selectedDatasetId === deleteDatasetId) {
+          setSelectedDatasetId(null)
+        }
+      } else {
+        alert(`삭제 실패: ${data.message}`)
+      }
+    } catch (error) {
+      console.error('Error deleting dataset:', error)
+      alert('데이터셋 삭제 중 오류가 발생했습니다.')
+    } finally {
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+      setDeleteDatasetId(null)
+    }
+  }
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false)
+    setDeleteDatasetId(null)
   }
 
   if (loading) {
@@ -164,11 +200,11 @@ export default function DatasetPanel() {
             <h2 className="text-xl font-bold text-gray-900">데이터셋 관리</h2>
           </div>
           <button
-            onClick={() => setShowUploadModal(true)}
+            onClick={() => setShowCreateModal(true)}
             className="px-3 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition-colors flex items-center gap-2"
           >
-            <Upload className="w-4 h-4" />
-            데이터셋 업로드
+            <FolderPlus className="w-4 h-4" />
+            데이터셋 생성
           </button>
         </div>
       </div>
@@ -221,11 +257,11 @@ export default function DatasetPanel() {
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 <button
-                  onClick={() => handleSort('task_type')}
+                  onClick={() => handleSort('labeled')}
                   className="flex items-center gap-1 hover:text-violet-600"
                 >
-                  작업 유형
-                  {getSortIcon('task_type')}
+                  상태
+                  {getSortIcon('labeled')}
                 </button>
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -272,7 +308,11 @@ export default function DatasetPanel() {
             ) : (
               filteredDatasets.map((dataset) => (
                 <>
-                  <tr key={dataset.id} className="hover:bg-gray-50">
+                  <tr
+                    key={dataset.id}
+                    onClick={() => handleViewDataset(dataset.id)}
+                    className="hover:bg-gray-50 cursor-pointer"
+                  >
                     <td className="px-4 py-3 text-sm">
                       <div className="font-medium text-gray-900">{dataset.name}</div>
                       <div className="text-gray-500 text-xs mt-0.5 truncate max-w-xs">
@@ -285,9 +325,11 @@ export default function DatasetPanel() {
                     <td className="px-4 py-3 text-sm">
                       <span className={cn(
                         "px-2 py-1 rounded-full text-xs font-medium",
-                        taskTypeColors[dataset.task_type] || 'bg-gray-100 text-gray-800'
+                        dataset.labeled
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-600'
                       )}>
-                        {dataset.task_type.replace(/_/g, ' ')}
+                        {dataset.labeled ? 'Labeled' : 'Unlabeled'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 uppercase">
@@ -305,18 +347,33 @@ export default function DatasetPanel() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-center">
-                      <button
-                        onClick={() => handleViewDataset(dataset.id)}
-                        className={cn(
-                          "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 mx-auto",
-                          selectedDatasetId === dataset.id
-                            ? "bg-violet-100 text-violet-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        )}
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        {selectedDatasetId === dataset.id ? '닫기' : '이미지 보기'}
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleViewDataset(dataset.id)
+                          }}
+                          className={cn(
+                            "p-2 rounded-lg transition-colors",
+                            selectedDatasetId === dataset.id
+                              ? "bg-violet-100 text-violet-700"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          )}
+                          title={selectedDatasetId === dataset.id ? '닫기' : '이미지 보기'}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteClick(dataset.id)
+                          }}
+                          className="p-2 rounded-lg transition-colors bg-red-50 text-red-700 hover:bg-red-100"
+                          title="데이터셋 삭제"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
 
@@ -351,12 +408,65 @@ export default function DatasetPanel() {
         </table>
       </div>
 
-      {/* Upload Modal */}
-      <DatasetUploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        onUploadSuccess={handleUploadSuccess}
+      {/* Create Dataset Modal */}
+      <CreateDatasetModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={handleCreateSuccess}
       />
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                데이터셋 삭제 확인
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                이 데이터셋을 삭제하시겠습니까? 이 작업은 되돌릴 수 없으며, 모든 이미지와 메타데이터가 영구적으로 삭제됩니다.
+              </p>
+              {deleteDatasetId && (
+                <div className="bg-gray-50 rounded p-3 mb-4">
+                  <p className="text-xs text-gray-600 mb-1">삭제할 데이터셋:</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    {datasets.find(d => d.id === deleteDatasetId)?.name}
+                  </p>
+                  <p className="text-xs text-gray-500 font-mono mt-1">
+                    {deleteDatasetId}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3 rounded-b-lg">
+              <button
+                onClick={handleDeleteCancel}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {deleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                    삭제 중...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    삭제
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
