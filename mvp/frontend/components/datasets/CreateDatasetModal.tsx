@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { X, Loader2, CheckCircle, XCircle, FolderPlus } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
@@ -12,7 +11,6 @@ interface CreateDatasetModalProps {
 }
 
 export default function CreateDatasetModal({ isOpen, onClose, onSuccess }: CreateDatasetModalProps) {
-  const router = useRouter()
   const [creating, setCreating] = useState(false)
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
@@ -59,14 +57,13 @@ export default function CreateDatasetModal({ isOpen, onClose, onSuccess }: Creat
 
       if (response.ok && result.status === 'success') {
         setStatus('success')
-        setMessage(result.message || 'Dataset created successfully! Redirecting...')
+        setMessage(result.message || 'Dataset created successfully!')
 
         // Call onSuccess callback if provided
         onSuccess?.(result.dataset_id)
 
-        // Navigate to dataset detail page after a short delay
+        // Close modal after a short delay
         setTimeout(() => {
-          router.push(`/datasets/${result.dataset_id}`)
           handleClose()
         }, 1000)
       } else {
