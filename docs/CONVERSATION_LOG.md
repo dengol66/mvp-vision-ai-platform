@@ -7,6 +7,255 @@
 
 ---
 
+## [2025-11-04 21:30] Project-Centric Checkpoint Storage 구현
+
+### 논의 주제
+- Multi-tenant 지원을 위한 체크포인트 저장 구조 개선
+- 현재 경로 구조의 문제점 식별 및 해결 방안 논의
+- 전체 training pipeline에 project_id 전파
+- Training Service 구현 현황 문서화
+
+### 주요 결정사항
+
+#### 1. Project-Centric Checkpoint Storage 구조 (Option 1 선택)
+- **배경**:
+  - 기존: `checkpoints/job_{job_id}/` → 여러 사용자/프로젝트/실험 구분 불가
+  - TrainingJob에 `project_id`, `created_by`, `session_id`, `experiment_name` 존재
+  - Multi-tenant 환경에서 체크포인트 구분 필요
+
+- **결정**: Project-centric 계층 구조 ✅
+  ```
+  checkpoints/
+  ├── projects/
+  │   └── {project_id}/
+  │       └── jobs/
+  │           └── {job_id}/
+  │               ├── best.pt
+  │               └── last.pt
+  └── test-jobs/
+      └── job_{job_id}/
+          ├── best.pt
+          └── last.pt
+  ```
+
+- **이유**:
+  - 프로젝트 단위 관리 (가장 직관적)
+  - 테스트/개발 job 별도 관리 (project_id = null)
+  - 기존 체크포인트 마이그레이션 불필요 (사용자가 수동 삭제)
+
+#### 2. 전체 Pipeline에 project_id 전파
+- **Data Flow**:
+  ```
+  Backend (training_manager.py)
+    → job_config.project_id
+      → Training Service API (api_server.py)
+        → TrainingRequest.project_id
+          → train.py --project_id
+            → TrainingAdapter(project_id)
+              → TrainingCallbacks(project_id)
+                → upload_checkpoint(project_id)
+                  → R2 Storage (conditional path)
+  ```
+
+- **구현 위치** (6개 파일 수정):
+  1. `storage.py:527` - upload_checkpoint() conditional path logic
+  2. `base.py:378` - TrainingAdapter.__init__ accepts project_id
+  3. `base.py:1488` - TrainingCallbacks.__init__ accepts project_id
+  4. `base.py:1861` - _upload_checkpoints_to_r2() passes project_id
+  5. `ultralytics_adapter.py:1082` - Pass project_id to callbacks
+  6. `train.py:95` - Add --project_id argument
+  7. `api_server.py:60` - TrainingRequest.project_id field
+  8. `training_manager.py:125` - job_config includes project_id
+
+### 구현 내용
+
+#### Storage Layer
+**`mvp/training/platform_sdk/storage.py`**:
+```python
+def upload_checkpoint(
+    checkpoint_path: str,
+    job_id: int,
+    checkpoint_name: str = "best.pt",
+    project_id: int = None  # 추가
+):
+    # Build path based on project_id
+    if project_id:
+        key = f'checkpoints/projects/{project_id}/jobs/{job_id}/{checkpoint_name}'
+    else:
+        key = f'checkpoints/test-jobs/job_{job_id}/{checkpoint_name}'
+```
+
+#### Adapter Layer
+**`mvp/training/adapters/base.py`**:
+```python
+class TrainingAdapter:
+    def __init__(
+        self,
+        model_config: ModelConfig,
+        dataset_config: DatasetConfig,
+        training_config: TrainingConfig,
+        output_dir: str,
+        job_id: int,
+        project_id: int = None  # 추가
+    ):
+        self.project_id = project_id
+
+class TrainingCallbacks:
+    def __init__(
+        self,
+        job_id: int,
+        model_config: 'ModelConfig',
+        training_config: 'TrainingConfig',
+        db_session=None,
+        project_id: int = None  # 추가
+    ):
+        self.project_id = project_id
+
+    def _upload_checkpoints_to_r2(self, checkpoint_dir: str = None):
+        upload_checkpoint(
+            checkpoint_path=str(checkpoint_file),
+            job_id=self.job_id,
+            checkpoint_name=checkpoint_name,
+            project_id=self.project_id  # 전달
+        )
+```
+
+#### Training Service API
+**`mvp/training/api_server.py`**:
+```python
+class TrainingRequest(BaseModel):
+    job_id: int
+    framework: str
+    # ... other fields
+    project_id: Optional[int] = None  # 추가
+
+def run_training(request: TrainingRequest):
+    cmd = [...]
+    if request.project_id is not None:
+        cmd.extend(["--project_id", str(request.project_id)])
+```
+
+#### Training Script
+**`mvp/training/train.py`**:
+```python
+def parse_args():
+    parser.add_argument('--project_id', type=int, default=None,
+                        help='Project ID for organizing checkpoints in R2')
+
+adapter = adapter_class(
+    model_config=model_config,
+    dataset_config=dataset_config,
+    training_config=training_config,
+    output_dir=args.output_dir,
+    job_id=args.job_id,
+    project_id=args.project_id,  # 전달
+    logger=logger
+)
+```
+
+#### Backend
+**`mvp/backend/app/utils/training_manager.py`**:
+```python
+job_config = {
+    "job_id": job_id,
+    "framework": job.framework,
+    # ... other fields
+    "project_id": job.project_id  # 추가
+}
+```
+
+### 문서화
+
+#### `docs/trainer/IMPLEMENTATION_STATUS.md` (새 파일)
+**포함 내용**:
+- Training Service 아키텍처 다이어그램
+- 구현 완료 기능 (Phase 1)
+  - Microservice Architecture ✅
+  - R2 Storage Integration ✅
+  - YOLO Training Pipeline ✅
+  - DICE Dataset Format ✅
+  - Project-Centric Checkpoints ✅
+- 테스트 결과 (Job #11, #12, #13)
+- 기술 구현 세부사항
+- API 엔드포인트 문서
+- 다음 단계 (Phase 2: Frontend Integration)
+
+### Git 작업
+
+#### Commit
+```
+67142e4 feat(training): implement project-centric checkpoint storage
+
+- Add project_id parameter throughout training pipeline
+- Implement conditional path logic in upload_checkpoint()
+- Update all adapters and callbacks to handle project_id
+- Add comprehensive implementation status document
+```
+
+**변경 파일 (7개)**:
+- `mvp/training/platform_sdk/storage.py`
+- `mvp/training/adapters/base.py`
+- `mvp/training/adapters/ultralytics_adapter.py`
+- `mvp/training/train.py`
+- `mvp/training/api_server.py`
+- `mvp/backend/app/utils/training_manager.py`
+- `docs/trainer/IMPLEMENTATION_STATUS.md` (새 파일)
+
+### 테스트 계획
+
+#### Job #14 테스트 (다음 단계)
+**목표**: 새로운 project-centric 경로 구조 검증
+
+**시나리오 1**: project_id 있는 경우
+- Job with project_id = 5
+- Expected path: `checkpoints/projects/5/jobs/14/best.pt`
+
+**시나리오 2**: project_id 없는 경우 (test job)
+- Job with project_id = null
+- Expected path: `checkpoints/test-jobs/job_14/best.pt`
+
+**검증 사항**:
+- Backend가 project_id를 Training Service에 전달
+- Training Service가 train.py에 --project_id 전달
+- Adapter가 Callbacks에 project_id 전달
+- Callbacks가 upload_checkpoint()에 project_id 전달
+- R2에 올바른 경로로 업로드
+
+### 다음 단계
+
+#### Phase 2: Frontend Integration (예정)
+- [ ] Training Job 생성 UI
+- [ ] Real-time training monitoring
+- [ ] Checkpoint download interface
+- [ ] Project selection in training form
+
+#### Testing
+- [ ] Job #14 실행 및 경로 검증
+- [ ] Project job vs test job 경로 차이 확인
+- [ ] R2 Storage에서 경로 구조 확인
+
+### 관련 문서
+- **구현 현황**: [docs/trainer/IMPLEMENTATION_STATUS.md](../trainer/IMPLEMENTATION_STATUS.md)
+- **Adapter 설계**: [docs/trainer/ADAPTER_DESIGN.md](../trainer/ADAPTER_DESIGN.md)
+- **이전 세션**: [2025-11-04 17:30] Training Service Microservice 인프라 구축
+
+### 핵심 원칙 준수
+
+1. **No Shortcuts** ✅
+   - 하드코딩 없음 (project_id를 동적으로 전달)
+   - 임시 방편 없음 (전체 chain 구현)
+
+2. **Production = Local** ✅
+   - 동일한 코드베이스
+   - 환경변수만 차이
+   - R2 Storage 공통 사용
+
+3. **Dependency Isolation** ✅
+   - Backend: project_id만 전달 (training 로직 무관)
+   - Training Service: 독립적으로 checkpoint 관리
+
+---
+
 ## [2025-11-04 17:30] Training Service Microservice 인프라 구축 및 데이터 접근 전략 수립
 
 ### 논의 주제
