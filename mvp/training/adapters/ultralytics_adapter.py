@@ -1684,10 +1684,10 @@ class UltralyticsAdapter(TrainingAdapter):
             'exist_ok': True,
             'verbose': False,  # Reduce YOLO verbosity
             'workers': 0,  # Disable multiprocessing to avoid output issues
-            'plots': False,  # Disable plots to skip final validation
+            'plots': True,  # Enable plots for validation metrics
             'save': True,  # Save checkpoints
             'save_period': -1,  # Only save last and best
-            'val': False,  # Disable validation during training
+            'val': True,  # Enable validation during training
         }
 
         adv_config = self.training_config.advanced_config
