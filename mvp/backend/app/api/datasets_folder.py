@@ -14,7 +14,8 @@ from collections import defaultdict
 
 from app.utils.r2_storage import r2_storage
 from app.db.database import get_db
-from app.db.models import Dataset
+from app.db.models import Dataset, User
+from app.utils.dependencies import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class FolderUploadResponse(BaseModel):
 async def upload_folder(
     dataset_id: str,
     files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -59,6 +61,11 @@ async def upload_folder(
         dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+        # Check ownership permission
+        if dataset.owner_id != current_user.id:
+            logger.warning(f"User {current_user.id} attempted to upload to dataset {dataset_id} owned by {dataset.owner_id}")
+            raise HTTPException(status_code=403, detail="Permission denied: You can only upload to your own datasets")
 
         logger.info(f"Received folder upload with {len(files)} files for dataset {dataset_id}")
 

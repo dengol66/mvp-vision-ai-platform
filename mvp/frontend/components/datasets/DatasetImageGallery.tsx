@@ -24,9 +24,24 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
         setError(null)
 
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-        const response = await fetch(`${baseUrl}/datasets/${datasetId}/images`)
+        const token = localStorage.getItem('access_token')
+
+        if (!token) {
+          setError('로그인이 필요합니다.')
+          setLoading(false)
+          return
+        }
+
+        const response = await fetch(`${baseUrl}/datasets/${datasetId}/images`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
 
         if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error('로그인이 필요합니다.')
+          }
           throw new Error(`Failed to fetch images: ${response.statusText}`)
         }
 

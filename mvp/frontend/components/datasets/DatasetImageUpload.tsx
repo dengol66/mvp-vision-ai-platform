@@ -34,8 +34,20 @@ export default function DatasetImageUpload({ datasetId, onUploadSuccess }: Datas
 
       // Upload to backend
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const token = localStorage.getItem('access_token')
+
+      if (!token) {
+        setUploadMessage({ type: 'error', text: '로그인이 필요합니다.' })
+        setUploading(false)
+        setUploadProgress('')
+        return
+      }
+
       const response = await fetch(`${baseUrl}/datasets/${datasetId}/upload-images`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
       })
 

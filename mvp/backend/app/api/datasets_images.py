@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.db.database import get_db
-from app.db.models import Dataset
+from app.db.models import Dataset, User
 from app.utils.r2_storage import r2_storage
+from app.utils.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class PresignedUrlResponse(BaseModel):
 async def upload_image_to_dataset(
     dataset_id: str = PathParam(..., description="Dataset ID"),
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -94,7 +96,12 @@ async def upload_image_to_dataset(
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
-        # 2. Validate file type
+        # 2. Check ownership permission
+        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
+            logger.warning(f"User {current_user.id} attempted to upload to dataset {dataset_id} owned by {dataset.owner_id}")
+            raise HTTPException(status_code=403, detail="Permission denied: You can only upload to your own datasets")
+
+        # 3. Validate file type
         if not file.content_type or not file.content_type.startswith('image/'):
             return ImageUploadResponse(
                 status="error",
@@ -153,6 +160,7 @@ async def upload_image_to_dataset(
 @router.get("/{dataset_id}/images", response_model=ImageListResponse)
 async def list_dataset_images(
     dataset_id: str = PathParam(..., description="Dataset ID"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -180,7 +188,12 @@ async def list_dataset_images(
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
-        # 2. List images from R2
+        # 2. Check view permission (owner or public dataset)
+        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
+            logger.warning(f"User {current_user.id} attempted to list images from dataset {dataset_id} owned by {dataset.owner_id}")
+            raise HTTPException(status_code=403, detail="Permission denied: You can only view your own datasets or public datasets")
+
+        # 3. List images from R2
         logger.info(f"Listing images for dataset {dataset_id}")
         image_keys = r2_storage.list_images(dataset_id, prefix="images/")
 
@@ -222,6 +235,7 @@ async def get_image_presigned_url(
     dataset_id: str = PathParam(..., description="Dataset ID"),
     image_filename: str = PathParam(..., description="Image filename"),
     expiration: int = 3600,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -249,7 +263,12 @@ async def get_image_presigned_url(
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
-        # 2. Generate presigned URL
+        # 2. Check view permission (owner or public dataset)
+        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
+            logger.warning(f"User {current_user.id} attempted to access image from dataset {dataset_id} owned by {dataset.owner_id}")
+            raise HTTPException(status_code=403, detail="Permission denied: You can only access your own datasets or public datasets")
+
+        # 3. Generate presigned URL
         image_path = f"images/{image_filename}"
         object_key = f"datasets/{dataset_id}/{image_path}"
 

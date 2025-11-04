@@ -185,42 +185,45 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Datasets Section */}
-      <div className="px-4 py-3 border-b border-gray-800">
-        <button
-          onClick={onOpenDatasets}
-          className={cn(
-            'w-full px-3 py-2.5 rounded-lg',
-            'text-left transition-colors',
-            'flex items-center gap-3',
-            'text-gray-300 hover:bg-gray-800 hover:text-violet-400'
-          )}
-        >
-          <Database className="w-5 h-5" />
-          <div>
-            <p className="text-sm font-medium">데이터셋</p>
-            <p className="text-xs text-gray-500">데이터셋 업로드 및 관리</p>
-          </div>
-        </button>
-      </div>
-
-      {/* Recent Projects */}
-      <div className="flex-1 overflow-hidden flex flex-col px-4 py-2">
-        <div className="flex items-center justify-between mb-2 px-2">
-          <h2 className="text-sm font-semibold text-gray-400">프로젝트</h2>
+      {/* Datasets Section - Only for authenticated users */}
+      {isAuthenticated && (
+        <div className="px-4 py-3 border-b border-gray-800">
           <button
-            onClick={onCreateProject}
+            onClick={onOpenDatasets}
             className={cn(
-              'p-1.5 rounded-lg',
-              'text-gray-400 hover:text-violet-400',
-              'hover:bg-gray-800',
-              'transition-colors'
+              'w-full px-3 py-2.5 rounded-lg',
+              'text-left transition-colors',
+              'flex items-center gap-3',
+              'text-gray-300 hover:bg-gray-800 hover:text-violet-400'
             )}
-            title="새 프로젝트"
           >
-            <PlusIcon className="w-4 h-4" />
+            <Database className="w-5 h-5" />
+            <div>
+              <p className="text-sm font-medium">데이터셋</p>
+              <p className="text-xs text-gray-500">데이터셋 업로드 및 관리</p>
+            </div>
           </button>
         </div>
+      )}
+
+      {/* Recent Projects - Only for authenticated users */}
+      {isAuthenticated && (
+        <div className="flex-1 overflow-hidden flex flex-col px-4 py-2">
+          <div className="flex items-center justify-between mb-2 px-2">
+            <h2 className="text-sm font-semibold text-gray-400">프로젝트</h2>
+            <button
+              onClick={onCreateProject}
+              className={cn(
+                'p-1.5 rounded-lg',
+                'text-gray-400 hover:text-violet-400',
+                'hover:bg-gray-800',
+                'transition-colors'
+              )}
+              title="새 프로젝트"
+            >
+              <PlusIcon className="w-4 h-4" />
+            </button>
+          </div>
         <div className="flex-1 overflow-y-auto space-y-1">
           {loadingProjects ? (
             <div className="text-center py-4 text-gray-500 text-sm">
@@ -274,7 +277,8 @@ export default function Sidebar({
             </div>
           )}
         </div>
-      </div>
+        </div>
+      )}
 
       {/* Admin Controls */}
       {isAuthenticated && authUser && (authUser.system_role === 'admin' || authUser.system_role === 'manager') && (

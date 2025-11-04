@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from app.utils.dataset_analyzer import DatasetAnalyzer
 from app.utils.r2_storage import r2_storage
 from app.db.database import get_db
-from app.db.models import Dataset
+from app.db.models import Dataset, User
+from app.utils.dependencies import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -229,24 +230,36 @@ class DatasetListResponse(BaseModel):
 async def list_sample_datasets(
     labeled: Optional[bool] = Query(default=None, description="Filter by labeled status (true=has annotations, false=unlabeled)"),
     tags: Optional[str] = Query(default=None, description="Filter by tags (comma-separated)"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    List available public datasets from database.
+    List available datasets for the current user.
 
-    Returns all public datasets, including platform-provided samples.
-    Platform sample datasets have 'platform-sample' tag.
+    Returns:
+    - User's own datasets (where owner_id == user_id)
+    - Public datasets (visibility == 'public')
 
     Args:
         labeled: Optional filter by labeled status
         tags: Optional filter by tags (comma-separated, e.g., "platform-sample,coco")
+        current_user: Current authenticated user
         db: Database session
 
     Returns:
         List of datasets with metadata
     """
-    # Query public datasets
-    query = db.query(Dataset).filter(Dataset.visibility == 'public')
+    from sqlalchemy import or_
+
+    # Query datasets that are either:
+    # 1. Owned by the current user
+    # 2. Public (visible to everyone)
+    query = db.query(Dataset).filter(
+        or_(
+            Dataset.owner_id == current_user.id,
+            Dataset.visibility == 'public'
+        )
+    )
 
     # Filter by labeled status
     if labeled is not None:
@@ -260,6 +273,8 @@ async def list_sample_datasets(
             query = query.filter(Dataset.tags.contains([tag]))
 
     datasets = query.all()
+
+    logger.info(f"User {current_user.id} ({current_user.email}) querying datasets: found {len(datasets)} datasets")
 
     # Convert to response format
     result = []
@@ -391,6 +406,7 @@ class CreateDatasetResponse(BaseModel):
 @router.post("", response_model=CreateDatasetResponse)
 async def create_dataset(
     request: CreateDatasetRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -400,6 +416,7 @@ async def create_dataset(
 
     Args:
         request: Dataset creation request with name, description, visibility
+        current_user: Current authenticated user
         db: Database session
 
     Returns:
@@ -419,7 +436,7 @@ async def create_dataset(
             storage_type="r2",
             storage_path=f"datasets/{dataset_id}/",  # Reserve storage path
             visibility=request.visibility,
-            owner_id=None,  # TODO: Get from auth token
+            owner_id=current_user.id,  # Set owner to current user
             num_classes=0,
             num_images=0,  # Empty dataset
             class_names=[],
@@ -464,10 +481,13 @@ class DeleteDatasetResponse(BaseModel):
 @router.delete("/{dataset_id}", response_model=DeleteDatasetResponse)
 async def delete_dataset(
     dataset_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Delete a dataset and all its associated data.
+
+    Only the dataset owner can delete it.
 
     This will:
     1. Delete all images from R2 storage
@@ -475,6 +495,7 @@ async def delete_dataset(
 
     Args:
         dataset_id: Dataset ID to delete
+        current_user: Current authenticated user
         db: Database session
 
     Returns:
@@ -488,6 +509,14 @@ async def delete_dataset(
             return DeleteDatasetResponse(
                 status="error",
                 message=f"Dataset not found: {dataset_id}"
+            )
+
+        # Check if user has permission to delete (must be owner)
+        if dataset.owner_id != current_user.id:
+            logger.warning(f"User {current_user.id} attempted to delete dataset {dataset_id} owned by {dataset.owner_id}")
+            return DeleteDatasetResponse(
+                status="error",
+                message="Permission denied: You can only delete your own datasets"
             )
 
         # Delete all images from R2 storage

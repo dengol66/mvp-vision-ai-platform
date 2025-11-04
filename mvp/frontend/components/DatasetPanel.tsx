@@ -51,9 +51,25 @@ export default function DatasetPanel() {
     setLoading(true)
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const response = await fetch(`${baseUrl}/datasets/available`)
+      const token = localStorage.getItem('access_token')
+
+      if (!token) {
+        console.error('No access token found')
+        setDatasets([])
+        setLoading(false)
+        return
+      }
+
+      const response = await fetch(`${baseUrl}/datasets/available`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          console.error('Unauthorized: Please login')
+        }
         throw new Error(`Failed to fetch datasets: ${response.statusText}`)
       }
 
@@ -61,6 +77,7 @@ export default function DatasetPanel() {
       setDatasets(data)
     } catch (error) {
       console.error('Error fetching datasets:', error)
+      setDatasets([])
     } finally {
       setLoading(false)
     }
@@ -151,8 +168,20 @@ export default function DatasetPanel() {
     setDeleting(true)
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const token = localStorage.getItem('access_token')
+
+      if (!token) {
+        alert('로그인이 필요합니다.')
+        setDeleting(false)
+        setShowDeleteConfirm(false)
+        return
+      }
+
       const response = await fetch(`${baseUrl}/datasets/${deleteDatasetId}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       })
 
       const data = await response.json()

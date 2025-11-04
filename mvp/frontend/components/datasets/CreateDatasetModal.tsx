@@ -33,10 +33,20 @@ export default function CreateDatasetModal({ isOpen, onClose, onSuccess }: Creat
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const token = localStorage.getItem('access_token')
+
+      if (!token) {
+        setStatus('error')
+        setMessage('로그인이 필요합니다.')
+        setCreating(false)
+        return
+      }
+
       const response = await fetch(`${baseUrl}/datasets`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           name: datasetName.trim(),
