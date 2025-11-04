@@ -18,6 +18,7 @@ import logging
 import zipfile
 import tempfile
 import json
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,36 @@ class R2Storage:
 
         except ClientError as e:
             logger.error(f"Failed to upload file object to R2: {e}")
+            return False
+
+    def upload_bytes(
+        self,
+        data: bytes,
+        object_key: str,
+        content_type: Optional[str] = None,
+    ) -> bool:
+        """
+        Upload bytes data to R2.
+
+        Args:
+            data: Bytes data to upload
+            object_key: R2 object key
+            content_type: MIME type
+
+        Returns:
+            True if successful
+        """
+        if not self.client:
+            logger.error("R2 client not initialized")
+            return False
+
+        try:
+            # Wrap bytes in BytesIO
+            file_obj = BytesIO(data)
+            return self.upload_fileobj(file_obj, object_key, content_type)
+
+        except Exception as e:
+            logger.error(f"Failed to upload bytes to R2: {e}")
             return False
 
     def download_file(

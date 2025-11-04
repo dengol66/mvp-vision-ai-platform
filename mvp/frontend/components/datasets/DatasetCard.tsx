@@ -8,24 +8,19 @@ interface DatasetCardProps {
   selected?: boolean;
 }
 
-const taskTypeColors: Record<string, string> = {
-  image_classification: 'bg-blue-100 text-blue-800',
-  object_detection: 'bg-green-100 text-green-800',
-  instance_segmentation: 'bg-purple-100 text-purple-800',
-  semantic_segmentation: 'bg-pink-100 text-pink-800',
-  pose_estimation: 'bg-yellow-100 text-yellow-800',
-};
-
 const formatNames: Record<string, string> = {
   imagefolder: 'ImageFolder',
   yolo: 'YOLO',
   coco: 'COCO',
   pascal_voc: 'Pascal VOC',
+  dice: 'DICE Format',
 };
 
 export default function DatasetCard({ dataset, onSelect, selected }: DatasetCardProps) {
-  const taskTypeColor = taskTypeColors[dataset.task_type] || 'bg-gray-100 text-gray-800';
   const formatName = formatNames[dataset.format] || dataset.format;
+  const labeledBadge = dataset.labeled
+    ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
+    : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' };
 
   return (
     <div
@@ -59,8 +54,8 @@ export default function DatasetCard({ dataset, onSelect, selected }: DatasetCard
 
       {/* Badges */}
       <div className="flex flex-wrap gap-2 mb-3">
-        <span className={`px-2 py-1 rounded-full text-xs font-medium ${taskTypeColor}`}>
-          {dataset.task_type.replace(/_/g, ' ')}
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${labeledBadge.color}`}>
+          {labeledBadge.text}
         </span>
         <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
           {formatName}

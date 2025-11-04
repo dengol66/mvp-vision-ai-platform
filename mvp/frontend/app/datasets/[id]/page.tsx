@@ -11,7 +11,7 @@ interface Dataset {
   name: string
   description: string
   format: string
-  task_type: string
+  labeled: boolean
   num_items: number
   source: string
 }
@@ -109,8 +109,12 @@ export default function DatasetDetailPage() {
               <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                 {dataset.format.toUpperCase()}
               </span>
-              <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                {dataset.task_type.replace('_', ' ')}
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                dataset.labeled
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                {dataset.labeled ? 'Labeled' : 'Unlabeled'}
               </span>
             </div>
           </div>

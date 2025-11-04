@@ -24,6 +24,7 @@ interface SidebarProps {
   selectedProjectId?: number | null
   onCreateProject?: () => void
   onOpenImageTools?: () => void
+  onOpenDatasets?: () => void
   onOpenLogin?: () => void
   onOpenRegister?: () => void
   onOpenProfile?: () => void
@@ -38,6 +39,7 @@ export default function Sidebar({
   selectedProjectId,
   onCreateProject,
   onOpenImageTools,
+  onOpenDatasets,
   onOpenLogin,
   onOpenRegister,
   onOpenProfile,
@@ -179,6 +181,25 @@ export default function Sidebar({
           <div>
             <p className="text-sm font-medium">이미지 도구</p>
             <p className="text-xs text-gray-500">초해상화, 배경 제거 등</p>
+          </div>
+        </button>
+      </div>
+
+      {/* Datasets Section */}
+      <div className="px-4 py-3 border-b border-gray-800">
+        <button
+          onClick={onOpenDatasets}
+          className={cn(
+            'w-full px-3 py-2.5 rounded-lg',
+            'text-left transition-colors',
+            'flex items-center gap-3',
+            'text-gray-300 hover:bg-gray-800 hover:text-violet-400'
+          )}
+        >
+          <Database className="w-5 h-5" />
+          <div>
+            <p className="text-sm font-medium">데이터셋</p>
+            <p className="text-xs text-gray-500">데이터셋 업로드 및 관리</p>
           </div>
         </button>
       </div>

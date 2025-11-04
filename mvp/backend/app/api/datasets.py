@@ -1,7 +1,7 @@
 """
 Datasets API endpoints for dataset analysis and management.
 """
-from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
@@ -11,6 +11,8 @@ import os
 import tempfile
 import zipfile
 import shutil
+import json
+import uuid
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -56,7 +58,7 @@ def _get_dataset_metadata_from_db(dataset_id: str, db: Session) -> Optional[Data
     dataset_info = {
         "format": dataset.format,
         "confidence": 1.0,  # DB datasets are pre-validated
-        "task_type": dataset.task_type,
+        "labeled": dataset.labeled,  # Whether dataset has annotations
         "structure": {
             "num_classes": dataset.num_classes,
             "num_images": dataset.num_images,
@@ -202,7 +204,7 @@ class SampleDatasetInfo(BaseModel):
     name: str
     description: str
     format: str
-    task_type: str
+    labeled: bool  # Changed from task_type - indicates if dataset has annotations
     num_items: int
     size_mb: Optional[float] = None
     source: str
@@ -225,7 +227,7 @@ class DatasetListResponse(BaseModel):
 
 @router.get("/available", response_model=List[SampleDatasetInfo])
 async def list_sample_datasets(
-    task_type: Optional[str] = Query(default=None, description="Filter by task type (image_classification, object_detection, etc.)"),
+    labeled: Optional[bool] = Query(default=None, description="Filter by labeled status (true=has annotations, false=unlabeled)"),
     tags: Optional[str] = Query(default=None, description="Filter by tags (comma-separated)"),
     db: Session = Depends(get_db)
 ):
@@ -236,7 +238,7 @@ async def list_sample_datasets(
     Platform sample datasets have 'platform-sample' tag.
 
     Args:
-        task_type: Optional filter by task type
+        labeled: Optional filter by labeled status
         tags: Optional filter by tags (comma-separated, e.g., "platform-sample,coco")
         db: Database session
 
@@ -246,9 +248,9 @@ async def list_sample_datasets(
     # Query public datasets
     query = db.query(Dataset).filter(Dataset.visibility == 'public')
 
-    # Filter by task type
-    if task_type:
-        query = query.filter(Dataset.task_type == task_type)
+    # Filter by labeled status
+    if labeled is not None:
+        query = query.filter(Dataset.labeled == labeled)
 
     # Filter by tags
     if tags:
@@ -265,9 +267,9 @@ async def list_sample_datasets(
         result.append({
             "id": ds.id,
             "name": ds.name,
-            "description": ds.description or f"Dataset for {ds.task_type}",
+            "description": ds.description or f"Dataset - {ds.format} format",
             "format": ds.format,
-            "task_type": ds.task_type,
+            "labeled": ds.labeled,
             "num_items": ds.num_images,
             "size_mb": None,  # Size not stored in DB yet
             "source": ds.storage_type,
@@ -371,123 +373,56 @@ async def list_datasets(
         raise HTTPException(status_code=500, detail=f"Failed to list datasets: {str(e)}")
 
 
-class DatasetUploadResponse(BaseModel):
-    """Response model for dataset upload"""
-    status: str  # 'success' or 'error'
+class CreateDatasetRequest(BaseModel):
+    """Request model for creating a new dataset"""
+    name: str
+    description: Optional[str] = None
+    visibility: str = "private"  # 'public', 'private', 'organization'
+
+
+class CreateDatasetResponse(BaseModel):
+    """Response model for dataset creation"""
+    status: str
     dataset_id: Optional[str] = None
     message: str
-    metadata: Optional[Dict[str, Any]] = None
+    dataset: Optional[Dict[str, Any]] = None
 
 
-@router.post("/upload", response_model=DatasetUploadResponse)
-async def upload_dataset(
-    file: UploadFile = File(...),
-    visibility: str = Query("private", regex="^(public|private|organization)$"),
-    user_id: str = Query("platform"),  # TODO: Get from auth token
+@router.post("", response_model=CreateDatasetResponse)
+async def create_dataset(
+    request: CreateDatasetRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Upload a DICE Format dataset (zip file) to R2 and register in database.
+    Create a new empty dataset (metadata only).
 
-    Steps:
-    1. Validate uploaded file is a zip
-    2. Save to temporary location
-    3. Validate DICE Format (annotations.json, meta.json, images/)
-    4. Upload to R2
-    5. Register metadata in database
-    6. Clean up temporary files
+    Images can be uploaded later via the folder upload endpoint.
 
     Args:
-        file: Uploaded zip file (DICE Format dataset)
-        visibility: Dataset visibility (public/private/organization)
-        user_id: User ID (from auth token)
+        request: Dataset creation request with name, description, visibility
         db: Database session
 
     Returns:
-        Upload status and dataset metadata
+        Created dataset information
     """
-    logger.info(f"Uploading dataset: {file.filename}")
-
-    # Validate file extension
-    if not file.filename.endswith('.zip'):
-        return DatasetUploadResponse(
-            status="error",
-            message="Only zip files are supported"
-        )
-
-    temp_zip_path = None
     try:
-        # Create temporary file for upload
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-            temp_zip_path = Path(tmp_file.name)
+        # Generate unique dataset ID
+        dataset_id = str(uuid.uuid4())
 
-            # Save uploaded file
-            content = await file.read()
-            tmp_file.write(content)
-            logger.info(f"Saved uploaded file to {temp_zip_path} ({len(content)} bytes)")
-
-        # Validate DICE Format
-        is_valid, metadata, error_msg = r2_storage.validate_dice_format(temp_zip_path)
-
-        if not is_valid:
-            logger.error(f"Invalid DICE Format: {error_msg}")
-            return DatasetUploadResponse(
-                status="error",
-                message=f"Invalid DICE Format: {error_msg}"
-            )
-
-        logger.info(f"Validated DICE Format: {metadata}")
-
-        # Check if dataset ID already exists
-        dataset_id = metadata['dataset_id']
-        existing = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-
-        if existing:
-            return DatasetUploadResponse(
-                status="error",
-                message=f"Dataset with ID '{dataset_id}' already exists"
-            )
-
-        # Upload to R2
-        logger.info(f"Uploading to R2: datasets/{dataset_id}.zip")
-        upload_success = r2_storage.upload_dataset_zip(temp_zip_path, dataset_id)
-
-        if not upload_success:
-            return DatasetUploadResponse(
-                status="error",
-                message="Failed to upload to R2 storage"
-            )
-
-        # Extract class names from metadata (if available)
-        # For this, we need to read annotations.json from zip
-        class_names = []
-        try:
-            with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
-                annotations_files = [f for f in zip_ref.namelist() if f.endswith('annotations.json')]
-                if annotations_files:
-                    import json
-                    with zip_ref.open(annotations_files[0]) as ann_file:
-                        annotations_data = json.load(ann_file)
-                        classes = annotations_data.get('classes', [])
-                        class_names = [c.get('name') for c in classes if 'name' in c]
-        except Exception as e:
-            logger.warning(f"Could not extract class names: {e}")
-
-        # Register in database
+        # Create dataset record (empty, no images yet)
         new_dataset = Dataset(
             id=dataset_id,
-            name=metadata['dataset_name'],
-            description=f"Uploaded via web UI - {metadata['task_type']}",
-            format="dice",  # DICE Format
-            task_type=metadata['task_type'],
+            name=request.name,
+            description=request.description or f"Dataset: {request.name}",
+            format="dice",  # Default format
+            labeled=False,  # No annotations yet
             storage_type="r2",
-            storage_path=f"datasets/{dataset_id}.zip",
-            visibility=visibility,
+            storage_path=f"datasets/{dataset_id}/",  # Reserve storage path
+            visibility=request.visibility,
             owner_id=None,  # TODO: Get from auth token
-            num_classes=metadata['num_classes'],
-            num_images=metadata['total_images'],
-            class_names=class_names,
-            content_hash=metadata.get('content_hash'),
+            num_classes=0,
+            num_images=0,  # Empty dataset
+            class_names=[],
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
         )
@@ -496,35 +431,25 @@ async def upload_dataset(
         db.commit()
         db.refresh(new_dataset)
 
-        logger.info(f"Dataset registered in database: {dataset_id}")
+        logger.info(f"Created empty dataset: {dataset_id} - {request.name}")
 
-        return DatasetUploadResponse(
+        return CreateDatasetResponse(
             status="success",
             dataset_id=dataset_id,
-            message=f"Dataset '{metadata['dataset_name']}' uploaded successfully",
-            metadata={
-                "dataset_id": dataset_id,
-                "dataset_name": metadata['dataset_name'],
-                "task_type": metadata['task_type'],
-                "num_classes": metadata['num_classes'],
-                "total_images": metadata['total_images'],
-                "visibility": visibility,
-                "storage_path": f"datasets/{dataset_id}.zip"
+            message=f"Dataset '{request.name}' created successfully",
+            dataset={
+                "id": dataset_id,
+                "name": request.name,
+                "description": new_dataset.description,
+                "visibility": request.visibility,
+                "num_images": 0,
+                "created_at": new_dataset.created_at.isoformat()
             }
         )
 
     except Exception as e:
-        logger.error(f"Error uploading dataset: {str(e)}", exc_info=True)
-        return DatasetUploadResponse(
+        logger.error(f"Error creating dataset: {str(e)}", exc_info=True)
+        return CreateDatasetResponse(
             status="error",
-            message=f"Upload failed: {str(e)}"
+            message=f"Failed to create dataset: {str(e)}"
         )
-
-    finally:
-        # Clean up temporary file
-        if temp_zip_path and temp_zip_path.exists():
-            try:
-                temp_zip_path.unlink()
-                logger.info(f"Cleaned up temporary file: {temp_zip_path}")
-            except Exception as e:
-                logger.warning(f"Could not delete temporary file: {e}")

@@ -5,7 +5,7 @@ export interface Dataset {
   name: string;
   description: string;
   format: string;
-  task_type: string;
+  labeled: boolean;  // Whether dataset has annotations (annotation.json)
   num_items: number;
   size_mb?: number | null;
   source: string;

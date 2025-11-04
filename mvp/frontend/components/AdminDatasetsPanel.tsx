@@ -5,22 +5,15 @@ import { ArrowUpDown, ArrowUp, ArrowDown, Search, Database, Tag } from 'lucide-r
 import { cn } from '@/lib/utils/cn'
 import { Dataset } from '@/types/dataset'
 
-type SortField = 'name' | 'format' | 'task_type' | 'num_items' | 'source'
+type SortField = 'name' | 'format' | 'labeled' | 'num_items' | 'source'
 type SortDirection = 'asc' | 'desc' | null
-
-const taskTypeColors: Record<string, string> = {
-  image_classification: 'bg-blue-100 text-blue-800',
-  object_detection: 'bg-green-100 text-green-800',
-  instance_segmentation: 'bg-purple-100 text-purple-800',
-  semantic_segmentation: 'bg-pink-100 text-pink-800',
-  pose_estimation: 'bg-yellow-100 text-yellow-800',
-}
 
 const formatNames: Record<string, string> = {
   imagefolder: 'ImageFolder',
   yolo: 'YOLO',
   coco: 'COCO',
   pascal_voc: 'Pascal VOC',
+  dice: 'DICE Format',
 }
 
 export default function AdminDatasetsPanel() {
@@ -34,7 +27,7 @@ export default function AdminDatasetsPanel() {
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('')
-  const [taskTypeFilter, setTaskTypeFilter] = useState<string>('all')
+  const [labeledFilter, setLabeledFilter] = useState<string>('all')
 
   useEffect(() => {
     fetchDatasets()
@@ -42,7 +35,7 @@ export default function AdminDatasetsPanel() {
 
   useEffect(() => {
     applyFiltersAndSort()
-  }, [datasets, searchQuery, taskTypeFilter, sortField, sortDirection])
+  }, [datasets, searchQuery, labeledFilter, sortField, sortDirection])
 
   const fetchDatasets = async () => {
     setLoading(true)
@@ -73,14 +66,15 @@ export default function AdminDatasetsPanel() {
         d.name.toLowerCase().includes(query) ||
         d.id.toLowerCase().includes(query) ||
         d.description.toLowerCase().includes(query) ||
-        d.format.toLowerCase().includes(query) ||
-        d.task_type.toLowerCase().includes(query)
+        d.format.toLowerCase().includes(query)
       )
     }
 
-    // Apply task type filter
-    if (taskTypeFilter !== 'all') {
-      result = result.filter(d => d.task_type === taskTypeFilter)
+    // Apply labeled filter
+    if (labeledFilter === 'labeled') {
+      result = result.filter(d => d.labeled === true)
+    } else if (labeledFilter === 'unlabeled') {
+      result = result.filter(d => d.labeled === false)
     }
 
     // Apply sorting
@@ -135,13 +129,10 @@ export default function AdminDatasetsPanel() {
     return <ArrowDown className="w-4 h-4 text-indigo-600" />
   }
 
-  const taskTypes = [
-    { value: 'all', label: 'All Task Types' },
-    { value: 'image_classification', label: 'Classification' },
-    { value: 'object_detection', label: 'Detection' },
-    { value: 'instance_segmentation', label: 'Instance Seg.' },
-    { value: 'semantic_segmentation', label: 'Semantic Seg.' },
-    { value: 'pose_estimation', label: 'Pose' },
+  const labelFilters = [
+    { value: 'all', label: 'All Datasets' },
+    { value: 'labeled', label: 'Labeled' },
+    { value: 'unlabeled', label: 'Unlabeled' },
   ]
 
   if (loading) {
@@ -188,15 +179,15 @@ export default function AdminDatasetsPanel() {
             />
           </div>
 
-          {/* Task Type Filter */}
+          {/* Label Status Filter */}
           <select
-            value={taskTypeFilter}
-            onChange={(e) => setTaskTypeFilter(e.target.value)}
+            value={labeledFilter}
+            onChange={(e) => setLabeledFilter(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
           >
-            {taskTypes.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
+            {labelFilters.map((filter) => (
+              <option key={filter.value} value={filter.value}>
+                {filter.label}
               </option>
             ))}
           </select>
@@ -219,11 +210,11 @@ export default function AdminDatasetsPanel() {
               </th>
               <th className="px-6 py-3 text-left">
                 <button
-                  onClick={() => handleSort('task_type')}
+                  onClick={() => handleSort('labeled')}
                   className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider hover:text-indigo-600"
                 >
-                  Task Type
-                  <SortIcon field="task_type" />
+                  Status
+                  <SortIcon field="labeled" />
                 </button>
               </th>
               <th className="px-6 py-3 text-left">
@@ -271,8 +262,10 @@ export default function AdminDatasetsPanel() {
               </tr>
             ) : (
               filteredDatasets.map((dataset) => {
-                const taskTypeColor = taskTypeColors[dataset.task_type] || 'bg-gray-100 text-gray-800'
                 const formatName = formatNames[dataset.format] || dataset.format
+                const labeledBadge = dataset.labeled
+                  ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
+                  : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' }
 
                 return (
                   <tr key={dataset.id} className="hover:bg-gray-50 transition-colors">
@@ -283,8 +276,8 @@ export default function AdminDatasetsPanel() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={cn('px-2 py-1 rounded-full text-xs font-medium', taskTypeColor)}>
-                        {dataset.task_type.replace(/_/g, ' ')}
+                      <span className={cn('px-2 py-1 rounded-full text-xs font-medium', labeledBadge.color)}>
+                        {labeledBadge.text}
                       </span>
                     </td>
                     <td className="px-6 py-4">

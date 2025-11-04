@@ -83,13 +83,24 @@ class Dataset(Base):
     storage_type = Column(String(20), nullable=False, default='r2')  # 'r2', 's3', 'gcs'
 
     # Dataset metadata
-    format = Column(String(50), nullable=False)  # 'yolo', 'imagefolder', 'coco', 'pascal_voc'
-    task_type = Column(String(50), nullable=False)  # 'image_classification', 'object_detection', etc.
+    format = Column(String(50), nullable=False)  # 'dice', 'yolo', 'imagefolder', 'coco', 'pascal_voc'
+    labeled = Column(Boolean, nullable=False, default=False)  # Whether dataset has annotation.json
+    annotation_path = Column(String(500), nullable=True)  # Path to annotation.json in R2
     num_classes = Column(Integer, nullable=True)
     num_images = Column(Integer, nullable=False, default=0)
     class_names = Column(JSON, nullable=True)  # List of class names
 
-    # Versioning and change tracking
+    # Versioning and snapshots
+    is_snapshot = Column(Boolean, nullable=False, default=False, index=True)  # Is this a snapshot?
+    parent_dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)  # Parent if snapshot
+    snapshot_created_at = Column(DateTime, nullable=True)  # When snapshot was created
+    version_tag = Column(String(50), nullable=True)  # User-defined version tag (v1, v2, etc.)
+
+    # Status and integrity
+    status = Column(String(20), nullable=False, default='active')  # 'active', 'archived', 'deleted'
+    integrity_status = Column(String(20), nullable=False, default='valid')  # 'valid', 'broken', 'repairing'
+
+    # Change tracking
     version = Column(Integer, nullable=False, default=1)
     content_hash = Column(String(64), nullable=True)  # SHA256 hash of dataset content
     last_modified_at = Column(DateTime, nullable=True)  # When data was last modified
@@ -101,7 +112,11 @@ class Dataset(Base):
     # Relationships
     owner = relationship("User", backref="owned_datasets", foreign_keys=[owner_id])
     permissions = relationship("DatasetPermission", back_populates="dataset", cascade="all, delete-orphan")
-    training_jobs = relationship("TrainingJob", back_populates="dataset")
+    training_jobs = relationship("TrainingJob", back_populates="dataset", foreign_keys="[TrainingJob.dataset_id]")
+
+    # Snapshot relationships (self-referential)
+    parent = relationship("Dataset", remote_side=[id], foreign_keys=[parent_dataset_id], backref="snapshots")
+    snapshot_training_jobs = relationship("TrainingJob", back_populates="dataset_snapshot", foreign_keys="[TrainingJob.dataset_snapshot_id]")
 
 
 class DatasetPermission(Base):
@@ -200,7 +215,8 @@ class TrainingJob(Base):
 
     # Dataset reference (new approach)
     dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)
-    dataset_version = Column(Integer, nullable=True)  # Snapshot version used at training time
+    dataset_snapshot_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference
+    dataset_version = Column(Integer, nullable=True)  # Deprecated: kept for backward compatibility
 
     # Legacy dataset path (backward compatibility)
     dataset_path = Column(String(500), nullable=True)  # Made nullable for transition
@@ -233,6 +249,7 @@ class TrainingJob(Base):
     session = relationship("Session", back_populates="training_jobs")
     project = relationship("Project", back_populates="experiments")
     dataset = relationship("Dataset", back_populates="training_jobs", foreign_keys=[dataset_id])
+    dataset_snapshot = relationship("Dataset", back_populates="snapshot_training_jobs", foreign_keys=[dataset_snapshot_id])
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
     logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
     validation_results = relationship("ValidationResult", back_populates="job", cascade="all, delete-orphan")

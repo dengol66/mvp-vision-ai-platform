@@ -1,25 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Dataset } from '@/types/dataset';
 import DatasetCard from './DatasetCard';
-import DatasetUploadModal from './DatasetUploadModal';
+import CreateDatasetModal from './CreateDatasetModal';
 
 interface DatasetListProps {
   onSelectDataset?: (dataset: Dataset) => void;
   selectedDatasetId?: string | null;
-  taskTypeFilter?: string | null;
+  labeledFilter?: string | null;  // 'all', 'labeled', 'unlabeled'
 }
 
 export default function DatasetList({
   onSelectDataset,
   selectedDatasetId,
-  taskTypeFilter,
+  labeledFilter,
 }: DatasetListProps) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTaskType, setSelectedTaskType] = useState<string>(taskTypeFilter || 'all');
-  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedLabeledFilter, setSelectedLabeledFilter] = useState<string>(labeledFilter || 'all');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Fetch datasets from API
   useEffect(() => {
@@ -29,8 +29,8 @@ export default function DatasetList({
         setError(null);
 
         const params = new URLSearchParams();
-        if (selectedTaskType && selectedTaskType !== 'all') {
-          params.append('task_type', selectedTaskType);
+        if (selectedLabeledFilter && selectedLabeledFilter !== 'all') {
+          params.append('labeled', selectedLabeledFilter === 'labeled' ? 'true' : 'false');
         }
 
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -52,14 +52,14 @@ export default function DatasetList({
     };
 
     fetchDatasets();
-  }, [selectedTaskType]);
+  }, [selectedLabeledFilter]);
 
-  // Update selected task type from prop
+  // Update selected labeled filter from prop
   useEffect(() => {
-    if (taskTypeFilter) {
-      setSelectedTaskType(taskTypeFilter);
+    if (labeledFilter) {
+      setSelectedLabeledFilter(labeledFilter);
     }
-  }, [taskTypeFilter]);
+  }, [labeledFilter]);
 
   // Filter datasets by search query
   const filteredDatasets = datasets.filter((dataset) => {
@@ -71,13 +71,11 @@ export default function DatasetList({
     return matchesSearch;
   });
 
-  // Group datasets by task type
-  const taskTypes = [
+  // Label status filters
+  const labelFilters = [
     { value: 'all', label: 'All Datasets' },
-    { value: 'image_classification', label: 'Classification' },
-    { value: 'object_detection', label: 'Detection' },
-    { value: 'instance_segmentation', label: 'Segmentation' },
-    { value: 'pose_estimation', label: 'Pose' },
+    { value: 'labeled', label: 'Labeled (With Annotations)' },
+    { value: 'unlabeled', label: 'Unlabeled (No Annotations)' },
   ];
 
   if (loading) {
@@ -101,8 +99,8 @@ export default function DatasetList({
     );
   }
 
-  const handleUploadSuccess = async (datasetId: string) => {
-    console.log('Upload successful, dataset ID:', datasetId);
+  const handleCreateSuccess = async (datasetId: string) => {
+    console.log('Dataset created successfully, ID:', datasetId);
     // Refresh dataset list
     setLoading(true);
     try {
@@ -130,13 +128,13 @@ export default function DatasetList({
           </p>
         </div>
         <button
-          onClick={() => setShowUploadModal(true)}
+          onClick={() => setShowCreateModal(true)}
           className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Upload Dataset
+          Create Dataset
         </button>
       </div>
 
@@ -166,19 +164,19 @@ export default function DatasetList({
           </svg>
         </div>
 
-        {/* Task Type Filter */}
+        {/* Label Status Filter */}
         <div className="flex flex-wrap gap-2">
-          {taskTypes.map((type) => (
+          {labelFilters.map((filter) => (
             <button
-              key={type.value}
-              onClick={() => setSelectedTaskType(type.value)}
+              key={filter.value}
+              onClick={() => setSelectedLabeledFilter(filter.value)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedTaskType === type.value
+                selectedLabeledFilter === filter.value
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              {type.label}
+              {filter.label}
             </button>
           ))}
         </div>
@@ -223,11 +221,11 @@ export default function DatasetList({
         </>
       )}
 
-      {/* Upload Modal */}
-      <DatasetUploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        onUploadSuccess={handleUploadSuccess}
+      {/* Create Dataset Modal */}
+      <CreateDatasetModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={handleCreateSuccess}
       />
     </div>
   );
