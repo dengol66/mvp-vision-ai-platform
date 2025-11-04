@@ -13,6 +13,10 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import model registry
 try:
@@ -35,6 +39,8 @@ app = FastAPI(title=f"Training Service ({FRAMEWORK})")
 
 # In-memory job status (in production, use Redis/DB)
 job_status: Dict[int, Dict[str, Any]] = {}
+# Track running processes for job cancellation
+job_processes: Dict[int, subprocess.Popen] = {}
 
 
 class TrainingRequest(BaseModel):
@@ -108,26 +114,38 @@ def run_training(request: TrainingRequest):
         if request.project_id is not None:
             cmd.extend(["--project_id", str(request.project_id)])
 
-        # Execute training (no capture_output to see logs in Railway)
+        # Execute training (use Popen for process control)
         print(f"[run_training] Executing command: {' '.join(cmd)}")
         sys.stdout.flush()
 
-        result = subprocess.run(
-            cmd,
-            capture_output=False,  # Show output in Railway logs for debugging
-            timeout=3600  # 1 hour timeout
-        )
+        # Start process
+        process = subprocess.Popen(cmd)
+        job_processes[job_id] = process
 
-        if result.returncode == 0:
-            job_status[job_id] = {"status": "completed", "error": None}
-        else:
-            job_status[job_id] = {
-                "status": "failed",
-                "error": f"Training failed with return code {result.returncode}"
-            }
+        # Wait for completion
+        try:
+            returncode = process.wait(timeout=3600)  # 1 hour timeout
+
+            if returncode == 0:
+                job_status[job_id] = {"status": "completed", "error": None}
+            else:
+                job_status[job_id] = {
+                    "status": "failed",
+                    "error": f"Training failed with return code {returncode}"
+                }
+        except subprocess.TimeoutExpired:
+            process.kill()
+            job_status[job_id] = {"status": "failed", "error": "Training timeout (1 hour)"}
+        finally:
+            # Cleanup process reference
+            if job_id in job_processes:
+                del job_processes[job_id]
 
     except Exception as e:
         job_status[job_id] = {"status": "failed", "error": str(e)}
+        # Cleanup process reference
+        if job_id in job_processes:
+            del job_processes[job_id]
 
 
 @app.get("/health")
@@ -164,6 +182,67 @@ async def get_job_status(job_id: int):
         "job_id": job_id,
         **job_status[job_id]
     }
+
+
+@app.post("/training/stop/{job_id}")
+async def stop_training(job_id: int):
+    """
+    Stop a running training job.
+
+    Terminates the training process and updates job status to 'stopped'.
+    """
+    # Check if job exists
+    if job_id not in job_status:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    # Check if job is running
+    if job_status[job_id]["status"] != "running":
+        return {
+            "job_id": job_id,
+            "status": "already_stopped",
+            "message": f"Job {job_id} is not running (status: {job_status[job_id]['status']})"
+        }
+
+    # Check if process exists
+    if job_id not in job_processes:
+        # Job marked as running but no process found - update status
+        job_status[job_id] = {"status": "stopped", "error": "Process not found"}
+        return {
+            "job_id": job_id,
+            "status": "stopped",
+            "message": f"Job {job_id} process not found, status updated to stopped"
+        }
+
+    # Terminate the process
+    try:
+        process = job_processes[job_id]
+        process.terminate()  # Send SIGTERM
+
+        # Wait for graceful shutdown (max 5 seconds)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            # Force kill if not stopped gracefully
+            process.kill()
+            process.wait()
+
+        # Update status
+        job_status[job_id] = {"status": "stopped", "error": None}
+
+        # Cleanup process reference
+        del job_processes[job_id]
+
+        return {
+            "job_id": job_id,
+            "status": "stopped",
+            "message": f"Training job {job_id} stopped successfully"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to stop job {job_id}: {str(e)}"
+        )
 
 
 @app.get("/models/list")

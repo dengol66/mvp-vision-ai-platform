@@ -245,26 +245,6 @@ export default function TrainingConfigPanel({
     }
   }, [taskType])
 
-  // Fetch available datasets on mount
-  useEffect(() => {
-    fetchAvailableDatasets()
-  }, [])
-
-  const fetchAvailableDatasets = async () => {
-    setIsLoadingDatasets(true)
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/datasets/list`)
-      if (response.ok) {
-        const data = await response.json()
-        setAvailableDatasets(data.datasets || [])
-      }
-    } catch (error) {
-      console.error('Failed to fetch datasets:', error)
-    } finally {
-      setIsLoadingDatasets(false)
-    }
-  }
-
   // Dataset analysis function
   const handleAnalyzeDataset = async () => {
     if (!datasetPath.trim()) {
