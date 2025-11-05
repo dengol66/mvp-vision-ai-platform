@@ -13,14 +13,12 @@ sys.stderr.reconfigure(line_buffering=True)
 # Add training directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Load .env file for R2 credentials
+# Load .env file for R2 credentials (silently to avoid repeated logs from DataLoader workers)
 from dotenv import load_dotenv
 dotenv_path = Path(__file__).parent / ".env"
 if dotenv_path.exists():
-    load_dotenv(dotenv_path)
-    print(f"[INFO] Loaded environment variables from {dotenv_path}")
-else:
-    print(f"[WARNING] .env file not found at {dotenv_path}")
+    load_dotenv(dotenv_path, verbose=False)
+    # Note: Don't print here - DataLoader workers will spam logs
 
 from platform_sdk import (
     ModelConfig,
@@ -28,7 +26,8 @@ from platform_sdk import (
     TrainingConfig,
     TaskType,
     DatasetFormat,
-    TrainingLogger
+    TrainingLogger,
+    get_dataset
 )
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
@@ -192,6 +191,32 @@ def main():
     if advanced_config:
         print(f"[CONFIG] Advanced config: {json.dumps(advanced_config, indent=2)}")
 
+    # Download dataset from R2 if needed
+    print("\n" + "="*80)
+    print("DATASET PREPARATION")
+    print("="*80)
+
+    # Check if dataset_path is a UUID/simple ID (no path separators)
+    if '/' not in args.dataset_path and '\\' not in args.dataset_path:
+        print(f"[DATASET] Detected dataset ID: {args.dataset_path}")
+        print(f"[DATASET] Attempting to download from R2...")
+        try:
+            local_dataset_path = get_dataset(
+                dataset_id=args.dataset_path,
+                download_fn=None  # No fallback, R2 only
+            )
+            print(f"[DATASET] ✓ Dataset ready: {local_dataset_path}")
+        except Exception as e:
+            print(f"[DATASET] ERROR: Failed to download dataset: {e}")
+            print(f"[DATASET] Falling back to original path (may fail)")
+            local_dataset_path = args.dataset_path
+    else:
+        # Local path, use as-is
+        print(f"[DATASET] Using local path: {args.dataset_path}")
+        local_dataset_path = args.dataset_path
+
+    print("="*80 + "\n")
+
     # Create configuration objects
     try:
         # Determine appropriate image size based on framework
@@ -206,17 +231,28 @@ def main():
         normalized_task_type = args.task_type.replace('-', '_')
         print(f"[CONFIG] Task type: {args.task_type} → {normalized_task_type}")
 
+        # For image classification with DICE/ImageFolder format:
+        # Force auto-detection of num_classes from dataset (more reliable than pre-computed)
+        final_num_classes = args.num_classes
+        if normalized_task_type == 'image_classification' and args.dataset_format in ['dice', 'imagefolder']:
+            if args.num_classes and args.num_classes != 10:  # 10 is reasonable, 1000 is ImageNet default (wrong)
+                print(f"[CONFIG] WARNING: num_classes={args.num_classes} provided, but will auto-detect from dataset")
+                print(f"[CONFIG] Reason: Classification task with {args.dataset_format} format - dataset determines classes")
+                final_num_classes = None  # Force auto-detection
+            elif args.num_classes == 10:
+                print(f"[CONFIG] num_classes=10 provided, will verify against dataset")
+
         model_config = ModelConfig(
             framework=args.framework,
             task_type=TaskType(normalized_task_type),
             model_name=args.model_name,
             pretrained=args.pretrained,
-            num_classes=args.num_classes,
+            num_classes=final_num_classes,
             image_size=image_size,
         )
 
         dataset_config = DatasetConfig(
-            dataset_path=args.dataset_path,
+            dataset_path=local_dataset_path,  # Use downloaded path
             format=DatasetFormat(args.dataset_format),
         )
 
@@ -257,7 +293,7 @@ def main():
     print(f"         - Base Learning Rate: {args.learning_rate}")
     print(f"         - Device: {args.device}")
     print(f"\n[CONFIG] Dataset:")
-    print(f"         - Path: {args.dataset_path}")
+    print(f"         - Path: {local_dataset_path}")
     print(f"         - Format: {args.dataset_format}")
     print(f"\n[CONFIG] Output Directory: {args.output_dir}")
 

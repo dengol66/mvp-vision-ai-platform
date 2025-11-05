@@ -49,6 +49,7 @@ async def create_training_job(
         )
 
     # Resolve dataset from database if dataset_id provided
+    dataset = None
     dataset_id = None
     dataset_path = None
     dataset_format = config.dataset_format
@@ -92,12 +93,15 @@ async def create_training_job(
             detail="task_type is required"
         )
 
-    # For classification tasks, num_classes is required
+    # For classification tasks, use num_classes from Dataset if available (optional optimization)
     if config.task_type == "image_classification" and not config.num_classes:
-        raise HTTPException(
-            status_code=400,
-            detail="num_classes is required for image classification tasks"
-        )
+        if dataset is not None and dataset.num_classes and dataset.num_classes > 0:
+            # Use pre-computed num_classes from Dataset (faster)
+            config.num_classes = dataset.num_classes
+            logger.info(f"[training] Using num_classes from Dataset: {config.num_classes}")
+        else:
+            # num_classes will be auto-detected by Training Service during dataset loading
+            logger.info(f"[training] num_classes not provided - will be auto-detected by Training Service")
 
     # Verify session exists (if provided)
     if job_request.session_id:
@@ -1087,4 +1091,73 @@ async def get_job_checkpoints(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get checkpoints: {str(e)}"
+        )
+
+
+@router.post("/stop/{job_id}")
+async def stop_training_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Stop a running training job.
+
+    This endpoint stops the training process and updates the job status.
+    """
+    try:
+        # Get training job
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+
+        if not job:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Training job {job_id} not found"
+            )
+
+        # Check if job is running
+        if job.status not in ["pending", "running"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot stop job with status '{job.status}'. Job must be 'pending' or 'running'."
+            )
+
+        logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
+
+        # Initialize training manager
+        global training_manager
+        if training_manager is None:
+            training_manager = TrainingManager(db)
+
+        # Stop the training job
+        success = training_manager.stop_training(job_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to stop training job"
+            )
+
+        # Update job status
+        job.status = "stopped"
+        job.completed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(job)
+
+        logger.info(f"[stop-training] Successfully stopped job {job_id}")
+
+        return {
+            "job_id": job_id,
+            "status": job.status,
+            "message": "Training job stopped successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[stop-training] Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to stop training job: {str(e)}"
         )

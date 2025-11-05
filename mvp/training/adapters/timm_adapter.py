@@ -334,12 +334,104 @@ class TimmAdapter(TrainingAdapter):
                 "timm not installed. Install with: pip install timm"
             )
 
+        import torch.nn as nn  # Import at function level to avoid scope issues
+
+        # If num_classes not provided, detect from dataset first
+        if self.model_config.num_classes is None:
+            print("[INFO] num_classes not provided, loading dataset to auto-detect...")
+            self.prepare_dataset()  # This will load dataset and populate self.train_loader
+
+            # Get num_classes from loaded dataset
+            if hasattr(self, 'train_loader') and self.train_loader:
+                dataset = self.train_loader.dataset
+                if hasattr(dataset, 'classes'):
+                    self.model_config.num_classes = len(dataset.classes)
+                elif hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'classes'):
+                    # For Subset, access underlying dataset
+                    self.model_config.num_classes = len(dataset.dataset.classes)
+                else:
+                    raise ValueError("Cannot determine num_classes from dataset")
+
+                print(f"[INFO] Auto-detected num_classes: {self.model_config.num_classes}")
+            else:
+                raise ValueError("Failed to load dataset for num_classes detection")
+
+        print("\n" + "="*80)
+        print("MODEL INITIALIZATION")
+        print("="*80)
         print(f"Loading timm model: {self.model_config.model_name}")
+        print(f"[CONFIG] Requested num_classes: {self.model_config.num_classes}")
+        print(f"[CONFIG] Pretrained: {self.model_config.pretrained}")
+
+        # First try: Load with num_classes parameter
         self.model = timm.create_model(
             self.model_config.model_name,
             pretrained=self.model_config.pretrained,
             num_classes=self.model_config.num_classes
         )
+
+        # Verify model output size
+        def get_actual_num_classes(model):
+            """Helper to get actual output classes from model"""
+            if hasattr(model, 'num_classes'):
+                return model.num_classes
+            elif hasattr(model, 'get_classifier'):
+                classifier = model.get_classifier()
+                if hasattr(classifier, 'out_features'):
+                    return classifier.out_features
+                elif hasattr(classifier, 'weight'):
+                    return classifier.weight.shape[0]
+            # Try to get from fc/head layer
+            for name in ['fc', 'head', 'classifier']:
+                if hasattr(model, name):
+                    layer = getattr(model, name)
+                    if hasattr(layer, 'out_features'):
+                        return layer.out_features
+                    elif hasattr(layer, 'weight'):
+                        return layer.weight.shape[0]
+            return None
+
+        actual_num_classes = get_actual_num_classes(self.model)
+        print(f"[VERIFY] Model actual output classes: {actual_num_classes}")
+
+        if actual_num_classes != self.model_config.num_classes:
+            print(f"[WARNING] Model output classes ({actual_num_classes}) != requested ({self.model_config.num_classes})")
+            print(f"[FIX] Force reset classifier to {self.model_config.num_classes} classes...")
+
+            # Method 1: Try reset_classifier (timm standard method)
+            if hasattr(self.model, 'reset_classifier'):
+                self.model.reset_classifier(self.model_config.num_classes)
+                print(f"[FIX] Called reset_classifier({self.model_config.num_classes})")
+            else:
+                print(f"[WARNING] Model does not have reset_classifier method")
+
+            # Method 2: Directly replace classifier layer
+            if hasattr(self.model, 'get_classifier'):
+                old_classifier = self.model.get_classifier()
+                if hasattr(old_classifier, 'in_features'):
+                    in_features = old_classifier.in_features
+                    new_classifier = nn.Linear(in_features, self.model_config.num_classes)
+                    # Try to set new classifier
+                    for name in ['fc', 'head', 'classifier']:
+                        if hasattr(self.model, name):
+                            setattr(self.model, name, new_classifier)
+                            print(f"[FIX] Replaced model.{name} with Linear({in_features}, {self.model_config.num_classes})")
+                            break
+
+            # Verify again
+            new_num_classes = get_actual_num_classes(self.model)
+            print(f"[VERIFY] After fix: {new_num_classes} classes")
+
+            if new_num_classes != self.model_config.num_classes:
+                print(f"[ERROR] Failed to set num_classes!")
+                print(f"[ERROR] Expected {self.model_config.num_classes}, got {new_num_classes}")
+                raise ValueError(f"Cannot set model to {self.model_config.num_classes} classes")
+            else:
+                print(f"[SUCCESS] Model successfully configured with {self.model_config.num_classes} classes")
+        else:
+            print(f"[SUCCESS] Model correctly initialized with {self.model_config.num_classes} classes")
+
+        print("="*80 + "\n")
 
         # Move to device
         device = torch.device(self.training_config.device if torch.cuda.is_available() else "cpu")
@@ -392,6 +484,11 @@ class TimmAdapter(TrainingAdapter):
 
     def prepare_dataset(self):
         """Prepare dataset for training with advanced config transforms."""
+        # Skip if already loaded (avoids double loading when called from prepare_model)
+        if hasattr(self, 'train_loader') and self.train_loader is not None:
+            print("[INFO] Dataset already loaded, skipping...")
+            return
+
         import os
         from torchvision import datasets
 
@@ -435,55 +532,91 @@ class TimmAdapter(TrainingAdapter):
         for idx, transform in enumerate(val_transform.transforms):
             print(f"         {idx+1}. {transform.__class__.__name__}")
 
-        # Create datasets
-        train_dir = os.path.join(self.dataset_config.dataset_path, "train")
-        val_dir = os.path.join(self.dataset_config.dataset_path, "val")
+        # Create datasets based on format
+        dataset_format = self.dataset_config.format.value.lower()
 
-        # Check for training directory
-        if not os.path.exists(train_dir):
-            # Maybe all images are directly in dataset_path (no train subfolder)
-            if os.path.isdir(self.dataset_config.dataset_path):
-                train_dir = self.dataset_config.dataset_path
-                print(f"[prepare_dataset] No 'train' folder found, using dataset root: {train_dir}")
+        if dataset_format == "dice":
+            # DICE format: Use text-file-based split (no file copy)
+            print(f"[prepare_dataset] Dataset format: DICE (text-file split)")
+
+            from converters.dice_split_generator import generate_dice_split
+            from converters.text_file_image_dataset import create_text_file_datasets
+
+            # Check if splits already exist
+            splits_dir = os.path.join(self.dataset_config.dataset_path, "splits")
+            train_txt = os.path.join(splits_dir, "train.txt")
+
+            if not os.path.exists(train_txt):
+                print(f"[prepare_dataset] Generating split files...")
+                generate_dice_split(
+                    dice_root=self.dataset_config.dataset_path,
+                    split_ratio=0.8,
+                    split_strategy="stratified",
+                    seed=42
+                )
             else:
-                raise ValueError(f"Training directory not found: {train_dir}")
+                print(f"[prepare_dataset] Using existing split files: {splits_dir}")
 
-        # Check if validation directory exists
-        if not os.path.exists(val_dir):
-            print(f"[prepare_dataset] Val folder not found, auto-splitting train data...")
-            print(f"[prepare_dataset] Splitting dataset with ratio 0.8 (train) / 0.2 (val)")
-
-            # Load full dataset from train directory
-            full_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
-
-            # Calculate split sizes
-            total_size = len(full_dataset)
-            train_size = int(0.8 * total_size)
-            val_size = total_size - train_size
-
-            print(f"[prepare_dataset] Total images: {total_size}")
-            print(f"[prepare_dataset] Train: {train_size}, Val: {val_size}")
-
-            # Split dataset with fixed seed for reproducibility
-            import torch
-            generator = torch.Generator().manual_seed(42)
-            train_dataset, val_subset = torch.utils.data.random_split(
-                full_dataset,
-                [train_size, val_size],
-                generator=generator
+            # Load datasets using text file splits
+            train_dataset, val_dataset = create_text_file_datasets(
+                dataset_root=self.dataset_config.dataset_path,
+                train_transform=train_transform,
+                val_transform=val_transform,
+                splits_dir="splits"
             )
 
-            # Create validation dataset with val_transform
-            # We need to create a new dataset with the same subset but different transform
-            val_dataset = datasets.ImageFolder(train_dir, transform=val_transform)
-            val_dataset = torch.utils.data.Subset(val_dataset, val_subset.indices)
-
-            print(f"[prepare_dataset] Auto-split completed successfully")
         else:
-            # Both train and val folders exist
-            print(f"[prepare_dataset] Using existing train/val split")
-            train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
-            val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
+            # ImageFolder format: Use directory structure
+            print(f"[prepare_dataset] Dataset format: ImageFolder")
+
+            train_dir = os.path.join(self.dataset_config.dataset_path, "train")
+            val_dir = os.path.join(self.dataset_config.dataset_path, "val")
+
+            # Check for training directory
+            if not os.path.exists(train_dir):
+                # Maybe all images are directly in dataset_path (no train subfolder)
+                if os.path.isdir(self.dataset_config.dataset_path):
+                    train_dir = self.dataset_config.dataset_path
+                    print(f"[prepare_dataset] No 'train' folder found, using dataset root: {train_dir}")
+                else:
+                    raise ValueError(f"Training directory not found: {train_dir}")
+
+            # Check if validation directory exists
+            if not os.path.exists(val_dir):
+                print(f"[prepare_dataset] Val folder not found, auto-splitting train data...")
+                print(f"[prepare_dataset] Splitting dataset with ratio 0.8 (train) / 0.2 (val)")
+
+                # Load full dataset from train directory
+                full_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+
+                # Calculate split sizes
+                total_size = len(full_dataset)
+                train_size = int(0.8 * total_size)
+                val_size = total_size - train_size
+
+                print(f"[prepare_dataset] Total images: {total_size}")
+                print(f"[prepare_dataset] Train: {train_size}, Val: {val_size}")
+
+                # Split dataset with fixed seed for reproducibility
+                import torch
+                generator = torch.Generator().manual_seed(42)
+                train_dataset, val_subset = torch.utils.data.random_split(
+                    full_dataset,
+                    [train_size, val_size],
+                    generator=generator
+                )
+
+                # Create validation dataset with val_transform
+                # We need to create a new dataset with the same subset but different transform
+                val_dataset = datasets.ImageFolder(train_dir, transform=val_transform)
+                val_dataset = torch.utils.data.Subset(val_dataset, val_subset.indices)
+
+                print(f"[prepare_dataset] Auto-split completed successfully")
+            else:
+                # Both train and val folders exist
+                print(f"[prepare_dataset] Using existing train/val split")
+                train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+                val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
 
         # Get number of classes from train_dataset
         if hasattr(train_dataset, 'classes'):
@@ -534,6 +667,15 @@ class TimmAdapter(TrainingAdapter):
             # Forward pass
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
+
+            # Debug: Check output shape on first batch
+            if batch_idx == 0 and epoch == 0:
+                print(f"\n[DEBUG] Training - First batch:")
+                print(f"  - Input shape: {inputs.shape}")
+                print(f"  - Output shape: {outputs.shape}")
+                print(f"  - Target shape: {targets.shape}, range: [{targets.min().item()}, {targets.max().item()}]")
+                print(f"  - Model output classes: {outputs.shape[1]}")
+
             loss = self.criterion(outputs, targets)
 
             # Backward pass
@@ -680,7 +822,7 @@ class TimmAdapter(TrainingAdapter):
 
         # Compute comprehensive validation metrics using ValidationMetricsCalculator
         validation_metrics = ValidationMetricsCalculator.compute_metrics(
-            task_type=ValidatorTaskType.CLASSIFICATION,
+            task_type=ValidatorTaskType.IMAGE_CLASSIFICATION,
             predictions=all_predictions,
             labels=all_labels,
             class_names=class_names,
@@ -688,11 +830,13 @@ class TimmAdapter(TrainingAdapter):
             probabilities=all_probabilities
         )
 
-        # Get checkpoint path for this epoch
-        checkpoint_path = os.path.join(self.output_dir, f"checkpoint_epoch_{epoch}.pt")
+        # Get checkpoint path for this epoch (use last.pt as it's the most recent)
+        # Match YOLO structure: {output_dir}/job_{job_id}/weights/
+        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+        checkpoint_path = os.path.join(checkpoint_dir, "last.pt")
         if not os.path.exists(checkpoint_path):
-            # Fallback to best model path
-            best_path = os.path.join(self.output_dir, "best_model.pt")
+            # Fallback to best.pt
+            best_path = os.path.join(checkpoint_dir, "best.pt")
             if os.path.exists(best_path):
                 checkpoint_path = best_path
             else:
@@ -748,13 +892,18 @@ class TimmAdapter(TrainingAdapter):
         )
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
-        """Save model checkpoint."""
-        os.makedirs(self.output_dir, exist_ok=True)
+        """
+        Save model checkpoint.
 
-        checkpoint_path = os.path.join(
-            self.output_dir,
-            f"checkpoint_epoch_{epoch}.pt"
-        )
+        Saves best.pt and last.pt like ultralytics for consistency.
+        - last.pt: Most recent checkpoint (updated every epoch)
+        - best.pt: Best checkpoint based on validation accuracy
+
+        Storage structure matches YOLO: {output_dir}/job_{job_id}/weights/best.pt
+        """
+        # Create checkpoint directory matching YOLO structure
+        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
         checkpoint = {
             'epoch': epoch,
@@ -771,14 +920,24 @@ class TimmAdapter(TrainingAdapter):
         if self.scheduler:
             checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
 
-        torch.save(checkpoint, checkpoint_path)
+        # Always save last.pt (most recent checkpoint)
+        last_path = os.path.join(checkpoint_dir, "last.pt")
+        torch.save(checkpoint, last_path)
+        print(f"[CHECKPOINT] Saved last.pt (epoch {epoch})")
 
-        # Also save best model
-        if metrics.metrics.get('val_accuracy', 0) == self.best_val_acc:
-            best_path = os.path.join(self.output_dir, "best_model.pt")
-            torch.save(self.model.state_dict(), best_path)
+        # Save best.pt if this is the best model so far
+        current_accuracy = metrics.metrics.get('val_accuracy', 0)
+        if current_accuracy == self.best_val_acc:
+            best_path = os.path.join(checkpoint_dir, "best.pt")
+            torch.save(checkpoint, best_path)
+            print(f"[CHECKPOINT] Saved best.pt (accuracy: {current_accuracy:.2f}%)")
 
-        return checkpoint_path
+        # Return path to best checkpoint for compatibility
+        best_path = os.path.join(checkpoint_dir, "best.pt")
+        if os.path.exists(best_path):
+            return best_path
+        else:
+            return last_path
 
     def load_checkpoint(
         self,
@@ -809,16 +968,27 @@ class TimmAdapter(TrainingAdapter):
         print(f"[CHECKPOINT] Mode: {'Inference' if inference_mode else 'Training Resume'}")
         print(f"[CHECKPOINT] Device: {device}")
 
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
         # Load model state
         if 'model_state_dict' in checkpoint:
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            # Load with strict=False to handle classifier name mismatches
+            missing_keys, unexpected_keys = self.model.load_state_dict(
+                checkpoint['model_state_dict'], strict=False
+            )
             print(f"[CHECKPOINT] Restored model state from epoch {checkpoint.get('epoch', 'unknown')}")
+            if missing_keys:
+                print(f"[CHECKPOINT] Missing keys (expected for classifier): {missing_keys}")
+            if unexpected_keys:
+                print(f"[CHECKPOINT] Unexpected keys (ignored): {unexpected_keys}")
         else:
             # Handle checkpoints that are just state_dict (e.g., best_model.pt)
-            self.model.load_state_dict(checkpoint)
+            missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint, strict=False)
             print(f"[CHECKPOINT] Restored model state (simple format)")
+            if missing_keys:
+                print(f"[CHECKPOINT] Missing keys (expected for classifier): {missing_keys}")
+            if unexpected_keys:
+                print(f"[CHECKPOINT] Unexpected keys (ignored): {unexpected_keys}")
 
         # Set model to appropriate mode
         if inference_mode:
