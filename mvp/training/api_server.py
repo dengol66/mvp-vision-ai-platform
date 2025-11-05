@@ -10,7 +10,7 @@ import sys
 import json
 import subprocess
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, Form
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
@@ -64,6 +64,23 @@ class TrainingRequest(BaseModel):
     resume: bool = False
     advanced_config: Optional[dict] = None  # Advanced configuration from Backend
     project_id: Optional[int] = None  # Project ID for checkpoint organization
+
+
+class InferenceRequest(BaseModel):
+    """Inference request schema."""
+    training_job_id: int
+    image_path: str
+    framework: str
+    model_name: str
+    task_type: str
+    num_classes: int
+    dataset_path: str
+    output_dir: str
+    checkpoint_path: Optional[str] = None
+    confidence_threshold: float = 0.25
+    iou_threshold: float = 0.45
+    max_detections: int = 100
+    top_k: int = 5
 
 
 def run_training(request: TrainingRequest):
@@ -315,6 +332,201 @@ async def get_model(model_name: str):
         "model_name": model_name,
         **model_info
     }
+
+
+@app.post("/inference/quick")
+async def quick_inference(
+    file: UploadFile = File(...),
+    training_job_id: int = Form(...),
+    framework: str = Form(...),
+    model_name: str = Form(...),
+    task_type: str = Form(...),
+    num_classes: int = Form(...),
+    dataset_path: str = Form(""),
+    output_dir: str = Form(""),
+    checkpoint_path: Optional[str] = Form(None),
+    confidence_threshold: float = Form(0.25),
+    iou_threshold: float = Form(0.45),
+    max_detections: int = Form(100),
+    top_k: int = Form(5)
+):
+    """
+    Run quick inference on uploaded image.
+
+    Accepts multipart/form-data with image file.
+    Returns JSON with Base64-encoded result images (masks, overlays).
+
+    Args:
+        file: Uploaded image file (supports BytesIO from memory)
+        training_job_id: Training job ID
+        framework: Framework name (ultralytics, timm, etc.)
+        model_name: Model name
+        task_type: Task type
+        num_classes: Number of classes
+        dataset_path: Dataset path
+        output_dir: Output directory
+        checkpoint_path: Optional checkpoint path
+        confidence_threshold: Confidence threshold
+        iou_threshold: IoU threshold
+        max_detections: Max detections
+        top_k: Top-K predictions
+
+    Returns:
+        JSON with predictions and Base64-encoded result images
+    """
+    import uuid
+    import base64
+    import tempfile
+
+    # Save uploaded file to temp location (OS-agnostic)
+    temp_dir = tempfile.gettempdir()
+    temp_image_path = os.path.join(temp_dir, f"inference_{uuid.uuid4()}.jpg")
+
+    try:
+        # Write uploaded file
+        with open(temp_image_path, "wb") as f:
+            f.write(await file.read())
+
+        print(f"[quick_inference] Saved uploaded image to {temp_image_path}")
+        sys.stdout.flush()
+
+        # Determine Python interpreter
+        training_dir = os.path.dirname(__file__)
+        venv_python = os.path.join(training_dir, f"venv-{framework}", "Scripts", "python.exe")
+
+        if os.path.exists(venv_python):
+            python_exe = venv_python
+            print(f"[quick_inference] Using framework-specific venv: {venv_python}")
+        else:
+            python_exe = "python"
+            print(f"[quick_inference] Using system python (venv not found)")
+
+        inference_script = os.path.join(training_dir, "run_quick_inference.py")
+
+        # Build command
+        cmd = [
+            python_exe,
+            inference_script,
+            "--training_job_id", str(training_job_id),
+            "--image_path", temp_image_path,
+            "--framework", framework,
+            "--model_name", model_name,
+            "--task_type", task_type,
+            "--num_classes", str(num_classes),
+            "--dataset_path", dataset_path,
+            "--output_dir", output_dir,
+            "--confidence_threshold", str(confidence_threshold),
+            "--iou_threshold", str(iou_threshold),
+            "--max_detections", str(max_detections),
+            "--top_k", str(top_k)
+        ]
+
+        if checkpoint_path:
+            cmd.extend(["--checkpoint_path", checkpoint_path])
+
+        print(f"[quick_inference] Running inference subprocess...")
+        sys.stdout.flush()
+
+        # Run inference
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+
+        print(f"[quick_inference] Return code: {result.returncode}")
+        sys.stdout.flush()
+
+        if result.returncode != 0:
+            error_msg = result.stderr or result.stdout or "Unknown error"
+            print(f"[quick_inference ERROR] {error_msg}")
+            sys.stdout.flush()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Inference failed: {error_msg}"
+            )
+
+        # Parse JSON result (last line of stdout)
+        try:
+            # Get last non-empty line (which should be the JSON output)
+            output_lines = result.stdout.strip().split('\n')
+            json_line = output_lines[-1]
+
+            print(f"[quick_inference] Parsing JSON from last line ({len(json_line)} chars)")
+            sys.stdout.flush()
+
+            inference_result = json.loads(json_line)
+        except json.JSONDecodeError as e:
+            print(f"[quick_inference ERROR] Failed to parse JSON: {e}")
+            print(f"[quick_inference] Last line: {output_lines[-1][:500] if output_lines else 'N/A'}")
+            print(f"[quick_inference] Full stdout ({len(result.stdout)} chars):")
+            print(result.stdout[-2000:])  # Last 2000 chars
+            sys.stdout.flush()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to parse inference result: {str(e)}"
+            )
+
+        # Encode result images as Base64
+        result_image_fields = [
+            'predicted_mask_path',
+            'overlay_path',
+            'upscaled_image_path'
+        ]
+
+        for field in result_image_fields:
+            path_key = field
+            base64_key = field.replace('_path', '_base64')
+
+            if inference_result.get(path_key):
+                image_path = inference_result[path_key]
+
+                if os.path.exists(image_path):
+                    try:
+                        with open(image_path, 'rb') as img_file:
+                            img_bytes = img_file.read()
+                            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+
+                        # Add Base64 to result
+                        inference_result[base64_key] = img_base64
+                        print(f"[quick_inference] Encoded {path_key} as Base64 ({len(img_base64)} chars)")
+
+                        # Remove file path from result
+                        del inference_result[path_key]
+
+                        # Delete temp result image
+                        os.remove(image_path)
+                        print(f"[quick_inference] Deleted temp file: {image_path}")
+
+                    except Exception as e:
+                        print(f"[quick_inference WARNING] Failed to encode {path_key}: {e}")
+
+        sys.stdout.flush()
+        return inference_result
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail="Inference timed out (max 5 minutes)"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[quick_inference ERROR] {e}")
+        traceback.print_exc()
+        sys.stdout.flush()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Inference error: {str(e)}"
+        )
+    finally:
+        # Cleanup temp input image
+        if os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+            print(f"[quick_inference] Cleaned up temp image: {temp_image_path}")
+            sys.stdout.flush()
 
 
 @app.get("/config-schema")

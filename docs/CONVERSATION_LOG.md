@@ -7,6 +7,640 @@
 
 ---
 
+## [2025-11-05 14:45] Checkpoint 관리 정책 및 R2 업로드 전략 수립
+
+### 논의 주제
+- 추론 테스트 준비 중 체크포인트 관리 정책 누락 발견
+- R2 업로드 시점 결정 (매 epoch vs 학습 완료 시)
+- 학습 중단 시나리오 처리 (Ctrl+C, Error, 조기 종료)
+- UI 메트릭 테이블의 체크포인트 표시 동기화
+
+### 주요 결정사항
+
+#### 1. 현재 상태 확인
+- **로컬 저장**:
+  - ✅ YOLO `save_period = -1` (best.pt + last.pt만 저장)
+  - ✅ 중간 epoch checkpoint 저장 안함
+  - ✅ 효율적인 로컬 관리
+
+- **R2 업로드**:
+  - ❌ `upload_checkpoint()` 함수는 구현되어 있음
+  - ❌ 하지만 실제로 호출되지 않음!
+  - ❌ 체크포인트가 로컬에만 남음
+
+- **문제점**:
+  - 시간이 지난 후 추론 사용 불가 (로컬 파일 삭제 가능)
+  - Exception 처리에서 checkpoint_dir 누락
+  - UI는 로컬 경로 기준으로 표시 (R2 업로드 상태 아님)
+
+#### 2. R2 업로드 시점 결정 (Option 1 선택 ✅)
+
+**고려한 옵션들**:
+
+| 옵션 | 장점 | 단점 | 결정 |
+|------|------|------|------|
+| 매 epoch | 최대 안전성 | 높은 비용, 느린 학습 | ❌ |
+| N epoch마다 | 균형 | 여전히 중복 업로드 | ❌ |
+| 개선 시마다 | 의미있는 업로드 | 초반 = 매 epoch | ❌ |
+| **완료 시 1회** | 간단, 빠름, 저렴 | 중간 백업 없음 | ✅ |
+
+**선택 이유**:
+- 대부분의 학습은 정상 완료됨
+- 중단은 rare case
+- 2개 파일만 업로드 (best.pt + last.pt)
+- 학습 성능 영향 0
+- 비용 효율적 (~$0.60/월 for 1000 jobs)
+
+#### 3. 학습 중단 처리 (핵심 개선 사항)
+
+**문제 발견**:
+```python
+# 현재 코드
+try:
+    results = self.model.train(**train_args)
+    callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # ✅
+
+except KeyboardInterrupt:
+    callbacks.on_train_end()  # ❌ checkpoint_dir 없음!
+
+except Exception as e:
+    callbacks.on_train_end()  # ❌ checkpoint_dir 없음!
+```
+
+**해결 방안**:
+```python
+# checkpoint_dir를 try 블록 밖에서 정의
+checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+
+try:
+    results = self.model.train(**train_args)
+except KeyboardInterrupt:
+    print("[YOLO] Uploading checkpoints before exit...")
+    callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # ✅
+    raise
+except Exception as e:
+    print("[YOLO] Attempting to upload despite error...")
+    callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # ✅
+    raise
+
+# 정상 완료
+callbacks.on_train_end(checkpoint_dir=checkpoint_dir)
+```
+
+**중단 시나리오별 처리**:
+- User 중단 (Ctrl+C): ✅ 현재까지 best/last 업로드
+- 에러 발생: ✅ 업로드 시도 (파일 있으면)
+- 조기 종료: ✅ 정상 완료로 처리
+- 초반 중단: ✅ 파일 없으면 warning만 (non-blocking)
+
+#### 4. DB 체크포인트 추적 전략
+
+**현재 문제**:
+```python
+# ultralytics_adapter.py:1590-1602
+# 학습 중 매 epoch마다 checkpoint_path 저장 (로컬 경로)
+if os.path.exists(best_weights):
+    checkpoint_path = best_weights  # 문제: 로컬 경로!
+```
+
+**새로운 전략**:
+```python
+# 학습 중
+checkpoint_path = None  # DB에 저장 안함
+
+# on_train_end()에서만
+1. R2에 업로드
+2. Best epoch 찾기 (highest primary_metric_value)
+3. Last epoch 찾기 (max epoch)
+4. DB UPDATE: 해당 epoch들의 checkpoint_path = 'r2://...'
+```
+
+**결과**:
+- 학습 중: 모든 epoch checkpoint_path = NULL
+- 학습 완료/중단: Best & Last epoch만 checkpoint_path = 'r2://...'
+- UI: R2 업로드된 checkpoint만 체크마크 표시
+
+### 구현 내용
+
+#### 1. on_train_end() 확장
+**파일**: `platform_sdk/base.py:1724`
+
+```python
+def on_train_end(self, final_metrics=None, checkpoint_dir=None):
+    # 1. Upload best.pt to R2
+    if checkpoint_dir and os.path.exists(best_pt):
+        success = upload_checkpoint(best_pt, job_id, 'best.pt', project_id)
+        if success:
+            best_epoch = _find_best_epoch()
+            r2_path = f'r2://.../{project_id}/jobs/{job_id}/best.pt'
+            uploaded_checkpoints[best_epoch] = r2_path
+
+    # 2. Upload last.pt to R2
+    if checkpoint_dir and os.path.exists(last_pt):
+        success = upload_checkpoint(last_pt, job_id, 'last.pt', project_id)
+        if success:
+            last_epoch = _find_last_epoch()
+            r2_path = f'r2://.../{project_id}/jobs/{job_id}/last.pt'
+            uploaded_checkpoints[last_epoch] = r2_path
+
+    # 3. Update DB with R2 paths
+    _update_checkpoint_paths(uploaded_checkpoints)
+
+    # 4. End MLflow
+    mlflow.end_run()
+```
+
+**새로운 헬퍼 메서드**:
+- `_find_best_epoch()`: DB에서 highest primary_metric_value 찾기
+- `_find_last_epoch()`: DB에서 max(epoch) 찾기
+- `_update_checkpoint_paths()`: validation_results 테이블 UPDATE
+
+#### 2. Exception 핸들링 수정
+**파일**: `adapters/ultralytics_adapter.py:1967-1999`
+
+```python
+# Line 1995: checkpoint_dir 미리 정의
+checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+
+try:
+    results = self.model.train(**train_args)
+except KeyboardInterrupt:
+    callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # ✅
+    raise
+except Exception as e:
+    callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # ✅
+    raise
+
+callbacks.on_train_end(checkpoint_dir=checkpoint_dir)
+```
+
+#### 3. 학습 중 checkpoint_path 제거
+**파일**: `adapters/ultralytics_adapter.py:1590-1602`
+
+```python
+# 기존 코드 제거 (로컬 경로 할당)
+# checkpoint_path = best_weights if os.path.exists(best_weights) else last_weights
+
+# 새 코드 (간단!)
+checkpoint_path = None  # R2 업로드 후에만 설정됨
+```
+
+#### 4. upload_checkpoint() 반환값 추가
+**파일**: `platform_sdk/storage.py:527`
+
+```python
+def upload_checkpoint(...) -> bool:  # 반환 타입 추가
+    try:
+        # ... 업로드 로직 ...
+        return True  # 성공
+    except Exception as e:
+        print(f"[R2 WARNING] Upload failed: {e}")
+        return False  # 실패
+```
+
+### 비용 분석
+
+**Storage (Cloudflare R2)**:
+- 파일당: ~20MB (YOLO11s average)
+- 잡당: 40MB (best.pt + last.pt)
+- 1000 jobs: 40GB
+- 비용: $0.015/GB/month
+- **월 비용: $0.60** (affordable!)
+
+**비교 (대안들)**:
+- 매 epoch (100 epochs): 2GB/job → $30/month (50배 비쌈!)
+- 10 epoch마다: 200MB/job → $3/month (5배 비쌈)
+- 완료 시 1회: 40MB/job → $0.60/month ✅
+
+**Upload 비용**:
+- PUT operations: Free (10M requests/month)
+- 2 uploads/job: 무시 가능
+
+### 타임라인 동작
+
+**100 epoch 학습 예시**:
+```
+Epoch 1-99:
+  - DB: checkpoint_path = NULL for all epochs
+  - UI: No checkmarks
+
+Epoch 100 (완료):
+  - Upload best.pt (assume epoch 85 was best)
+  - Upload last.pt (epoch 100)
+  - DB UPDATE:
+    - epoch 85: checkpoint_path = 'r2://...best.pt'
+    - epoch 100: checkpoint_path = 'r2://...last.pt'
+  - UI: Checkmarks on epochs 85, 100 only
+```
+
+**Epoch 20 중단 예시**:
+```
+Epoch 1-19: No uploads
+Epoch 20: User presses Ctrl+C
+  - KeyboardInterrupt caught
+  - Upload best.pt (assume epoch 18)
+  - Upload last.pt (epoch 20)
+  - DB UPDATE: epochs 18, 20 get R2 paths
+  - UI: 2 checkmarks
+```
+
+### 문서화
+
+**생성된 문서**: `docs/training/20251105_checkpoint_management_and_r2_upload_policy.md`
+
+**포함 내용**:
+- Background & context (문제 발견 과정)
+- Current state (코드 분석 결과)
+- Proposed solution (선택한 정책)
+- Implementation plan (4 phases)
+- Technical details (R2 경로, DB 스키마, 예시)
+- Alternatives considered (4가지 옵션 비교)
+- Cost analysis (storage & operations)
+- Migration path (기존 job 처리)
+- References (관련 파일 & 문서)
+
+### 다음 단계
+
+#### Immediate (구현 필요)
+- [ ] `on_train_end()` 구현 (upload + DB update)
+- [ ] Exception handling 수정 (checkpoint_dir 전달)
+- [ ] 학습 중 checkpoint_path 할당 제거
+- [ ] `upload_checkpoint()` 반환값 수정
+- [ ] 테스트 (정상 완료, 중단, 에러)
+
+#### Future Enhancements (P1-P3)
+- [ ] Checkpoint download API (inference용)
+- [ ] Lifecycle policy (30일 후 자동 삭제)
+- [ ] Checkpoint browser UI
+- [ ] Resume training from R2 checkpoint
+
+### 관련 문서
+- **설계 문서**: [docs/training/20251105_checkpoint_management_and_r2_upload_policy.md](../training/20251105_checkpoint_management_and_r2_upload_policy.md)
+- **이전 세션**: [Project-Centric Checkpoint Storage](../CONVERSATION_LOG.md#2025-11-04-2130-project-centric-checkpoint-storage-구현) (2025-11-04)
+- **Validation 이슈**: [YOLO Validation Metrics](../CONVERSATION_LOG.md#2025-11-05-1415-yolo-validation-metrics-이슈-조사-및-stratified-split-구현) (2025-11-05)
+
+### 핵심 통찰 (Key Insights)
+
+#### Cost-Benefit Analysis
+- **Best + Last only**: 충분함 (추론 + 재학습)
+- **매 epoch 저장**: 불필요 (50배 비용, 성능 저하)
+- **중단 처리**: 필수 (partial results도 가치있음)
+
+#### Design Principles
+1. **Simplicity over Safety**: MVP는 간단함 우선
+2. **Cost-Effective**: 비용 최소화 ($0.60/month)
+3. **Non-Blocking**: 업로드 실패해도 학습 계속
+4. **User-Friendly**: UI는 실제 R2 상태 반영
+
+#### Exception Handling Philosophy
+```
+"Try to save something rather than save nothing"
+- 중단되어도 best/last checkpoint 보존
+- 에러 발생해도 업로드 시도
+- 실패해도 warning만 (non-critical)
+```
+
+### 기술 노트
+
+#### R2 Path Convention
+```
+With project_id:
+  r2://vision-platform-prod/checkpoints/projects/{project_id}/jobs/{job_id}/best.pt
+  r2://vision-platform-prod/checkpoints/projects/{project_id}/jobs/{job_id}/last.pt
+
+Without project_id (test jobs):
+  r2://vision-platform-prod/checkpoints/test-jobs/job_{job_id}/best.pt
+  r2://vision-platform-prod/checkpoints/test-jobs/job_{job_id}/last.pt
+```
+
+#### Database Lifecycle
+```sql
+-- During training
+validation_results.checkpoint_path = NULL
+
+-- After upload (only for best & last epochs)
+UPDATE validation_results
+SET checkpoint_path = 'r2://...'
+WHERE job_id = ? AND epoch IN (best_epoch, last_epoch)
+```
+
+#### Frontend Logic
+```tsx
+// Show checkmark only if R2 path exists
+{metric.checkpoint_path?.startsWith('r2://') ? (
+  <CheckCircle2 className="text-green-600" />
+) : (
+  <XCircle className="text-gray-300" />
+)}
+```
+
+---
+
+## [2025-11-05 14:15] YOLO Validation Metrics 이슈 조사 및 Stratified Split 구현
+
+### 논의 주제
+- YOLO 학습 중 validation metrics가 항상 0인 문제 디버깅
+- 데이터셋 클래스 분포 불균형 문제 발견
+- PyTorch InferenceMode 제약사항 발견
+- Stratified split 알고리즘 구현
+
+### 주요 결정사항
+
+#### 1. Validation Metrics = 0 문제 (CANNOT FIX)
+- **증상**:
+  - Training loss는 정상 감소
+  - Validation metrics (mAP, precision, recall) 항상 0.0
+  - Confusion matrix 완전히 비어있음 (sum = 0.0)
+
+- **Root Cause 1**: 데이터셋 클래스 분포 불균형
+  - COCO32 (32 images, 43 classes): 9개 클래스가 validation set에만 존재
+  - 모델이 해당 클래스를 한 번도 학습하지 못함
+  - **해결**: Stratified split 구현 ✅
+
+- **Root Cause 2**: PyTorch InferenceMode 제약
+  - Ultralytics가 `torch.inference_mode()` 사용 (not `torch.no_grad()`)
+  - InferenceMode는 텐서를 irreversibly 변환
+  - Manual validation 후 `requires_grad` 복원 불가능
+  - RuntimeError: "Setting requires_grad=True on inference tensor outside InferenceMode is not allowed"
+  - **결론**: 근본적 PyTorch 설계 제약, 해결 불가 ❌
+
+- **Root Cause 3**: Ultralytics Callback 타이밍
+  - `on_fit_epoch_end` 시점에 `validator.batch = None`
+  - `validator.pred = None` (예측값 없음)
+  - Validation이 실행되지만 callback에서 데이터 접근 불가
+
+#### 2. Stratified Split 구현 (✅ SOLVED)
+- **배경**:
+  - Random split은 작은 데이터셋에서 클래스 불균형 발생
+  - 예: 32 images, 43 classes → 0.74 images/class 평균
+  - 9개 클래스가 validation에만 존재 (train에 0개)
+
+- **알고리즘** (`dice_to_yolo.py:136-212`):
+  ```python
+  1. Build image-to-classes mapping
+  2. For rare classes (1 image): → train set (우선순위)
+  3. For classes with 2+ images: → both train & val
+  4. Remaining images → 80/20 ratio
+  5. Verify: no validation-only classes
+  ```
+
+- **결과**:
+  - Val-only classes: 9 → 0 ✅
+  - 모든 validation 클래스가 training set에 존재
+  - COCO32, COCO128 모두 검증 완료
+
+#### 3. Train-Mode Validation 테스트 (부분 성공)
+- **시도**: Training mode + `torch.no_grad()` 방식
+  ```python
+  with torch.no_grad():
+      preds = model(val_batch['img'])
+  optimizer.zero_grad()
+  ```
+
+- **에러**: `RuntimeError: expected scalar type Byte but found Float`
+  - 원인: Validation batch images가 uint8 (0-255)
+  - 모델은 float32 (0.0-1.0) 기대
+  - 해결 방법: `imgs = batch['img'].float() / 255.0`
+
+- **결론**: Train-mode validation 가능하지만 추가 구현 필요
+  - 데이터 타입 변환
+  - Metric 계산 로직 (mAP, confusion matrix 등)
+  - 예상 작업: 1-2일
+
+#### 4. Post-Training Validation (권장 Workaround)
+- **방식**: 학습 완료 후 별도 validation 실행
+  ```python
+  results = model.train(...)
+  val_metrics = model.val(data=data_yaml, split='val')
+  ```
+
+- **장점**:
+  - 간단, 안정적
+  - Full metrics 제공
+  - Training 간섭 없음
+
+- **단점**:
+  - Per-epoch 모니터링 불가
+  - 최종 메트릭만 확인 가능
+
+### 구현 내용
+
+#### Stratified Split Implementation
+**`mvp/training/converters/dice_to_yolo.py:136-212`**:
+```python
+# 1. Image-to-classes mapping
+image_classes = {}
+for image in images:
+    classes_in_image = set(ann['category_id'] for ann in annotations)
+    image_classes[image_id] = classes_in_image
+
+# 2. Class-to-images mapping
+class_to_images = defaultdict(list)
+for image in images:
+    for cls in image_classes[image_id]:
+        class_to_images[cls].append(image)
+
+# 3. Stratified allocation
+for cls, cls_images in sorted(class_to_images.items(), key=lambda x: len(x[1])):
+    if len(cls_images) == 1:
+        train_images.append(cls_images[0])  # Rare class → train
+    elif len(cls_images) >= 2:
+        train_images.append(cls_images[0])  # Both splits
+        val_images.append(cls_images[1])
+
+# 4. Distribute remaining (80/20)
+remaining_images = [img for img in images if img not in used]
+for image in remaining_images:
+    if len(train_images) < target_train_size:
+        train_images.append(image)
+    else:
+        val_images.append(image)
+
+# 5. Verify
+val_only_classes = val_classes - train_classes
+if val_only_classes:
+    print(f"WARNING: {len(val_only_classes)} classes only in val")
+else:
+    print(f"[OK] All {len(val_classes)} val classes in train")
+```
+
+#### Validation Debugging
+**`mvp/training/adapters/ultralytics_adapter.py:1200-1700`**:
+- Train/val dataset label count 로깅
+- Confusion matrix 상세 디버깅
+- Validation batch 처리 추적 callbacks
+- Manual validation 시도 (3가지 접근)
+- Train-mode validation 테스트
+
+#### Issue Documentation
+**`docs/issues/yolo_validation_metrics.md`** (새 파일):
+- **Status**: 🔴 CANNOT FIX - PyTorch Design Limitation
+- **Impact**: Medium (training works, post-training validation works)
+- Root cause 분석 (3가지)
+- Investigation log (4 attempts)
+- Possible solutions (4 options)
+- Lessons learned
+
+#### Analysis Tool
+**`analyze_class_dist.py`** (새 파일):
+- Train/val split 클래스 분포 분석
+- Val-only classes 탐지
+- 통계 리포트 생성
+- DICE annotations.json 연동
+
+### 조사 과정 (Investigation Log)
+
+#### Attempt 1: Callback Debugging
+- 추가 callbacks: `on_val_batch_start`, `on_val_batch_end`, `on_val_end`
+- 발견: `validator.batch = None`, `validator.pred = None`
+- 결론: Callback 타이밍에 데이터 미접근
+
+#### Attempt 2: Manual Validation (model.val())
+- 시도: `on_fit_epoch_end`에서 `model.val()` 직접 호출
+- 에러: `RuntimeError: element 0 does not require grad`
+- 원인: `model.val()`이 gradient 비활성화
+
+#### Attempt 3: State Restoration
+- 시도: Parameter `requires_grad` 상태 저장 후 복원
+  ```python
+  original_grad_states = {name: p.requires_grad for name, p in model.named_parameters()}
+  # Run validation
+  for name, param in model.named_parameters():
+      param.requires_grad = original_grad_states[name]  # FAILS!
+  ```
+- 에러: `RuntimeError: Setting requires_grad=True on inference tensor`
+- 원인: PyTorch InferenceMode 제약
+
+#### Attempt 4: Train-Mode Validation
+- 시도: Training mode + `torch.no_grad()` 조합
+  ```python
+  with torch.no_grad():
+      preds = model(val_batch['img'])
+  optimizer.zero_grad()
+  ```
+- 에러: `RuntimeError: expected scalar type Byte but found Float`
+- 원인: Data type mismatch (uint8 vs float32)
+- 결론: 데이터 전처리 추가하면 가능 (추가 구현 필요)
+
+### Git 작업
+
+#### Commit
+```
+fee0630 feat(training): implement stratified dataset split for YOLO training
+
+- Add stratified split algorithm to ensure all validation classes
+  appear in training set (critical for small datasets)
+- Val-only classes: 9 → 0 (COCO32 tested)
+- Document PyTorch InferenceMode limitation
+- Add validation debugging callbacks
+- Create class distribution analysis tool
+
+Known Issue: Validation metrics still 0 due to PyTorch InferenceMode.
+Post-training validation works. See docs/issues/yolo_validation_metrics.md
+```
+
+**변경 파일 (4개)**:
+- `mvp/training/converters/dice_to_yolo.py` (+140 lines)
+- `mvp/training/adapters/ultralytics_adapter.py` (+338 lines)
+- `docs/issues/yolo_validation_metrics.md` (+227 lines, 새 파일)
+- `analyze_class_dist.py` (+90 lines, 새 파일)
+
+### 테스트 결과
+
+#### COCO32 Dataset
+- **Images**: 32장
+- **Classes**: 43개 (COCO)
+- **Before stratified split**: 9 classes val-only ❌
+- **After stratified split**: 0 classes val-only ✅
+- **Train/Val**: 25/7 images
+
+#### COCO128 Dataset
+- **Images**: 128장
+- **Classes**: 71개 (COCO)
+- **Stratified split**: 0 classes val-only ✅
+- **Train/Val**: 92/36 images
+- **Annotations**: 929개 objects
+
+### 다음 단계
+
+#### Immediate (Close Issue)
+- [x] Stratified split 구현
+- [x] Issue 문서화
+- [x] Commit 생성
+- [ ] **Inference API 테스트** (다음 우선순위)
+
+#### Future (If Needed)
+- [ ] Custom validator 구현 (~1-2일)
+  - Train-mode validation with proper data type handling
+  - Manual mAP, precision, recall calculation
+  - Confusion matrix construction
+- [ ] Test other YOLO models (seg, pose, obb)
+- [ ] Test timm models (ResNet, EfficientNet)
+
+### 관련 문서
+- **Issue 문서**: [docs/issues/yolo_validation_metrics.md](../issues/yolo_validation_metrics.md)
+- **Converter**: mvp/training/converters/dice_to_yolo.py:136-212
+- **Adapter**: mvp/training/adapters/ultralytics_adapter.py:1200-1700
+- **Analysis Tool**: analyze_class_dist.py
+
+### 핵심 통찰 (Key Insights)
+
+#### PyTorch InferenceMode vs no_grad
+| Context | Gradient | Post-restoration | Performance |
+|---------|----------|------------------|-------------|
+| `no_grad()` | Disabled | ✅ Possible | Slower |
+| `inference_mode()` | Disabled | ❌ Impossible | Faster |
+
+**결론**: Ultralytics는 성능을 위해 InferenceMode 선택 → Flexibility 희생
+
+#### Small Dataset Challenge
+- **0.74 images/class** (32 images, 43 classes)
+- Random split은 클래스 불균형 보장
+- Stratified split 필수
+
+#### Validation Monitoring Workaround
+- ✅ Training loss로 진행 상황 모니터링
+- ✅ Post-training validation으로 최종 메트릭 확인
+- ❌ Per-epoch validation metrics (당분간 포기)
+
+### 기술 노트
+
+#### Stratified Split vs Random Split
+```python
+# Random Split (기존 - 문제있음)
+random.shuffle(images)
+split_idx = int(len(images) * 0.8)
+train = images[:split_idx]
+val = images[split_idx:]
+
+# Stratified Split (새로운 - 해결)
+# 1. Ensure all val classes in train
+# 2. Distribute remaining by ratio
+# 3. Verify no val-only classes
+```
+
+#### Label Path Structure
+```
+DICE Dataset (Original):
+  datasets/uuid-123/
+    ├── images/
+    │   ├── 000000000009.jpg
+    │   └── ...
+    └── labels/              # Single directory
+        ├── 000000000009.txt
+        └── ...
+
+YOLO Split (Converted):
+  datasets/uuid-123_yolo/
+    ├── train.txt            # Absolute paths
+    ├── val.txt              # Absolute paths
+    └── data.yaml
+```
+
+**Key**: Labels stay in original DICE directory, not split into train/val subdirs.
+
+---
+
 ## [2025-11-04 21:30] Project-Centric Checkpoint Storage 구현
 
 ### 논의 주제

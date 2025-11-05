@@ -1723,8 +1723,9 @@ class TrainingCallbacks:
 
     def on_train_end(self, final_metrics: Dict[str, float] = None, checkpoint_dir: Optional[str] = None):
         """
-        Called when training ends.
+        Called when training ends (completion, interruption, or error).
 
+        Uploads checkpoints to R2 and updates database with R2 paths.
         Logs final metrics and closes MLflow run.
 
         Args:
@@ -1732,6 +1733,8 @@ class TrainingCallbacks:
             checkpoint_dir: Directory containing training checkpoints (optional)
         """
         import mlflow
+        import os
+        import sys
 
         if not self.mlflow_run:
             print(f"[Callbacks] Warning: MLflow run not active")
@@ -1755,6 +1758,93 @@ class TrainingCallbacks:
                 if final_acc:
                     job.final_accuracy = final_acc
                 self.db_session.commit()
+
+        # Upload checkpoints to R2 and update database
+        uploaded_checkpoints = {}  # {epoch: r2_path}
+
+        if checkpoint_dir:
+            from platform_sdk.storage import upload_checkpoint
+
+            best_pt = os.path.join(checkpoint_dir, 'best.pt')
+            last_pt = os.path.join(checkpoint_dir, 'last.pt')
+
+            # Upload best.pt
+            if os.path.exists(best_pt):
+                print(f"[Callbacks] Uploading best.pt to R2...")
+                sys.stdout.flush()
+
+                success = upload_checkpoint(
+                    checkpoint_path=best_pt,
+                    job_id=self.job_id,
+                    checkpoint_name='best.pt',
+                    project_id=self.project_id
+                )
+
+                if success:
+                    # Build R2 path
+                    if self.project_id:
+                        r2_path = f'r2://vision-platform-prod/checkpoints/projects/{self.project_id}/jobs/{self.job_id}/best.pt'
+                    else:
+                        r2_path = f'r2://vision-platform-prod/checkpoints/test-jobs/job_{self.job_id}/best.pt'
+
+                    # Find best epoch from database
+                    best_epoch = self._find_best_epoch()
+                    if best_epoch:
+                        uploaded_checkpoints[best_epoch] = r2_path
+                        print(f"[Callbacks] Best checkpoint uploaded: epoch {best_epoch}")
+                        sys.stdout.flush()
+                    else:
+                        print(f"[Callbacks] Warning: Could not find best epoch in database")
+                        sys.stdout.flush()
+                else:
+                    print(f"[Callbacks] Warning: best.pt upload failed")
+                    sys.stdout.flush()
+            else:
+                print(f"[Callbacks] best.pt not found at {best_pt}")
+                sys.stdout.flush()
+
+            # Upload last.pt
+            if os.path.exists(last_pt):
+                print(f"[Callbacks] Uploading last.pt to R2...")
+                sys.stdout.flush()
+
+                success = upload_checkpoint(
+                    checkpoint_path=last_pt,
+                    job_id=self.job_id,
+                    checkpoint_name='last.pt',
+                    project_id=self.project_id
+                )
+
+                if success:
+                    if self.project_id:
+                        r2_path = f'r2://vision-platform-prod/checkpoints/projects/{self.project_id}/jobs/{self.job_id}/last.pt'
+                    else:
+                        r2_path = f'r2://vision-platform-prod/checkpoints/test-jobs/job_{self.job_id}/last.pt'
+
+                    # Find last epoch from database
+                    last_epoch = self._find_last_epoch()
+                    if last_epoch:
+                        uploaded_checkpoints[last_epoch] = r2_path
+                        print(f"[Callbacks] Last checkpoint uploaded: epoch {last_epoch}")
+                        sys.stdout.flush()
+                    else:
+                        print(f"[Callbacks] Warning: Could not find last epoch in database")
+                        sys.stdout.flush()
+                else:
+                    print(f"[Callbacks] Warning: last.pt upload failed")
+                    sys.stdout.flush()
+            else:
+                print(f"[Callbacks] last.pt not found at {last_pt}")
+                sys.stdout.flush()
+
+            # Update database with R2 paths
+            if uploaded_checkpoints:
+                self._update_checkpoint_paths(uploaded_checkpoints)
+                print(f"[Callbacks] Database updated with {len(uploaded_checkpoints)} checkpoint paths")
+                sys.stdout.flush()
+            else:
+                print(f"[Callbacks] No checkpoints uploaded to R2")
+                sys.stdout.flush()
 
         # End MLflow run
         mlflow.end_run()
@@ -1786,3 +1876,134 @@ class TrainingCallbacks:
 
         if self.mlflow_run:
             mlflow.log_artifacts(dir_path, artifact_path)
+
+    def _find_best_epoch(self) -> Optional[int]:
+        """
+        Find epoch with best primary metric value from database.
+
+        Returns:
+            Epoch number with highest primary_metric_value, or None if not found
+        """
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[Callbacks] Database not found at {db_path}")
+                return None
+
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Find epoch with highest primary_metric_value
+            cursor.execute("""
+                SELECT epoch
+                FROM validation_results
+                WHERE job_id = ?
+                  AND primary_metric_value IS NOT NULL
+                ORDER BY primary_metric_value DESC
+                LIMIT 1
+            """, (self.job_id,))
+
+            result = cursor.fetchone()
+            conn.close()
+
+            return result[0] if result else None
+
+        except Exception as e:
+            print(f"[Callbacks] Warning: Failed to find best epoch: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _find_last_epoch(self) -> Optional[int]:
+        """
+        Find last (most recent) epoch number from database.
+
+        Returns:
+            Maximum epoch number, or None if not found
+        """
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[Callbacks] Database not found at {db_path}")
+                return None
+
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Find max epoch
+            cursor.execute("""
+                SELECT MAX(epoch)
+                FROM validation_results
+                WHERE job_id = ?
+            """, (self.job_id,))
+
+            result = cursor.fetchone()
+            conn.close()
+
+            return result[0] if result and result[0] else None
+
+        except Exception as e:
+            print(f"[Callbacks] Warning: Failed to find last epoch: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _update_checkpoint_paths(self, checkpoints: Dict[int, str]):
+        """
+        Update checkpoint_path in database for specific epochs.
+
+        Args:
+            checkpoints: Dictionary mapping epoch number to R2 checkpoint path
+        """
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            if not checkpoints:
+                return
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[Callbacks] Database not found at {db_path}")
+                return
+
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Update checkpoint_path for each epoch
+            for epoch, r2_path in checkpoints.items():
+                cursor.execute("""
+                    UPDATE validation_results
+                    SET checkpoint_path = ?
+                    WHERE job_id = ? AND epoch = ?
+                """, (r2_path, self.job_id, epoch))
+
+                print(f"[Callbacks] Updated epoch {epoch} checkpoint_path: {r2_path}")
+
+            conn.commit()
+            conn.close()
+
+            print(f"[Callbacks] Successfully updated {len(checkpoints)} checkpoint paths in database")
+
+        except Exception as e:
+            print(f"[Callbacks] Warning: Failed to update checkpoint paths: {e}")
+            import traceback
+            traceback.print_exc()

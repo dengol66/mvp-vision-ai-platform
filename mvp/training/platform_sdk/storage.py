@@ -529,7 +529,7 @@ def upload_checkpoint(
     job_id: int,
     checkpoint_name: str = "best.pt",
     project_id: int = None
-):
+) -> bool:
     """
     Upload training checkpoint to R2.
 
@@ -545,14 +545,19 @@ def upload_checkpoint(
         checkpoint_name: Name of checkpoint (e.g., "best.pt", "last.pt")
         project_id: Optional project ID for organizing checkpoints
 
+    Returns:
+        bool: True if upload successful, False otherwise
+
     Examples:
         >>> # Project job
-        >>> upload_checkpoint("/path/to/best.pt", job_id=123, checkpoint_name="best.pt", project_id=5)
+        >>> success = upload_checkpoint("/path/to/best.pt", job_id=123, checkpoint_name="best.pt", project_id=5)
         # Uploads to: s3://vision-platform-prod/checkpoints/projects/5/jobs/123/best.pt
+        # Returns: True
 
         >>> # Test job (no project)
-        >>> upload_checkpoint("/path/to/best.pt", job_id=456, checkpoint_name="best.pt")
+        >>> success = upload_checkpoint("/path/to/best.pt", job_id=456, checkpoint_name="best.pt")
         # Uploads to: s3://vision-platform-prod/checkpoints/test-jobs/job_456/best.pt
+        # Returns: True
     """
     try:
         import boto3
@@ -562,7 +567,7 @@ def upload_checkpoint(
         if not checkpoint_file.exists():
             print(f"[R2 WARNING] Checkpoint file not found: {checkpoint_path}")
             sys.stdout.flush()
-            return
+            return False
 
         # Check if R2 credentials are available
         endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
@@ -572,7 +577,7 @@ def upload_checkpoint(
         if not all([endpoint, access_key, secret_key]):
             print(f"[R2] R2 credentials not configured, skipping checkpoint upload")
             sys.stdout.flush()
-            return
+            return False
 
         s3 = boto3.client(
             's3',
@@ -602,9 +607,11 @@ def upload_checkpoint(
         print(f"[R2] Checkpoint upload successful!")
         print(f"[R2] Checkpoint available at: s3://{bucket}/{key}")
         sys.stdout.flush()
+        return True
 
     except Exception as e:
         # Don't fail training just because upload failed
         warnings.warn(f"[R2 WARNING] Failed to upload checkpoint to R2: {e}", UserWarning)
         print(f"[R2 WARNING] Checkpoint upload failed (non-critical): {e}")
         sys.stdout.flush()
+        return False

@@ -303,7 +303,7 @@ export default function DatabaseMetricsTable({
                     );
                   })}
                   <td className="px-2 py-1 text-center">
-                    {metric.checkpoint_path ? (
+                    {metric.checkpoint_path && metric.checkpoint_path.trim() !== '' ? (
                       <div className="flex items-center justify-center gap-1">
                         <CheckCircle2 className="w-3 h-3 text-green-600" />
                         {onCheckpointSelect && (

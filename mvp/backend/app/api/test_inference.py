@@ -772,7 +772,7 @@ async def quick_inference(
     This endpoint is optimized for UI interactions - runs inference immediately
     and returns results without creating database records.
 
-    Uses subprocess to run inference in the training venv (which has torch).
+    Calls Training Service API for inference (maintaining backend/training separation).
 
     Args:
         training_job_id: Training job ID
@@ -787,8 +787,8 @@ async def quick_inference(
     Returns:
         Inference result with predictions
     """
-    import subprocess
-    import sys
+    import requests
+    from app.utils.training_client import TrainingServiceClient
 
     # Get training job
     job = db.query(models.TrainingJob).filter(
@@ -802,142 +802,103 @@ async def quick_inference(
     image_path_obj = Path(image_path)
 
     try:
-        # Path to training venv python
-        backend_dir = Path(__file__).parent.parent.parent
-        project_root = backend_dir.parent
-        training_venv_python = project_root / "training" / "venv" / "Scripts" / "python.exe"
-        inference_script = project_root / "training" / "run_quick_inference.py"
+        # Initialize Training Service client for the job's framework
+        client = TrainingServiceClient(framework=job.framework)
 
-        if not training_venv_python.exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f"Training venv not found at {training_venv_python}"
-            )
+        # Read image file as bytes
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
 
-        if not inference_script.exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f"Inference script not found at {inference_script}"
-            )
+        # Prepare multipart request
+        from io import BytesIO
+        files = {
+            'file': ('image.jpg', BytesIO(image_bytes), 'image/jpeg')
+        }
 
-        # Build command
-        cmd = [
-            str(training_venv_python),
-            str(inference_script),
-            "--training_job_id", str(training_job_id),
-            "--image_path", image_path,
-            "--framework", job.framework,
-            "--model_name", job.model_name,
-            "--task_type", job.task_type,
-            "--num_classes", str(job.num_classes or 0),
-            "--dataset_path", job.dataset_path or "",
-            "--output_dir", job.output_dir or "",
-            "--confidence_threshold", str(confidence_threshold),
-            "--iou_threshold", str(iou_threshold),
-            "--max_detections", str(max_detections),
-            "--top_k", str(top_k)
-        ]
+        # Prepare form data
+        data = {
+            'training_job_id': str(training_job_id),
+            'framework': job.framework,
+            'model_name': job.model_name,
+            'task_type': job.task_type,
+            'num_classes': str(job.num_classes or 0),
+            'dataset_path': job.dataset_path or "",
+            'output_dir': job.output_dir or "",
+            'confidence_threshold': str(confidence_threshold),
+            'iou_threshold': str(iou_threshold),
+            'max_detections': str(max_detections),
+            'top_k': str(top_k)
+        }
 
-        # Add checkpoint_path only if provided (otherwise use pretrained)
+        # Add checkpoint_path if provided
         if checkpoint_path:
             # Convert Docker container path to host path if needed
-            # Docker uses /workspace/output, but we need the actual host path
             if checkpoint_path.startswith('/workspace/output/'):
-                # Replace container path with host path
                 checkpoint_filename = checkpoint_path.replace('/workspace/output/', '')
                 host_checkpoint_path = os.path.join(job.output_dir, checkpoint_filename)
                 print(f"[INFO] Converted checkpoint path: {checkpoint_path} -> {host_checkpoint_path}")
-                cmd.extend(["--checkpoint_path", host_checkpoint_path])
+                data['checkpoint_path'] = host_checkpoint_path
             else:
-                # Use path as-is (already host path)
-                cmd.extend(["--checkpoint_path", checkpoint_path])
+                data['checkpoint_path'] = checkpoint_path
         else:
-            # Use pretrained weights - script will detect missing checkpoint_path
             print(f"[INFO] Using pretrained weights for inference (no checkpoint provided)")
-            cmd.append("--use_pretrained")
 
-        # Run inference subprocess
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',  # Fix Windows cp949 encoding issue
-            timeout=120  # 120 second timeout (allow model download time)
+        # Call Training Service /inference/quick endpoint (multipart)
+        print(f"[INFO] Calling Training Service inference API: {client.base_url}/inference/quick")
+        print(f"[INFO] Image size: {len(image_bytes)} bytes")
+
+        response = requests.post(
+            f"{client.base_url}/inference/quick",
+            files=files,
+            data=data,
+            timeout=300  # 5 minute timeout (model download + inference)
         )
 
-        if result.returncode != 0:
-            error_msg = result.stderr or "Inference subprocess failed"
-            print(f"[ERROR] Inference subprocess failed: {error_msg}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Inference failed: {error_msg}"
-            )
+        response.raise_for_status()
+        result_dict = response.json()
 
-        # Parse JSON output (last line contains the JSON result)
-        try:
-            # Get last non-empty line (which should be the JSON output)
-            output_lines = result.stdout.strip().split('\n')
-            json_line = output_lines[-1]
-            result_dict = json.loads(json_line)
+        print(f"[DEBUG] Inference result keys: {result_dict.keys()}")
+        print(f"[DEBUG] Task type: {result_dict.get('task_type')}")
 
-            print(f"[DEBUG] Inference result keys: {result_dict.keys()}")
-            print(f"[DEBUG] Task type: {result_dict.get('task_type')}")
-            print(f"[DEBUG] Has upscaled_image_path: {result_dict.get('upscaled_image_path')}")
+        # Base64 images are already included in result
+        # Check for Base64 fields
+        if result_dict.get('predicted_mask_base64'):
+            print(f"[DEBUG] Has predicted_mask_base64 ({len(result_dict['predicted_mask_base64'])} chars)")
+        if result_dict.get('overlay_base64'):
+            print(f"[DEBUG] Has overlay_base64 ({len(result_dict['overlay_base64'])} chars)")
+        if result_dict.get('upscaled_image_base64'):
+            print(f"[DEBUG] Has upscaled_image_base64 ({len(result_dict['upscaled_image_base64'])} chars)")
 
-            # Debug segmentation results
-            if result_dict.get('task_type') in ['instance_segmentation', 'semantic_segmentation']:
-                predicted_boxes = result_dict.get('predicted_boxes', [])
-                predicted_masks = result_dict.get('predicted_masks', [])
-                print(f"[DEBUG SEG] predicted_boxes length: {len(predicted_boxes)}")
-                print(f"[DEBUG SEG] predicted_masks length: {len(predicted_masks)}")
-                if predicted_boxes:
-                    print(f"[DEBUG SEG] First box sample: {predicted_boxes[0]}")
-                if predicted_masks:
-                    print(f"[DEBUG SEG] First mask sample: {predicted_masks[0]}")
+        # Debug segmentation results
+        if result_dict.get('task_type') in ['instance_segmentation', 'semantic_segmentation']:
+            predicted_boxes = result_dict.get('predicted_boxes', [])
+            print(f"[DEBUG SEG] predicted_boxes length: {len(predicted_boxes)}")
+            if predicted_boxes:
+                print(f"[DEBUG SEG] First box sample: {predicted_boxes[0]}")
 
-            # Print subprocess stderr for debugging
-            if result.stderr:
-                print(f"[DEBUG] Subprocess stderr output:")
-                print(result.stderr)
+        print(f"[DEBUG] Final result_dict keys: {result_dict.keys()}")
 
-            # Convert upscaled_image_path to URL if present (for super-resolution)
-            if result_dict.get('upscaled_image_path'):
-                upscaled_path = Path(result_dict['upscaled_image_path'])
-                filename = upscaled_path.name
-                # Convert to API URL (without /api/v1 prefix - frontend will add it)
-                result_dict['upscaled_image_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
-                print(f"[DEBUG] Generated upscaled_image_url: {result_dict['upscaled_image_url']}")
+        # Result already has Base64-encoded images
+        # Frontend can display directly with data:image/png;base64,...
+        return result_dict
 
-            # Convert segmentation mask path to URL if present (for segmentation)
-            if result_dict.get('predicted_mask_path'):
-                mask_path = Path(result_dict['predicted_mask_path'])
-                filename = mask_path.name
-                result_dict['predicted_mask_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
-                print(f"[DEBUG] Generated predicted_mask_url: {result_dict['predicted_mask_url']}")
-
-            # Convert overlay path to URL if present (for segmentation)
-            if result_dict.get('overlay_path'):
-                overlay_path = Path(result_dict['overlay_path'])
-                filename = overlay_path.name
-                result_dict['overlay_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
-                print(f"[DEBUG] Generated overlay_url: {result_dict['overlay_url']}")
-
-            if not any([result_dict.get('upscaled_image_path'), result_dict.get('predicted_mask_path')]):
-                print(f"[DEBUG] No special image paths found in result")
-
-            print(f"[DEBUG] Final result_dict keys: {result_dict.keys()}")
-            return result_dict
-        except json.JSONDecodeError as e:
-            print(f"[ERROR] Failed to parse inference output: {result.stdout}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to parse inference output: {str(e)}"
-            )
-
-    except subprocess.TimeoutExpired:
+    except requests.exceptions.Timeout:
         raise HTTPException(
-            status_code=500,
-            detail="Inference timeout (120s)"
+            status_code=504,
+            detail="Inference timeout (5 minutes)"
+        )
+    except requests.exceptions.HTTPError as e:
+        # Training Service returned an error
+        error_detail = "Training Service error"
+        try:
+            error_detail = e.response.json().get('detail', str(e))
+        except:
+            error_detail = str(e)
+
+        print(f"[ERROR] Training Service inference failed: {error_detail}")
+        raise HTTPException(
+            status_code=e.response.status_code if hasattr(e, 'response') else 500,
+            detail=f"Inference failed: {error_detail}"
         )
     except HTTPException:
         raise

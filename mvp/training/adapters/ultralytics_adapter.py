@@ -1588,15 +1588,9 @@ class UltralyticsAdapter(TrainingAdapter):
                             if hasattr(validation_metrics, 'detection') and validation_metrics.detection:
                                 validation_metrics.detection.pr_curves = {'image_path': pr_curve_path}
 
-                        # Get checkpoint path for this epoch
+                        # Checkpoint path will be set after R2 upload in on_train_end()
+                        # During training, keep as None to reflect actual R2 status
                         checkpoint_path = None
-                        best_weights = os.path.join(self.output_dir, f'job_{self.job_id}', 'weights', 'best.pt')
-                        last_weights = os.path.join(self.output_dir, f'job_{self.job_id}', 'weights', 'last.pt')
-
-                        if os.path.exists(best_weights):
-                            checkpoint_path = best_weights
-                        elif os.path.exists(last_weights):
-                            checkpoint_path = last_weights
 
                         # Save to database
                         validation_result_id = self._save_validation_result(epoch_num, validation_metrics, checkpoint_path)
@@ -1634,150 +1628,10 @@ class UltralyticsAdapter(TrainingAdapter):
                 traceback.print_exc()
                 sys.stdout.flush()
 
-            # Manual validation: Quick test of train-mode validation
-            # Attempt to run minimal validation in train mode with no_grad
-            if not manual_validation_running[0] and hasattr(trainer, 'validator') and trainer.validator:
-                try:
-                    manual_validation_running[0] = True
-                    print(f"[TRAIN-MODE VAL] Testing train-mode validation for epoch {epoch_num}...")
-
-                    # DON'T call model.val() - that uses eval mode
-                    # Instead, manually run forward pass on val data
-
-                    import torch
-                    validator = trainer.validator
-
-                    if hasattr(validator, 'dataloader') and validator.dataloader:
-                        val_loader = validator.dataloader
-
-                        # Stay in training mode, use no_grad
-                        with torch.no_grad():
-                            print(f"[TRAIN-MODE VAL] Running inference on validation set...")
-
-                            batch_count = 0
-                            pred_count = 0
-
-                            for batch in val_loader:
-                                # Get images
-                                imgs = batch['img']
-
-                                # Forward pass (model still in train mode)
-                                preds = self.model.model(imgs)
-
-                                batch_count += 1
-                                if isinstance(preds, (list, tuple)):
-                                    pred_count += len(preds)
-
-                                # Just test first batch
-                                break
-
-                            print(f"[TRAIN-MODE VAL] Processed {batch_count} batch, got predictions")
-                            print(f"[TRAIN-MODE VAL] Predictions type: {type(preds)}")
-                            if hasattr(preds, 'shape'):
-                                print(f"[TRAIN-MODE VAL] Predictions shape: {preds.shape}")
-
-                        # Clear any gradients (safety)
-                        if hasattr(trainer, 'optimizer'):
-                            trainer.optimizer.zero_grad()
-                            print(f"[TRAIN-MODE VAL] Cleared gradients")
-
-                        print(f"[TRAIN-MODE VAL] Test complete - continuing training")
-
-                except Exception as e:
-                    print(f"[TRAIN-MODE VAL ERROR] {e}")
-                    import traceback
-                    traceback.print_exc()
-                finally:
-                    manual_validation_running[0] = False
-
-            elif False and not manual_validation_running[0] and hasattr(trainer, 'validator') and trainer.validator:
-                try:
-                    manual_validation_running[0] = True
-                    print(f"[MANUAL VAL] Running manual validation for epoch {epoch_num}...")
-                    sys.stdout.flush()
-
-                    # Save model training state AND gradient states
-                    was_training = self.model.model.training if hasattr(self.model, 'model') else True
-
-                    # Save original requires_grad state for each parameter
-                    original_grad_states = {}
-                    if hasattr(self.model, 'model'):
-                        for name, param in self.model.model.named_parameters():
-                            original_grad_states[name] = param.requires_grad
-
-                    # Run validation directly
-                    val_results = self.model.val(
-                        data=self.data_yaml,
-                        split='val',
-                        batch=train_args.get('batch', 64),
-                        imgsz=train_args.get('imgsz', 640),
-                        conf=train_args.get('conf', 0.001),
-                        iou=train_args.get('iou', 0.6),
-                        device=train_args.get('device', 'cpu'),
-                        plots=False,  # Don't regenerate plots
-                        verbose=False  # Reduce output
-                    )
-
-                    # Restore training mode and gradients to ORIGINAL state
-                    if was_training and hasattr(self.model, 'model'):
-                        import torch
-                        # Re-enable gradient computation globally
-                        torch.set_grad_enabled(True)
-                        self.model.model.train()
-
-                        # Restore ORIGINAL requires_grad state for each parameter
-                        # (some layers may have been intentionally frozen)
-                        for name, param in self.model.model.named_parameters():
-                            if name in original_grad_states:
-                                param.requires_grad = original_grad_states[name]
-
-                        frozen_count = sum(1 for state in original_grad_states.values() if not state)
-                        print(f"[MANUAL VAL] Restored model to training mode ({frozen_count} frozen params preserved)")
-                        sys.stdout.flush()
-
-                    print(f"[MANUAL VAL] Validation complete!")
-
-                    # Extract metrics from results
-                    if val_results and hasattr(val_results, 'box'):
-                        box_metrics = val_results.box
-                        manual_map50 = float(box_metrics.map50) if hasattr(box_metrics, 'map50') else 0.0
-                        manual_map50_95 = float(box_metrics.map) if hasattr(box_metrics, 'map') else 0.0
-                        manual_precision = float(box_metrics.mp) if hasattr(box_metrics, 'mp') else 0.0
-                        manual_recall = float(box_metrics.mr) if hasattr(box_metrics, 'mr') else 0.0
-
-                        print(f"[MANUAL VAL] mAP@0.5: {manual_map50:.4f}")
-                        print(f"[MANUAL VAL] mAP@0.5:0.95: {manual_map50_95:.4f}")
-                        print(f"[MANUAL VAL] Precision: {manual_precision:.4f}")
-                        print(f"[MANUAL VAL] Recall: {manual_recall:.4f}")
-
-                        # Check confusion matrix
-                        if hasattr(val_results, 'confusion_matrix') and val_results.confusion_matrix:
-                            cm = val_results.confusion_matrix
-                            if hasattr(cm, 'matrix') and cm.matrix is not None:
-                                import numpy as np
-                                print(f"[MANUAL VAL] Confusion matrix sum: {cm.matrix.sum()}")
-                                print(f"[MANUAL VAL] Confusion matrix non-zero: {np.count_nonzero(cm.matrix)}")
-
-                        sys.stdout.flush()
-                    else:
-                        print(f"[MANUAL VAL] No box metrics available")
-                        sys.stdout.flush()
-
-                except Exception as e:
-                    print(f"[MANUAL VAL ERROR] Failed to run manual validation: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    sys.stdout.flush()
-                finally:
-                    manual_validation_running[0] = False
-
         # DEBUG: Track validation batch processing
         val_batch_count = [0]  # Use list to modify in closure
         val_predictions_count = [0]
         val_targets_count = [0]
-
-        # Flag to prevent recursive validation
-        manual_validation_running = [False]
 
         def on_val_batch_start(validator):
             """Debug callback to inspect validation batch data"""
@@ -1908,6 +1762,9 @@ class UltralyticsAdapter(TrainingAdapter):
             print(f"[YOLO WARNING] Could not disable MLflow: {e}")
         sys.stdout.flush()
 
+        # Define checkpoint directory before training (needed for exception handlers)
+        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+
         # YOLO training
         try:
             print("[YOLO] Starting YOLO training loop...")
@@ -1966,21 +1823,23 @@ class UltralyticsAdapter(TrainingAdapter):
             sys.stdout.flush()
         except KeyboardInterrupt:
             print("\n[YOLO] Training interrupted by user")
+            print("[YOLO] Uploading current checkpoints before exit...")
+            sys.stdout.flush()
             if self.logger:
                 self.logger.log_message("Training interrupted by user")
-            sys.stdout.flush()
-            callbacks.on_train_end()  # Close MLflow run
+            callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # Upload checkpoints and close MLflow
             raise
         except Exception as e:
             print(f"\n[YOLO] ERROR during training: {e}")
             print(f"[YOLO] Error type: {type(e).__name__}")
+            print("[YOLO] Attempting to upload checkpoints despite error...")
+            sys.stdout.flush()
             if self.logger:
                 self.logger.log_message(f"ERROR: Training failed - {str(e)}")
-            sys.stdout.flush()
             import traceback
             traceback.print_exc()
             sys.stdout.flush()
-            callbacks.on_train_end()  # Close MLflow run even on error
+            callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # Upload checkpoints and close MLflow
             raise
 
         print(f"\nTraining completed!")
@@ -1992,8 +1851,7 @@ class UltralyticsAdapter(TrainingAdapter):
         # No need to parse results.csv after training completes
         print("[YOLO] Metrics collected in real-time via callbacks")
 
-        # End training and upload checkpoints
-        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+        # End training and upload checkpoints (checkpoint_dir already defined)
         if self.logger:
             self.logger.log_message("Uploading final checkpoints...")
         callbacks.on_train_end(checkpoint_dir=checkpoint_dir)
