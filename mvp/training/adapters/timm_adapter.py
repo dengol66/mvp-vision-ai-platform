@@ -435,55 +435,91 @@ class TimmAdapter(TrainingAdapter):
         for idx, transform in enumerate(val_transform.transforms):
             print(f"         {idx+1}. {transform.__class__.__name__}")
 
-        # Create datasets
-        train_dir = os.path.join(self.dataset_config.dataset_path, "train")
-        val_dir = os.path.join(self.dataset_config.dataset_path, "val")
+        # Create datasets based on format
+        dataset_format = self.dataset_config.dataset_format.lower()
 
-        # Check for training directory
-        if not os.path.exists(train_dir):
-            # Maybe all images are directly in dataset_path (no train subfolder)
-            if os.path.isdir(self.dataset_config.dataset_path):
-                train_dir = self.dataset_config.dataset_path
-                print(f"[prepare_dataset] No 'train' folder found, using dataset root: {train_dir}")
+        if dataset_format == "dice":
+            # DICE format: Use text-file-based split (no file copy)
+            print(f"[prepare_dataset] Dataset format: DICE (text-file split)")
+
+            from converters.dice_split_generator import generate_dice_split
+            from converters.text_file_image_dataset import create_text_file_datasets
+
+            # Check if splits already exist
+            splits_dir = os.path.join(self.dataset_config.dataset_path, "splits")
+            train_txt = os.path.join(splits_dir, "train.txt")
+
+            if not os.path.exists(train_txt):
+                print(f"[prepare_dataset] Generating split files...")
+                generate_dice_split(
+                    dice_root=self.dataset_config.dataset_path,
+                    split_ratio=0.8,
+                    split_strategy="stratified",
+                    seed=42
+                )
             else:
-                raise ValueError(f"Training directory not found: {train_dir}")
+                print(f"[prepare_dataset] Using existing split files: {splits_dir}")
 
-        # Check if validation directory exists
-        if not os.path.exists(val_dir):
-            print(f"[prepare_dataset] Val folder not found, auto-splitting train data...")
-            print(f"[prepare_dataset] Splitting dataset with ratio 0.8 (train) / 0.2 (val)")
-
-            # Load full dataset from train directory
-            full_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
-
-            # Calculate split sizes
-            total_size = len(full_dataset)
-            train_size = int(0.8 * total_size)
-            val_size = total_size - train_size
-
-            print(f"[prepare_dataset] Total images: {total_size}")
-            print(f"[prepare_dataset] Train: {train_size}, Val: {val_size}")
-
-            # Split dataset with fixed seed for reproducibility
-            import torch
-            generator = torch.Generator().manual_seed(42)
-            train_dataset, val_subset = torch.utils.data.random_split(
-                full_dataset,
-                [train_size, val_size],
-                generator=generator
+            # Load datasets using text file splits
+            train_dataset, val_dataset = create_text_file_datasets(
+                dataset_root=self.dataset_config.dataset_path,
+                train_transform=train_transform,
+                val_transform=val_transform,
+                splits_dir="splits"
             )
 
-            # Create validation dataset with val_transform
-            # We need to create a new dataset with the same subset but different transform
-            val_dataset = datasets.ImageFolder(train_dir, transform=val_transform)
-            val_dataset = torch.utils.data.Subset(val_dataset, val_subset.indices)
-
-            print(f"[prepare_dataset] Auto-split completed successfully")
         else:
-            # Both train and val folders exist
-            print(f"[prepare_dataset] Using existing train/val split")
-            train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
-            val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
+            # ImageFolder format: Use directory structure
+            print(f"[prepare_dataset] Dataset format: ImageFolder")
+
+            train_dir = os.path.join(self.dataset_config.dataset_path, "train")
+            val_dir = os.path.join(self.dataset_config.dataset_path, "val")
+
+            # Check for training directory
+            if not os.path.exists(train_dir):
+                # Maybe all images are directly in dataset_path (no train subfolder)
+                if os.path.isdir(self.dataset_config.dataset_path):
+                    train_dir = self.dataset_config.dataset_path
+                    print(f"[prepare_dataset] No 'train' folder found, using dataset root: {train_dir}")
+                else:
+                    raise ValueError(f"Training directory not found: {train_dir}")
+
+            # Check if validation directory exists
+            if not os.path.exists(val_dir):
+                print(f"[prepare_dataset] Val folder not found, auto-splitting train data...")
+                print(f"[prepare_dataset] Splitting dataset with ratio 0.8 (train) / 0.2 (val)")
+
+                # Load full dataset from train directory
+                full_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+
+                # Calculate split sizes
+                total_size = len(full_dataset)
+                train_size = int(0.8 * total_size)
+                val_size = total_size - train_size
+
+                print(f"[prepare_dataset] Total images: {total_size}")
+                print(f"[prepare_dataset] Train: {train_size}, Val: {val_size}")
+
+                # Split dataset with fixed seed for reproducibility
+                import torch
+                generator = torch.Generator().manual_seed(42)
+                train_dataset, val_subset = torch.utils.data.random_split(
+                    full_dataset,
+                    [train_size, val_size],
+                    generator=generator
+                )
+
+                # Create validation dataset with val_transform
+                # We need to create a new dataset with the same subset but different transform
+                val_dataset = datasets.ImageFolder(train_dir, transform=val_transform)
+                val_dataset = torch.utils.data.Subset(val_dataset, val_subset.indices)
+
+                print(f"[prepare_dataset] Auto-split completed successfully")
+            else:
+                # Both train and val folders exist
+                print(f"[prepare_dataset] Using existing train/val split")
+                train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+                val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
 
         # Get number of classes from train_dataset
         if hasattr(train_dataset, 'classes'):
