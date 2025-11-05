@@ -124,9 +124,15 @@ def run_inference(
 
     # Load checkpoint if provided, otherwise use pretrained weights
     if checkpoint_path and not use_pretrained:
-        print(f"[INFO] Loading checkpoint from: {checkpoint_path}")
+        # Download from R2 if it's an R2 URL
+        from platform_sdk.storage import download_checkpoint
+
+        print(f"[INFO] Checkpoint requested: {checkpoint_path}")
+        local_checkpoint_path = download_checkpoint(checkpoint_path)
+
+        print(f"[INFO] Loading checkpoint from: {local_checkpoint_path}")
         adapter.load_checkpoint(
-            checkpoint_path=checkpoint_path,
+            checkpoint_path=local_checkpoint_path,
             inference_mode=True
         )
     else:

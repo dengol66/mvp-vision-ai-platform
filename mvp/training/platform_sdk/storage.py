@@ -615,3 +615,114 @@ def upload_checkpoint(
         print(f"[R2 WARNING] Checkpoint upload failed (non-critical): {e}")
         sys.stdout.flush()
         return False
+
+
+def download_checkpoint(
+    checkpoint_path: str,
+    dest_path: Optional[str] = None
+) -> str:
+    """
+    Download checkpoint from R2 if it's an R2 URL, or return local path if already local.
+
+    Args:
+        checkpoint_path: Either local path or R2 URL (r2://bucket/key)
+        dest_path: Optional destination path. If not provided, uses temp directory
+
+    Returns:
+        Local file path to checkpoint
+
+    Raises:
+        FileNotFoundError: If checkpoint cannot be downloaded or found
+
+    Examples:
+        >>> # Local file - just validates and returns
+        >>> path = download_checkpoint("/path/to/best.pt")
+        # Returns: "/path/to/best.pt"
+
+        >>> # R2 URL - downloads to temp directory
+        >>> path = download_checkpoint("r2://vision-platform-prod/checkpoints/projects/2/jobs/20/best.pt")
+        # Downloads to: C:/Users/.../Temp/best.pt (or /tmp/best.pt on Linux)
+        # Returns: temp file path
+    """
+    # If it's a local path, just verify it exists
+    if not checkpoint_path.startswith('r2://'):
+        if os.path.exists(checkpoint_path):
+            print(f"[CHECKPOINT] Using local checkpoint: {checkpoint_path}")
+            sys.stdout.flush()
+            return checkpoint_path
+        else:
+            raise FileNotFoundError(f"Local checkpoint not found: {checkpoint_path}")
+
+    # Parse R2 URL: r2://bucket/key
+    # Example: r2://vision-platform-prod/checkpoints/projects/2/jobs/20/best.pt
+    try:
+        import boto3
+        import tempfile
+
+        # Parse URL
+        parts = checkpoint_path.replace('r2://', '').split('/', 1)
+        if len(parts) != 2:
+            raise ValueError(f"Invalid R2 URL format: {checkpoint_path}")
+
+        bucket = parts[0]
+        key = parts[1]
+
+        # Determine destination path
+        if dest_path is None:
+            # Use temp directory with the checkpoint name
+            checkpoint_name = Path(key).name
+            temp_dir = Path(tempfile.gettempdir()) / "checkpoints"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = temp_dir / checkpoint_name
+
+        dest_file = Path(dest_path)
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # If already downloaded, return it (avoid re-downloading)
+        if dest_file.exists():
+            print(f"[CHECKPOINT] Using cached checkpoint: {dest_file}")
+            sys.stdout.flush()
+            return str(dest_file)
+
+        # Check if R2 credentials are available
+        endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        if not all([endpoint, access_key, secret_key]):
+            raise RuntimeError("R2 credentials not configured")
+
+        s3 = boto3.client(
+            's3',
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+
+        print(f"[R2] Downloading checkpoint from s3://{bucket}/{key}...")
+        sys.stdout.flush()
+
+        # Get file size for progress reporting
+        try:
+            response = s3.head_object(Bucket=bucket, Key=key)
+            file_size_mb = response['ContentLength'] / (1024 * 1024)
+            print(f"[R2] Checkpoint size: {file_size_mb:.2f} MB")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[R2] Warning: Could not get file size: {e}")
+            sys.stdout.flush()
+
+        # Download
+        s3.download_file(bucket, key, str(dest_file))
+
+        print(f"[R2] Checkpoint download successful: {dest_file}")
+        sys.stdout.flush()
+
+        return str(dest_file)
+
+    except Exception as e:
+        print(f"[R2] Checkpoint download failed: {e}")
+        sys.stdout.flush()
+        import traceback
+        traceback.print_exc()
+        raise FileNotFoundError(f"Failed to download checkpoint from R2: {checkpoint_path}") from e
