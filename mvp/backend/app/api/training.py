@@ -92,12 +92,27 @@ async def create_training_job(
             detail="task_type is required"
         )
 
-    # For classification tasks, num_classes is required
+    # For classification tasks, auto-detect num_classes if not provided
     if config.task_type == "image_classification" and not config.num_classes:
-        raise HTTPException(
-            status_code=400,
-            detail="num_classes is required for image classification tasks"
-        )
+        # Try to auto-detect num_classes from dataset
+        try:
+            from app.utils.dataset_analyzer import analyze_dataset
+            dataset_info = analyze_dataset(config.dataset_path)
+            detected_num_classes = dataset_info.get("num_classes")
+
+            if detected_num_classes and detected_num_classes > 0:
+                config.num_classes = detected_num_classes
+                print(f"[training] Auto-detected num_classes: {detected_num_classes}")
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not auto-detect num_classes from dataset. Please provide num_classes manually. Dataset path: {config.dataset_path}"
+                )
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"num_classes is required for image classification tasks. Auto-detection failed: {str(e)}"
+            )
 
     # Verify session exists (if provided)
     if job_request.session_id:
