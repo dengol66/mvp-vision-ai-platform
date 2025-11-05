@@ -28,7 +28,8 @@ from platform_sdk import (
     TrainingConfig,
     TaskType,
     DatasetFormat,
-    TrainingLogger
+    TrainingLogger,
+    download_dataset_if_needed
 )
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
@@ -192,6 +193,15 @@ def main():
     if advanced_config:
         print(f"[CONFIG] Advanced config: {json.dumps(advanced_config, indent=2)}")
 
+    # Download dataset from R2 if needed
+    print("\n" + "="*80)
+    print("DATASET PREPARATION")
+    print("="*80)
+    local_dataset_path = download_dataset_if_needed(args.dataset_path)
+    if local_dataset_path != args.dataset_path:
+        print(f"[INFO] Dataset downloaded and extracted successfully")
+    print("="*80 + "\n")
+
     # Create configuration objects
     try:
         # Determine appropriate image size based on framework
@@ -216,7 +226,7 @@ def main():
         )
 
         dataset_config = DatasetConfig(
-            dataset_path=args.dataset_path,
+            dataset_path=local_dataset_path,  # Use downloaded path
             format=DatasetFormat(args.dataset_format),
         )
 
@@ -257,7 +267,7 @@ def main():
     print(f"         - Base Learning Rate: {args.learning_rate}")
     print(f"         - Device: {args.device}")
     print(f"\n[CONFIG] Dataset:")
-    print(f"         - Path: {args.dataset_path}")
+    print(f"         - Path: {local_dataset_path}")
     print(f"         - Format: {args.dataset_format}")
     print(f"\n[CONFIG] Output Directory: {args.output_dir}")
 
