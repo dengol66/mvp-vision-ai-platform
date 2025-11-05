@@ -116,19 +116,25 @@ def load_advanced_config_from_db(job_id: int):
             print(f"[INFO] sqlalchemy not available (not needed in API mode)")
             return None
 
-        # Get database path relative to project root
-        # train.py is at: mvp/training/train.py
-        # DB is at: mvp/data/db/vision_platform.db
-        training_dir = os.path.dirname(os.path.abspath(__file__))  # mvp/training
-        mvp_dir = os.path.dirname(training_dir)  # mvp
-        db_path = os.path.join(mvp_dir, 'data', 'db', 'vision_platform.db')
+        # Check for DATABASE_URL environment variable first (Railway/production)
+        database_url = os.getenv('DATABASE_URL')
 
-        if not os.path.exists(db_path):
-            print(f"[WARNING] Database not found at: {db_path}")
-            return None
+        if database_url:
+            print(f"[INFO] Using DATABASE_URL from environment")
+        else:
+            # Fallback to local SQLite (development)
+            # train.py is at: mvp/training/train.py
+            # DB is at: mvp/data/db/vision_platform.db
+            training_dir = os.path.dirname(os.path.abspath(__file__))  # mvp/training
+            mvp_dir = os.path.dirname(training_dir)  # mvp
+            db_path = os.path.join(mvp_dir, 'data', 'db', 'vision_platform.db')
 
-        database_url = f"sqlite:///{db_path}"
-        print(f"[INFO] Connecting to database: {db_path}")
+            if not os.path.exists(db_path):
+                print(f"[WARNING] Database not found at: {db_path}")
+                return None
+
+            database_url = f"sqlite:///{db_path}"
+            print(f"[INFO] Connecting to local SQLite: {db_path}")
 
         # Create engine and session
         engine = create_engine(database_url, echo=False)
