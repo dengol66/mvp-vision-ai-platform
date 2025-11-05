@@ -71,6 +71,32 @@ async def startup_event():
                 print("[MIGRATION] dataset_id column added successfully")
             else:
                 print("[MIGRATION] dataset_id column already exists, skipping")
+
+            # Add dataset_snapshot_id if missing
+            if 'dataset_snapshot_id' not in columns:
+                print("[MIGRATION] Adding dataset_snapshot_id column to training_jobs...")
+                with engine.begin() as conn:
+                    if db_url.startswith("sqlite"):
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset_snapshot_id TEXT"))
+                    else:
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset_snapshot_id VARCHAR(100)"))
+
+                    conn.execute(text("CREATE INDEX ix_training_jobs_dataset_snapshot_id ON training_jobs(dataset_snapshot_id)"))
+                print("[MIGRATION] dataset_snapshot_id column added successfully")
+            else:
+                print("[MIGRATION] dataset_snapshot_id column already exists, skipping")
+
+            # Add dataset_version if missing (deprecated but needed for backward compatibility)
+            if 'dataset_version' not in columns:
+                print("[MIGRATION] Adding dataset_version column to training_jobs...")
+                with engine.begin() as conn:
+                    if db_url.startswith("sqlite"):
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset_version INTEGER"))
+                    else:
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset_version INTEGER"))
+                print("[MIGRATION] dataset_version column added successfully")
+            else:
+                print("[MIGRATION] dataset_version column already exists, skipping")
         else:
             print("[MIGRATION] training_jobs table not found, skipping migration")
     except Exception as e:
