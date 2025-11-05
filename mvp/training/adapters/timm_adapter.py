@@ -461,7 +461,7 @@ class TimmAdapter(TrainingAdapter):
             print(f"         {idx+1}. {transform.__class__.__name__}")
 
         # Create datasets based on format
-        dataset_format = self.dataset_config.dataset_format.lower()
+        dataset_format = self.dataset_config.format.value.lower()
 
         if dataset_format == "dice":
             # DICE format: Use text-file-based split (no file copy)
