@@ -576,8 +576,8 @@ async def get_dataset_file(
 
         logger.info(f"Fetching file from R2: {r2_key}")
 
-        # Download file from R2
-        file_content = r2_storage.download_file(r2_key)
+        # Get file content from R2
+        file_content = r2_storage.get_file_content(r2_key)
 
         if file_content is None:
             raise HTTPException(
@@ -588,17 +588,21 @@ async def get_dataset_file(
         # Parse JSON if it's a JSON file
         if filename.endswith('.json'):
             try:
-                json_data = json.loads(file_content)
+                # Decode bytes to string, then parse JSON
+                json_str = file_content.decode('utf-8')
+                json_data = json.loads(json_str)
                 return JSONResponse(content=json_data)
-            except json.JSONDecodeError as e:
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
                 logger.error(f"Failed to parse JSON file {filename}: {e}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to parse JSON file: {str(e)}"
                 )
 
-        # For non-JSON files, return raw content
-        return JSONResponse(content={"content": file_content})
+        # For non-JSON files, return raw content as base64
+        import base64
+        encoded_content = base64.b64encode(file_content).decode('utf-8')
+        return JSONResponse(content={"content": encoded_content})
 
     except HTTPException:
         raise

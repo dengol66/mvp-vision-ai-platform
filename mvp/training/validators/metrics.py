@@ -18,9 +18,9 @@ from sklearn.metrics import (
 import sys
 from pathlib import Path
 
-# Add parent directory to path to import TaskType from adapters.base
+# Add parent directory to path to import TaskType from platform_sdk
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from adapters.base import TaskType
+from platform_sdk import TaskType
 
 
 @dataclass

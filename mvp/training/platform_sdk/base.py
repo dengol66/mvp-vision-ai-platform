@@ -1473,7 +1473,8 @@ class TrainingCallbacks:
     """
 
     def __init__(self, job_id: int, model_config: 'ModelConfig',
-                 training_config: 'TrainingConfig', db_session=None):
+                 training_config: 'TrainingConfig', db_session=None,
+                 project_id: Optional[int] = None):
         """
         Initialize callbacks.
 
@@ -1482,11 +1483,13 @@ class TrainingCallbacks:
             model_config: Model configuration
             training_config: Training configuration
             db_session: Database session (optional, for DB updates)
+            project_id: Project ID (optional)
         """
         self.job_id = job_id
         self.model_config = model_config
         self.training_config = training_config
         self.db_session = db_session
+        self.project_id = project_id
         self.mlflow_run = None
         self.mlflow_run_id = None
         self.mlflow_experiment_id = None
@@ -1621,15 +1624,29 @@ class TrainingCallbacks:
             checkpoint_path: Optional path to saved checkpoint
         """
         import mlflow
+        import re
 
         if not self.mlflow_run:
             print(f"[Callbacks] Warning: MLflow run not started, call on_train_begin() first")
             return
 
+        # Helper function to sanitize metric names for MLflow
+        def sanitize_metric_name(name: str) -> str:
+            """
+            Sanitize metric name for MLflow.
+
+            MLflow allows: alphanumerics, underscores (_), dashes (-), periods (.), spaces ( ), slashes (/)
+            Replace invalid characters with underscores.
+            """
+            # Replace parentheses and other invalid chars with underscores
+            sanitized = re.sub(r'[^\w\-.\s/]', '_', name)
+            return sanitized
+
         # Log to MLflow
         for key, value in metrics.items():
             if isinstance(value, (int, float)):
-                mlflow.log_metric(key, value, step=epoch)
+                sanitized_key = sanitize_metric_name(key)
+                mlflow.log_metric(sanitized_key, value, step=epoch)
 
         # Log to database
         # Extract common metrics
@@ -1704,7 +1721,7 @@ class TrainingCallbacks:
                 print(f"{key}={value:.4f} ", end="")
         print()
 
-    def on_train_end(self, final_metrics: Dict[str, float] = None):
+    def on_train_end(self, final_metrics: Dict[str, float] = None, checkpoint_dir: Optional[str] = None):
         """
         Called when training ends.
 
@@ -1712,6 +1729,7 @@ class TrainingCallbacks:
 
         Args:
             final_metrics: Final training metrics (optional)
+            checkpoint_dir: Directory containing training checkpoints (optional)
         """
         import mlflow
 
