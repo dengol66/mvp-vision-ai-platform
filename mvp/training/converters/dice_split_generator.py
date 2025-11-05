@@ -209,9 +209,8 @@ class DiceSplitGenerator:
         with open(train_txt, 'w', encoding='utf-8') as f:
             for filename, class_name in train_list:
                 class_id = self.class_name_to_id[class_name]
-                # Use relative path from dataset root
-                rel_path = f"images/{filename}"
-                f.write(f"{rel_path} {class_id}\n")
+                # filename already contains relative path from annotations.json (e.g., "images/000001.JPEG")
+                f.write(f"{filename} {class_id}\n")
 
         print(f"[DiceSplit] ✓ Created: {train_txt} ({len(train_list)} images)")
 
@@ -220,8 +219,8 @@ class DiceSplitGenerator:
         with open(val_txt, 'w', encoding='utf-8') as f:
             for filename, class_name in val_list:
                 class_id = self.class_name_to_id[class_name]
-                rel_path = f"images/{filename}"
-                f.write(f"{rel_path} {class_id}\n")
+                # filename already contains relative path from annotations.json
+                f.write(f"{filename} {class_id}\n")
 
         print(f"[DiceSplit] ✓ Created: {val_txt} ({len(val_list)} images)")
 
