@@ -75,21 +75,8 @@ class DiceSplitGenerator:
 
         # Paths
         self.images_dir = self.dice_root / "images"
-
-        # Support multiple annotation file locations
-        # 1. annotations/instances_default.json (standard DICE format)
-        # 2. annotations.json (root level, common from R2 downloads)
-        annotation_candidates = [
-            self.dice_root / "annotations" / "instances_default.json",
-            self.dice_root / "annotations.json",
-        ]
-
-        self.annotations_file = None
-        for candidate in annotation_candidates:
-            if candidate.exists():
-                self.annotations_file = candidate
-                break
-
+        # Platform standard: annotations.json at root level
+        self.annotations_file = self.dice_root / "annotations.json"
         self.splits_dir = self.dice_root / "splits"
 
         # Stats
@@ -100,12 +87,10 @@ class DiceSplitGenerator:
 
     def load_annotations(self) -> Dict:
         """Load COCO format annotations."""
-        if self.annotations_file is None or not self.annotations_file.exists():
+        if not self.annotations_file.exists():
             raise FileNotFoundError(
-                f"Annotations file not found in dataset: {self.dice_root}\n"
-                f"Expected one of:\n"
-                f"  - annotations/instances_default.json (standard DICE format)\n"
-                f"  - annotations.json (root level)"
+                f"Annotations file not found: {self.annotations_file}\n"
+                f"Expected platform DICE format with annotations.json at root level"
             )
 
         print(f"[DiceSplit] Loading annotations from: {self.annotations_file}")
