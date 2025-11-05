@@ -546,3 +546,65 @@ async def delete_dataset(
             status="error",
             message=f"Failed to delete dataset: {str(e)}"
         )
+
+
+@router.get("/{dataset_id}/file/{filename}")
+async def get_dataset_file(
+    dataset_id: str,
+    filename: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get a specific file from dataset (e.g., annotations.json).
+
+    This endpoint allows downloading dataset metadata files like annotations.json
+    to check which images have labels without downloading all images.
+    """
+    try:
+        # Verify dataset exists and user has access
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+        # Check user ownership
+        if dataset.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Construct R2 key for the file
+        r2_key = f"datasets/{dataset_id}/{filename}"
+
+        logger.info(f"Fetching file from R2: {r2_key}")
+
+        # Download file from R2
+        file_content = r2_storage.download_file(r2_key)
+
+        if file_content is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File '{filename}' not found in dataset"
+            )
+
+        # Parse JSON if it's a JSON file
+        if filename.endswith('.json'):
+            try:
+                json_data = json.loads(file_content)
+                return JSONResponse(content=json_data)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON file {filename}: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to parse JSON file: {str(e)}"
+                )
+
+        # For non-JSON files, return raw content
+        return JSONResponse(content={"content": file_content})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching dataset file: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch file: {str(e)}"
+        )
