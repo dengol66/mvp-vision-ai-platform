@@ -28,6 +28,11 @@ export default function DatasetList({
         setLoading(true);
         setError(null);
 
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+          throw new Error('Authentication required');
+        }
+
         const params = new URLSearchParams();
         if (selectedLabeledFilter && selectedLabeledFilter !== 'all') {
           params.append('labeled', selectedLabeledFilter === 'labeled' ? 'true' : 'false');
@@ -35,7 +40,11 @@ export default function DatasetList({
 
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
         const url = `${baseUrl}/datasets/available${params.toString() ? `?${params}` : ''}`;
-        const response = await fetch(url);
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
 
         if (!response.ok) {
           throw new Error(`Failed to fetch datasets: ${response.statusText}`);
@@ -104,8 +113,18 @@ export default function DatasetList({
     // Refresh dataset list
     setLoading(true);
     try {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        console.error('No access token found');
+        return;
+      }
+
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-      const response = await fetch(`${baseUrl}/datasets/available`);
+      const response = await fetch(`${baseUrl}/datasets/available`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         setDatasets(data);

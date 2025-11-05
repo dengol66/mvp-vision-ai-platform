@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, X, FolderPlus, Eye, ArrowUpDown, ArrowUp, ArrowDown, Database, Trash2 } from 'lucide-react'
+import { Search, X, FolderPlus, Eye, ArrowUpDown, ArrowUp, ArrowDown, Database, Trash2, Globe, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import CreateDatasetModal from './datasets/CreateDatasetModal'
 import DatasetImageGallery from './datasets/DatasetImageGallery'
@@ -18,10 +18,47 @@ interface Dataset {
   size_mb?: number
   tags?: string[]
   created_at?: string
+  visibility?: string  // 'public', 'private', 'organization'
+  owner_id?: number | null
+  owner_name?: string | null
+  owner_email?: string | null
 }
 
-type SortField = 'name' | 'format' | 'labeled' | 'num_items' | 'source'
+type SortField = 'name' | 'format' | 'labeled' | 'num_items' | 'source' | 'visibility'
 type SortDirection = 'asc' | 'desc' | null
+
+// Avatar helper functions
+const getAvatarColor = (email: string | null | undefined): string => {
+  if (!email) return 'bg-gray-400'
+  const colors = [
+    'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
+    'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
+    'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
+    'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
+    'bg-rose-500'
+  ]
+  const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return colors[hash % colors.length]
+}
+
+const getAvatarInitials = (owner_name: string | null | undefined, owner_email: string | null | undefined): string => {
+  if (owner_name) {
+    // Korean name: take first 2 characters
+    if (/[가-힣]/.test(owner_name)) {
+      return owner_name.slice(0, 2)
+    }
+    // English name: take first letter of first and last name
+    const parts = owner_name.split(' ')
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return owner_name.slice(0, 2).toUpperCase()
+  }
+  if (owner_email) {
+    return owner_email.slice(0, 2).toUpperCase()
+  }
+  return '?'
+}
 
 export default function DatasetPanel() {
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -94,7 +131,9 @@ export default function DatasetPanel() {
         d.description.toLowerCase().includes(query) ||
         d.id.toLowerCase().includes(query) ||
         d.format.toLowerCase().includes(query) ||
-        d.source.toLowerCase().includes(query)
+        d.source.toLowerCase().includes(query) ||
+        (d.owner_name && d.owner_name.toLowerCase().includes(query)) ||
+        (d.owner_email && d.owner_email.toLowerCase().includes(query))
       )
     }
 
@@ -320,6 +359,18 @@ export default function DatasetPanel() {
                   {getSortIcon('num_items')}
                 </button>
               </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                <button
+                  onClick={() => handleSort('visibility')}
+                  className="flex items-center gap-1 hover:text-violet-600"
+                >
+                  Visibility
+                  {getSortIcon('visibility')}
+                </button>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                Owner
+              </th>
               <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 작업
               </th>
@@ -328,54 +379,88 @@ export default function DatasetPanel() {
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredDatasets.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-500 text-sm">
                   {searchQuery
                     ? '검색 조건에 맞는 데이터셋이 없습니다.'
                     : '데이터셋이 없습니다. 데이터셋을 업로드하세요.'}
                 </td>
               </tr>
             ) : (
-              filteredDatasets.map((dataset) => (
-                <>
-                  <tr
-                    key={dataset.id}
-                    onClick={() => handleViewDataset(dataset.id)}
-                    className="hover:bg-gray-50 cursor-pointer"
-                  >
-                    <td className="px-4 py-3 text-sm">
-                      <div className="font-medium text-gray-900">{dataset.name}</div>
-                      <div className="text-gray-500 text-xs mt-0.5 truncate max-w-xs">
-                        {dataset.description}
-                      </div>
-                      <div className="text-gray-400 text-xs mt-0.5 font-mono">
-                        {dataset.id}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className={cn(
-                        "px-2 py-1 rounded-full text-xs font-medium",
-                        dataset.labeled
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-600'
-                      )}>
-                        {dataset.labeled ? 'Labeled' : 'Unlabeled'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 uppercase">
-                      {dataset.format}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {dataset.source}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {dataset.num_items.toLocaleString()}
-                      {dataset.size_mb && (
-                        <span className="text-xs text-gray-500 ml-2">
-                          ({dataset.size_mb.toFixed(1)} MB)
+              filteredDatasets.map((dataset) => {
+                const avatarColor = getAvatarColor(dataset.owner_email)
+                const avatarInitials = getAvatarInitials(dataset.owner_name, dataset.owner_email)
+
+                return (
+                  <>
+                    <tr
+                      key={dataset.id}
+                      onClick={() => handleViewDataset(dataset.id)}
+                      className="hover:bg-gray-50 cursor-pointer"
+                    >
+                      <td className="px-4 py-3 text-sm">
+                        <div className="font-medium text-gray-900">{dataset.name}</div>
+                        <div className="text-gray-500 text-xs mt-0.5 truncate max-w-xs">
+                          {dataset.description}
+                        </div>
+                        <div className="text-gray-400 text-xs mt-0.5 font-mono">
+                          {dataset.id}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={cn(
+                          "px-2 py-1 rounded-full text-xs font-medium",
+                          dataset.labeled
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-600'
+                        )}>
+                          {dataset.labeled ? 'Labeled' : 'Unlabeled'}
                         </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-center">
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 uppercase">
+                        {dataset.format}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {dataset.source}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {dataset.num_items.toLocaleString()}
+                        {dataset.size_mb && (
+                          <span className="text-xs text-gray-500 ml-2">
+                            ({dataset.size_mb.toFixed(1)} MB)
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          {dataset.visibility === 'public' ? (
+                            <Globe className="w-4 h-4 text-green-600" />
+                          ) : (
+                            <Lock className="w-4 h-4 text-gray-600" />
+                          )}
+                          <span className="capitalize">{dataset.visibility || 'private'}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {dataset.owner_name || dataset.owner_email ? (
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={cn(
+                                'w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold text-white',
+                                avatarColor
+                              )}
+                              title={dataset.owner_email || ''}
+                            >
+                              {avatarInitials}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              {dataset.owner_name || dataset.owner_email}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={(e) => {
@@ -406,10 +491,10 @@ export default function DatasetPanel() {
                     </td>
                   </tr>
 
-                  {/* Expanded row for image gallery */}
-                  {selectedDatasetId === dataset.id && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-4 bg-gray-50">
+                    {/* Expanded row for image gallery */}
+                    {selectedDatasetId === dataset.id && (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-4 bg-gray-50">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                           {/* Upload Section */}
                           <div className="lg:col-span-1">
@@ -429,9 +514,10 @@ export default function DatasetPanel() {
                         </div>
                       </td>
                     </tr>
-                  )}
-                </>
-              ))
+                    )}
+                  </>
+                )
+              })
             )}
           </tbody>
         </table>

@@ -1,6 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
+import { Globe, Lock } from 'lucide-react';
 import { Dataset } from '@/types/dataset';
+import { cn } from '@/lib/utils/cn';
 
 interface DatasetCardProps {
   dataset: Dataset;
@@ -16,11 +18,45 @@ const formatNames: Record<string, string> = {
   dice: 'DICE Format',
 };
 
+// Avatar helper functions
+const getAvatarColor = (email: string | null | undefined): string => {
+  if (!email) return 'bg-gray-400';
+  const colors = [
+    'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
+    'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
+    'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
+    'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
+    'bg-rose-500'
+  ];
+  const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return colors[hash % colors.length];
+};
+
+const getAvatarInitials = (owner_name: string | null | undefined, owner_email: string | null | undefined): string => {
+  if (owner_name) {
+    if (/[가-힣]/.test(owner_name)) {
+      return owner_name.slice(0, 2);
+    }
+    const parts = owner_name.split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return owner_name.slice(0, 2).toUpperCase();
+  }
+  if (owner_email) {
+    return owner_email.slice(0, 2).toUpperCase();
+  }
+  return '?';
+};
+
 export default function DatasetCard({ dataset, onSelect, selected }: DatasetCardProps) {
   const formatName = formatNames[dataset.format] || dataset.format;
   const labeledBadge = dataset.labeled
     ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
     : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' };
+
+  const avatarColor = getAvatarColor(dataset.owner_email);
+  const avatarInitials = getAvatarInitials(dataset.owner_name, dataset.owner_email);
 
   return (
     <div
@@ -63,7 +99,33 @@ export default function DatasetCard({ dataset, onSelect, selected }: DatasetCard
         <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
           {dataset.source}
         </span>
+        <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 flex items-center gap-1">
+          {dataset.visibility === 'public' ? (
+            <Globe className="w-3 h-3 text-green-600" />
+          ) : (
+            <Lock className="w-3 h-3 text-gray-600" />
+          )}
+          <span className="capitalize">{dataset.visibility || 'private'}</span>
+        </span>
       </div>
+
+      {/* Owner */}
+      {(dataset.owner_name || dataset.owner_email) && (
+        <div className="mb-3 flex items-center gap-2">
+          <div
+            className={cn(
+              'w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold text-white',
+              avatarColor
+            )}
+            title={dataset.owner_email || ''}
+          >
+            {avatarInitials}
+          </div>
+          <div className="text-xs text-gray-600">
+            {dataset.owner_name || dataset.owner_email}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 text-sm">
