@@ -49,6 +49,7 @@ async def create_training_job(
         )
 
     # Resolve dataset from database if dataset_id provided
+    dataset = None
     dataset_id = None
     dataset_path = None
     dataset_format = config.dataset_format
@@ -92,26 +93,45 @@ async def create_training_job(
             detail="task_type is required"
         )
 
-    # For classification tasks, auto-detect num_classes if not provided
+    # For classification tasks, num_classes is required
     if config.task_type == "image_classification" and not config.num_classes:
-        # Try to auto-detect num_classes from dataset
-        try:
-            from app.utils.dataset_analyzer import analyze_dataset
-            dataset_info = analyze_dataset(config.dataset_path)
-            detected_num_classes = dataset_info.get("num_classes")
-
-            if detected_num_classes and detected_num_classes > 0:
-                config.num_classes = detected_num_classes
-                print(f"[training] Auto-detected num_classes: {detected_num_classes}")
+        # Try to get num_classes from Dataset record if dataset_id provided
+        if dataset is not None:
+            # Dataset was already queried above (line 59)
+            if dataset.num_classes and dataset.num_classes > 0:
+                config.num_classes = dataset.num_classes
+                logger.info(f"[training] Using num_classes from Dataset: {config.num_classes}")
             else:
+                # Dataset exists but num_classes not set
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Could not auto-detect num_classes from dataset. Please provide num_classes manually. Dataset path: {config.dataset_path}"
+                    detail=f"Dataset '{dataset.id}' does not have num_classes information. "
+                           f"Please re-analyze or re-upload the dataset to populate metadata."
                 )
-        except Exception as e:
+        elif config.dataset_path:
+            # Legacy path: try to analyze directly from filesystem
+            try:
+                from app.utils.dataset_analyzer import analyze_dataset
+                dataset_info = analyze_dataset(config.dataset_path)
+                detected_num_classes = dataset_info.get("num_classes")
+
+                if detected_num_classes and detected_num_classes > 0:
+                    config.num_classes = detected_num_classes
+                    logger.info(f"[training] Auto-detected num_classes: {detected_num_classes}")
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Could not auto-detect num_classes from path: {config.dataset_path}"
+                    )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"num_classes is required for image classification. Auto-detection failed: {str(e)}"
+                )
+        else:
             raise HTTPException(
                 status_code=400,
-                detail=f"num_classes is required for image classification tasks. Auto-detection failed: {str(e)}"
+                detail="num_classes is required for image classification tasks"
             )
 
     # Verify session exists (if provided)
