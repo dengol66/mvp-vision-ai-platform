@@ -29,7 +29,7 @@ from platform_sdk import (
     TaskType,
     DatasetFormat,
     TrainingLogger,
-    download_dataset_if_needed
+    get_dataset
 )
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
@@ -197,9 +197,26 @@ def main():
     print("\n" + "="*80)
     print("DATASET PREPARATION")
     print("="*80)
-    local_dataset_path = download_dataset_if_needed(args.dataset_path)
-    if local_dataset_path != args.dataset_path:
-        print(f"[INFO] Dataset downloaded and extracted successfully")
+
+    # Check if dataset_path is a UUID/simple ID (no path separators)
+    if '/' not in args.dataset_path and '\\' not in args.dataset_path:
+        print(f"[DATASET] Detected dataset ID: {args.dataset_path}")
+        print(f"[DATASET] Attempting to download from R2...")
+        try:
+            local_dataset_path = get_dataset(
+                dataset_id=args.dataset_path,
+                download_fn=None  # No fallback, R2 only
+            )
+            print(f"[DATASET] ✓ Dataset ready: {local_dataset_path}")
+        except Exception as e:
+            print(f"[DATASET] ERROR: Failed to download dataset: {e}")
+            print(f"[DATASET] Falling back to original path (may fail)")
+            local_dataset_path = args.dataset_path
+    else:
+        # Local path, use as-is
+        print(f"[DATASET] Using local path: {args.dataset_path}")
+        local_dataset_path = args.dataset_path
+
     print("="*80 + "\n")
 
     # Create configuration objects

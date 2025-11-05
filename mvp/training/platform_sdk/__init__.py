@@ -15,7 +15,6 @@ from .base import (
 )
 from .logger import TrainingLogger
 from .storage import get_model_weights, get_dataset
-from .r2_storage import R2Downloader, download_dataset_if_needed
 
 __version__ = "0.1.0"
 __all__ = [
@@ -33,6 +32,4 @@ __all__ = [
     "TrainingLogger",
     "get_model_weights",
     "get_dataset",
-    "R2Downloader",
-    "download_dataset_if_needed",
 ]
