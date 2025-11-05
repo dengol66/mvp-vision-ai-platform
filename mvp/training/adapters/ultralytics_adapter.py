@@ -648,13 +648,27 @@ class UltralyticsAdapter(TrainingAdapter):
         import glob
 
         dataset_path = Path(self.dataset_config.dataset_path)
-        labels_dir = dataset_path / "labels"
+
+        # For DICE→YOLO conversion, labels are in the parent DICE directory
+        # Check if this is a _yolo output directory
+        if dataset_path.name.endswith('_yolo'):
+            # Labels are in the parent (original DICE) directory
+            dice_path = dataset_path.parent / dataset_path.name.replace('_yolo', '')
+            labels_dir = dice_path / "labels"
+            print(f"[_clear_yolo_cache] DICE conversion detected, clearing cache in: {labels_dir}")
+            sys.stdout.flush()
+        else:
+            labels_dir = dataset_path / "labels"
 
         if not labels_dir.exists():
+            print(f"[_clear_yolo_cache] Labels directory not found: {labels_dir}")
+            sys.stdout.flush()
             return
 
         # Find and remove all .cache files
         cache_files = list(labels_dir.rglob("*.cache"))
+        print(f"[_clear_yolo_cache] Found {len(cache_files)} cache files to remove")
+        sys.stdout.flush()
 
         for cache_file in cache_files:
             try:
@@ -1256,6 +1270,23 @@ class UltralyticsAdapter(TrainingAdapter):
 
                 # Report to callbacks for unified metric collection (MLflow + Database)
                 print(f"[YOLO Callback] Epoch {epoch_num} completed, reporting metrics to callbacks...")
+
+                # DEBUG: Check if train labels are being loaded
+                if hasattr(trainer, 'train_loader') and trainer.train_loader:
+                    train_dataset = trainer.train_loader.dataset
+                    print(f"[YOLO Callback DEBUG] Train dataset type: {type(train_dataset)}")
+                    if hasattr(train_dataset, 'labels') and train_dataset.labels is not None:
+                        total_train_labels = sum(len(labels) if labels is not None else 0 for labels in train_dataset.labels)
+                        print(f"[YOLO Callback DEBUG] Total train labels: {total_train_labels}")
+                    else:
+                        print(f"[YOLO Callback DEBUG] Train dataset has no labels attribute or labels is None")
+
+                    # Check number of images
+                    if hasattr(train_dataset, 'im_files'):
+                        print(f"[YOLO Callback DEBUG] Train images: {len(train_dataset.im_files)}")
+                    elif hasattr(train_dataset, 'img_files'):
+                        print(f"[YOLO Callback DEBUG] Train images: {len(train_dataset.img_files)}")
+
                 sys.stdout.flush()
 
                 # Log epoch completion to frontend
@@ -1295,6 +1326,38 @@ class UltralyticsAdapter(TrainingAdapter):
 
                         if hasattr(trainer, 'validator') and trainer.validator is not None:
                             validator = trainer.validator
+
+                            # DEBUG: Check validator state
+                            print(f"[YOLO Callback DEBUG] Validator type: {type(validator)}")
+
+                            # Check val dataset labels
+                            if hasattr(validator, 'dataloader') and validator.dataloader:
+                                val_dataset = validator.dataloader.dataset
+                                print(f"[YOLO Callback DEBUG] Val dataset type: {type(val_dataset)}")
+                                if hasattr(val_dataset, 'labels') and val_dataset.labels is not None:
+                                    total_val_labels = sum(len(labels) if labels is not None else 0 for labels in val_dataset.labels)
+                                    print(f"[YOLO Callback DEBUG] Total val labels: {total_val_labels}")
+                                    # Print first few label counts
+                                    label_counts = [len(labels) if labels is not None else 0 for labels in val_dataset.labels[:5]]
+                                    print(f"[YOLO Callback DEBUG] First 5 val image label counts: {label_counts}")
+                                else:
+                                    print(f"[YOLO Callback DEBUG] Val dataset has no labels attribute or labels is None")
+
+                                if hasattr(val_dataset, 'im_files'):
+                                    print(f"[YOLO Callback DEBUG] Val images: {len(val_dataset.im_files)}")
+                                elif hasattr(val_dataset, 'img_files'):
+                                    print(f"[YOLO Callback DEBUG] Val images: {len(val_dataset.img_files)}")
+
+                            print(f"[YOLO Callback DEBUG] Validator has metrics: {hasattr(validator, 'metrics')}")
+                            if hasattr(validator, 'metrics') and validator.metrics is not None:
+                                print(f"[YOLO Callback DEBUG] Metrics type: {type(validator.metrics)}")
+                            print(f"[YOLO Callback DEBUG] Validator has stats: {hasattr(validator, 'stats')}")
+                            if hasattr(validator, 'stats'):
+                                print(f"[YOLO Callback DEBUG] Stats: {validator.stats}")
+                            print(f"[YOLO Callback DEBUG] Validator has seen: {hasattr(validator, 'seen')}")
+                            if hasattr(validator, 'seen'):
+                                print(f"[YOLO Callback DEBUG] Seen: {validator.seen}")
+                            sys.stdout.flush()
 
                             # Get class names from validator
                             if hasattr(validator, 'names') and validator.names is not None:
@@ -1409,6 +1472,15 @@ class UltralyticsAdapter(TrainingAdapter):
                                             if hasattr(cm, 'matrix') and cm.matrix is not None:
                                                 matrix = cm.matrix
                                                 print(f"[YOLO Callback DEBUG] matrix shape: {matrix.shape}")
+                                                print(f"[YOLO Callback DEBUG] matrix sum: {matrix.sum()}")
+                                                print(f"[YOLO Callback DEBUG] matrix non-zero entries: {np.count_nonzero(matrix)}")
+                                                # Check if there are any predictions at all
+                                                col_sums = matrix.sum(axis=0)
+                                                row_sums = matrix.sum(axis=1)
+                                                print(f"[YOLO Callback DEBUG] Total predicted (column sums): {col_sums.sum()}")
+                                                print(f"[YOLO Callback DEBUG] Total ground truth (row sums): {row_sums.sum()}")
+                                                print(f"[YOLO Callback DEBUG] First 5 row sums (GT per class): {row_sums[:5]}")
+                                                print(f"[YOLO Callback DEBUG] First 5 col sums (Pred per class): {col_sums[:5]}")
                                                 sys.stdout.flush()
                                                 if isinstance(matrix, np.ndarray) and matrix.shape[0] > 0:
                                                     # Sum each row to get ground truth count per class
@@ -1562,8 +1634,267 @@ class UltralyticsAdapter(TrainingAdapter):
                 traceback.print_exc()
                 sys.stdout.flush()
 
-        # Register callback with YOLO model
+            # Manual validation: Quick test of train-mode validation
+            # Attempt to run minimal validation in train mode with no_grad
+            if not manual_validation_running[0] and hasattr(trainer, 'validator') and trainer.validator:
+                try:
+                    manual_validation_running[0] = True
+                    print(f"[TRAIN-MODE VAL] Testing train-mode validation for epoch {epoch_num}...")
+
+                    # DON'T call model.val() - that uses eval mode
+                    # Instead, manually run forward pass on val data
+
+                    import torch
+                    validator = trainer.validator
+
+                    if hasattr(validator, 'dataloader') and validator.dataloader:
+                        val_loader = validator.dataloader
+
+                        # Stay in training mode, use no_grad
+                        with torch.no_grad():
+                            print(f"[TRAIN-MODE VAL] Running inference on validation set...")
+
+                            batch_count = 0
+                            pred_count = 0
+
+                            for batch in val_loader:
+                                # Get images
+                                imgs = batch['img']
+
+                                # Forward pass (model still in train mode)
+                                preds = self.model.model(imgs)
+
+                                batch_count += 1
+                                if isinstance(preds, (list, tuple)):
+                                    pred_count += len(preds)
+
+                                # Just test first batch
+                                break
+
+                            print(f"[TRAIN-MODE VAL] Processed {batch_count} batch, got predictions")
+                            print(f"[TRAIN-MODE VAL] Predictions type: {type(preds)}")
+                            if hasattr(preds, 'shape'):
+                                print(f"[TRAIN-MODE VAL] Predictions shape: {preds.shape}")
+
+                        # Clear any gradients (safety)
+                        if hasattr(trainer, 'optimizer'):
+                            trainer.optimizer.zero_grad()
+                            print(f"[TRAIN-MODE VAL] Cleared gradients")
+
+                        print(f"[TRAIN-MODE VAL] Test complete - continuing training")
+
+                except Exception as e:
+                    print(f"[TRAIN-MODE VAL ERROR] {e}")
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    manual_validation_running[0] = False
+
+            elif False and not manual_validation_running[0] and hasattr(trainer, 'validator') and trainer.validator:
+                try:
+                    manual_validation_running[0] = True
+                    print(f"[MANUAL VAL] Running manual validation for epoch {epoch_num}...")
+                    sys.stdout.flush()
+
+                    # Save model training state AND gradient states
+                    was_training = self.model.model.training if hasattr(self.model, 'model') else True
+
+                    # Save original requires_grad state for each parameter
+                    original_grad_states = {}
+                    if hasattr(self.model, 'model'):
+                        for name, param in self.model.model.named_parameters():
+                            original_grad_states[name] = param.requires_grad
+
+                    # Run validation directly
+                    val_results = self.model.val(
+                        data=self.data_yaml,
+                        split='val',
+                        batch=train_args.get('batch', 64),
+                        imgsz=train_args.get('imgsz', 640),
+                        conf=train_args.get('conf', 0.001),
+                        iou=train_args.get('iou', 0.6),
+                        device=train_args.get('device', 'cpu'),
+                        plots=False,  # Don't regenerate plots
+                        verbose=False  # Reduce output
+                    )
+
+                    # Restore training mode and gradients to ORIGINAL state
+                    if was_training and hasattr(self.model, 'model'):
+                        import torch
+                        # Re-enable gradient computation globally
+                        torch.set_grad_enabled(True)
+                        self.model.model.train()
+
+                        # Restore ORIGINAL requires_grad state for each parameter
+                        # (some layers may have been intentionally frozen)
+                        for name, param in self.model.model.named_parameters():
+                            if name in original_grad_states:
+                                param.requires_grad = original_grad_states[name]
+
+                        frozen_count = sum(1 for state in original_grad_states.values() if not state)
+                        print(f"[MANUAL VAL] Restored model to training mode ({frozen_count} frozen params preserved)")
+                        sys.stdout.flush()
+
+                    print(f"[MANUAL VAL] Validation complete!")
+
+                    # Extract metrics from results
+                    if val_results and hasattr(val_results, 'box'):
+                        box_metrics = val_results.box
+                        manual_map50 = float(box_metrics.map50) if hasattr(box_metrics, 'map50') else 0.0
+                        manual_map50_95 = float(box_metrics.map) if hasattr(box_metrics, 'map') else 0.0
+                        manual_precision = float(box_metrics.mp) if hasattr(box_metrics, 'mp') else 0.0
+                        manual_recall = float(box_metrics.mr) if hasattr(box_metrics, 'mr') else 0.0
+
+                        print(f"[MANUAL VAL] mAP@0.5: {manual_map50:.4f}")
+                        print(f"[MANUAL VAL] mAP@0.5:0.95: {manual_map50_95:.4f}")
+                        print(f"[MANUAL VAL] Precision: {manual_precision:.4f}")
+                        print(f"[MANUAL VAL] Recall: {manual_recall:.4f}")
+
+                        # Check confusion matrix
+                        if hasattr(val_results, 'confusion_matrix') and val_results.confusion_matrix:
+                            cm = val_results.confusion_matrix
+                            if hasattr(cm, 'matrix') and cm.matrix is not None:
+                                import numpy as np
+                                print(f"[MANUAL VAL] Confusion matrix sum: {cm.matrix.sum()}")
+                                print(f"[MANUAL VAL] Confusion matrix non-zero: {np.count_nonzero(cm.matrix)}")
+
+                        sys.stdout.flush()
+                    else:
+                        print(f"[MANUAL VAL] No box metrics available")
+                        sys.stdout.flush()
+
+                except Exception as e:
+                    print(f"[MANUAL VAL ERROR] Failed to run manual validation: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                finally:
+                    manual_validation_running[0] = False
+
+        # DEBUG: Track validation batch processing
+        val_batch_count = [0]  # Use list to modify in closure
+        val_predictions_count = [0]
+        val_targets_count = [0]
+
+        # Flag to prevent recursive validation
+        manual_validation_running = [False]
+
+        def on_val_batch_start(validator):
+            """Debug callback to inspect validation batch data"""
+            try:
+                print(f"[VAL DEBUG] ===== Batch {val_batch_count[0] + 1} Start =====")
+
+                # Check batch attribute
+                if hasattr(validator, 'batch') and validator.batch is not None:
+                    batch = validator.batch
+                    print(f"[VAL DEBUG] Batch type: {type(batch)}")
+
+                    if isinstance(batch, dict):
+                        print(f"[VAL DEBUG] Batch keys: {batch.keys()}")
+                        if 'img' in batch:
+                            print(f"[VAL DEBUG] Images shape: {batch['img'].shape if hasattr(batch['img'], 'shape') else 'N/A'}")
+                        if 'bboxes' in batch:
+                            print(f"[VAL DEBUG] Bboxes: {batch['bboxes']}")
+                        if 'cls' in batch:
+                            print(f"[VAL DEBUG] Classes: {batch['cls']}")
+                        if 'batch_idx' in batch:
+                            print(f"[VAL DEBUG] Batch indices: {batch['batch_idx']}")
+                    elif isinstance(batch, (list, tuple)):
+                        print(f"[VAL DEBUG] Batch length: {len(batch)}")
+                        for i, item in enumerate(batch[:3]):  # First 3 items
+                            if hasattr(item, 'shape'):
+                                print(f"[VAL DEBUG] Item {i} shape: {item.shape}")
+                            else:
+                                print(f"[VAL DEBUG] Item {i} type: {type(item)}")
+                else:
+                    print(f"[VAL DEBUG] No batch attribute or batch is None")
+
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"[VAL DEBUG] Error in on_val_batch_start: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+
+        def on_val_batch_end(validator):
+            """Debug callback to track validation batch processing"""
+            try:
+                val_batch_count[0] += 1
+
+                # Check if we have predictions
+                if hasattr(validator, 'pred') and validator.pred is not None:
+                    val_predictions_count[0] += len(validator.pred)
+                    print(f"[VAL DEBUG] Batch {val_batch_count[0]}: {len(validator.pred)} predictions")
+                    # Check prediction structure
+                    if len(validator.pred) > 0:
+                        pred_sample = validator.pred[0]
+                        if hasattr(pred_sample, 'shape'):
+                            print(f"[VAL DEBUG] First prediction shape: {pred_sample.shape}")
+                else:
+                    print(f"[VAL DEBUG] Batch {val_batch_count[0]}: No predictions (validator.pred is None)")
+
+                # Check if we have ground truth
+                if hasattr(validator, 'targets') and validator.targets is not None:
+                    val_targets_count[0] += len(validator.targets)
+                    print(f"[VAL DEBUG] Batch {val_batch_count[0]}: {len(validator.targets)} targets")
+                else:
+                    print(f"[VAL DEBUG] Batch {val_batch_count[0]}: No targets")
+
+                # Check batch labels
+                if hasattr(validator, 'batch') and validator.batch is not None:
+                    batch = validator.batch
+                    if isinstance(batch, dict):
+                        if 'cls' in batch and batch['cls'] is not None:
+                            print(f"[VAL DEBUG] Batch {val_batch_count[0]}: Ground truth classes in batch: {len(batch['cls'])} objects")
+                        if 'bboxes' in batch and batch['bboxes'] is not None:
+                            print(f"[VAL DEBUG] Batch {val_batch_count[0]}: Ground truth bboxes in batch: {len(batch['bboxes'])} boxes")
+
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"[VAL DEBUG] Error in on_val_batch_end: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+
+        def on_val_end(validator):
+            """Debug callback when validation ends"""
+            try:
+                print(f"[VAL DEBUG] Validation complete: {val_batch_count[0]} batches processed")
+                print(f"[VAL DEBUG] Total predictions: {val_predictions_count[0]}")
+                print(f"[VAL DEBUG] Total targets: {val_targets_count[0]}")
+
+                if hasattr(validator, 'stats') and validator.stats is not None:
+                    print(f"[VAL DEBUG] Stats available: {len(validator.stats)} items")
+                else:
+                    print(f"[VAL DEBUG] Stats is None or not available")
+
+                if hasattr(validator, 'confusion_matrix') and validator.confusion_matrix is not None:
+                    cm = validator.confusion_matrix
+                    if hasattr(cm, 'matrix') and cm.matrix is not None:
+                        import numpy as np
+                        print(f"[VAL DEBUG] Confusion matrix sum: {cm.matrix.sum()}")
+                        print(f"[VAL DEBUG] Confusion matrix non-zero: {np.count_nonzero(cm.matrix)}")
+                else:
+                    print(f"[VAL DEBUG] Confusion matrix not available")
+
+                sys.stdout.flush()
+
+                # Reset counters for next validation
+                val_batch_count[0] = 0
+                val_predictions_count[0] = 0
+                val_targets_count[0] = 0
+            except Exception as e:
+                print(f"[VAL DEBUG] Error in on_val_end: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+
+        # Register callbacks with YOLO model
         self.model.add_callback("on_fit_epoch_end", on_yolo_epoch_end)
+        # Validation debugging callbacks disabled for now
+        # self.model.add_callback("on_val_batch_start", on_val_batch_start)
+        # self.model.add_callback("on_val_batch_end", on_val_batch_end)
+        # self.model.add_callback("on_val_end", on_val_end)
         print("[YOLO] Registered real-time metric collection callback")
         sys.stdout.flush()
 
@@ -1696,6 +2027,9 @@ class UltralyticsAdapter(TrainingAdapter):
             'save': True,  # Save checkpoints
             'save_period': -1,  # Only save last and best
             'val': True,  # Enable validation during training
+            'conf': 0.001,  # Lower confidence threshold to capture more predictions
+            'iou': 0.6,  # IoU threshold for NMS
+            'cache': False,  # Disable cache to avoid train/val cache conflicts
         }
 
         adv_config = self.training_config.advanced_config

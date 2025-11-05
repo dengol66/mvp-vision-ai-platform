@@ -57,12 +57,15 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
             annotations_by_image[image_id] = []
         annotations_by_image[image_id].append(ann)
 
-    # Create output directories for labels only (images stay in original location)
-    labels_train_dir = output_path / "labels" / "train"
-    labels_val_dir = output_path / "labels" / "val"
+    # Create labels directory in the ORIGINAL DICE dataset (not in _yolo output dir)
+    # YOLO will look for labels by replacing /images/ with /labels/ in image paths
+    labels_dir = dice_path / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[DICE→YOLO] Labels will be created in: {labels_dir}")
 
-    labels_train_dir.mkdir(parents=True, exist_ok=True)
-    labels_val_dir.mkdir(parents=True, exist_ok=True)
+    # Output directory only contains train.txt, val.txt, and data.yaml
+    output_path.mkdir(parents=True, exist_ok=True)
+    print(f"[DICE→YOLO] Split files will be created in: {output_path}")
 
     # Convert annotations
     converted_images = 0
@@ -130,13 +133,83 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
 
         print(f"[DICE→YOLO] Reconstructed {len(images)} image entries")
 
-    # Shuffle and split images into train/val (80/20)
-    random.shuffle(images)
-    split_idx = int(len(images) * 0.8)
-    train_images = images[:split_idx]
-    val_images = images[split_idx:]
+    # Stratified split to ensure all classes appear in both train and val
+    # For small datasets with many classes, this is critical
+    print(f"[DICE→YOLO] Performing stratified split...")
+
+    # Build image-to-classes mapping
+    image_classes = {}
+    for image in images:
+        image_id = image.get('id')
+        image_anns = annotations_by_image.get(image_id, [])
+        classes_in_image = set(ann.get('category_id') for ann in image_anns if ann.get('category_id') is not None)
+        image_classes[image_id] = classes_in_image
+
+    # Find all unique classes
+    all_classes = set()
+    for classes in image_classes.values():
+        all_classes.update(classes)
+
+    print(f"[DICE→YOLO] Total unique classes: {len(all_classes)}")
+
+    # For each class, find which images contain it
+    class_to_images = {cls: [] for cls in all_classes}
+    for image in images:
+        image_id = image.get('id')
+        for cls in image_classes.get(image_id, set()):
+            class_to_images[cls].append(image)
+
+    # Stratified split: ensure each class appears in both train and val
+    train_images = []
+    val_images = []
+    used_image_ids = set()
+
+    # First pass: for rare classes (1 image), prioritize TRAIN
+    # For classes with 2+ images, ensure they appear in both splits
+    for cls, cls_images in sorted(class_to_images.items(), key=lambda x: len(x[1])):
+        if len(cls_images) == 1:
+            # Only 1 image for this class - put in TRAIN (more important)
+            if cls_images[0]['id'] not in used_image_ids:
+                train_images.append(cls_images[0])
+                used_image_ids.add(cls_images[0]['id'])
+        elif len(cls_images) >= 2:
+            # Ensure this class appears in both splits
+            if cls_images[0]['id'] not in used_image_ids:
+                train_images.append(cls_images[0])
+                used_image_ids.add(cls_images[0]['id'])
+            if cls_images[1]['id'] not in used_image_ids:
+                val_images.append(cls_images[1])
+                used_image_ids.add(cls_images[1]['id'])
+
+    # Second pass: distribute remaining images maintaining 80/20 ratio
+    remaining_images = [img for img in images if img['id'] not in used_image_ids]
+    random.shuffle(remaining_images)
+
+    target_train_size = int(len(images) * 0.8)
+    target_val_size = len(images) - target_train_size
+
+    for image in remaining_images:
+        if len(train_images) < target_train_size:
+            train_images.append(image)
+        else:
+            val_images.append(image)
 
     print(f"[DICE→YOLO] Split: {len(train_images)} train, {len(val_images)} val")
+
+    # Verify all classes appear in train
+    train_classes = set()
+    for img in train_images:
+        train_classes.update(image_classes.get(img['id'], set()))
+
+    val_classes = set()
+    for img in val_images:
+        val_classes.update(image_classes.get(img['id'], set()))
+
+    val_only_classes = val_classes - train_classes
+    if val_only_classes:
+        print(f"[DICE→YOLO] WARNING: {len(val_only_classes)} classes only in val set: {val_only_classes}")
+    else:
+        print(f"[DICE→YOLO] [OK] All {len(val_classes)} val classes appear in train set")
 
     # Track conversion stats separately
     train_count = 0
@@ -170,14 +243,16 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
                 print(f"[DICE→YOLO] Warning: Image not found: {src_image}")
                 continue
 
-        # Record image path for train.txt (absolute path to original image)
-        train_image_paths.append(str(src_image.absolute()))
+        # Record image path for train.txt (absolute path)
+        # YOLO needs absolute paths when labels are in a different directory structure
+        abs_path = str(src_image.absolute())
+        train_image_paths.append(abs_path)
 
         # Convert annotations to YOLO format
         image_annotations = annotations_by_image.get(image_id, [])
 
-        # Create label file
-        label_file = labels_train_dir / f"{Path(file_name).stem}.txt"
+        # Create label file in DICE dataset's labels directory (no train/val split)
+        label_file = labels_dir / f"{Path(file_name).stem}.txt"
         yolo_lines = []
 
         for ann in image_annotations:
@@ -230,14 +305,16 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
                 print(f"[DICE→YOLO] Warning: Image not found: {src_image}")
                 continue
 
-        # Record image path for val.txt (absolute path to original image)
-        val_image_paths.append(str(src_image.absolute()))
+        # Record image path for val.txt (absolute path)
+        # YOLO needs absolute paths when labels are in a different directory structure
+        abs_path = str(src_image.absolute())
+        val_image_paths.append(abs_path)
 
         # Convert annotations to YOLO format
         image_annotations = annotations_by_image.get(image_id, [])
 
-        # Create label file (for val images)
-        label_file = labels_val_dir / f"{Path(file_name).stem}.txt"
+        # Create label file in DICE dataset's labels directory (no train/val split)
+        label_file = labels_dir / f"{Path(file_name).stem}.txt"
         yolo_lines = []
 
         for ann in image_annotations:
@@ -272,26 +349,33 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
     converted_images = train_count + val_count
     converted_annotations = train_ann_count + val_ann_count
 
-    # Create train.txt with absolute paths to original images
+    # Create train.txt with absolute paths
     train_txt_path = output_path / "train.txt"
     with open(train_txt_path, 'w') as f:
         f.write('\n'.join(train_image_paths))
-    print(f"[DICE→YOLO] Created train.txt with {len(train_image_paths)} image paths")
+    print(f"[DICE→YOLO] Created train.txt with {len(train_image_paths)} absolute image paths")
 
-    # Create val.txt with absolute paths to original images
+    # Create val.txt with absolute paths
     val_txt_path = output_path / "val.txt"
     with open(val_txt_path, 'w') as f:
         f.write('\n'.join(val_image_paths))
-    print(f"[DICE→YOLO] Created val.txt with {len(val_image_paths)} image paths")
+    print(f"[DICE→YOLO] Created val.txt with {len(val_image_paths)} absolute image paths")
 
     # Create data.yaml with text-file-based split
+    # Note: train.txt and val.txt contain ABSOLUTE paths to images
+    # path field points to dataset root for label resolution
+    # Labels are found by replacing /images/ with /labels/ in image paths
     data_yaml_content = f"""# YOLO Dataset Configuration
 # Converted from DICE format (text-file-based split)
+# train.txt and val.txt contain absolute image paths
+# Labels are found by replacing /images/ with /labels/ in the image paths
 
-# Paths (relative to this file)
-path: {output_path.absolute()}  # dataset root dir
-train: train.txt  # train image paths ({train_count} images)
-val: val.txt  # validation image paths ({val_count} images)
+# Path to dataset root (where images/ and labels/ directories are)
+path: {str(dice_path.absolute()).replace(chr(92), '/')}
+
+# Absolute paths to split files (in _yolo directory)
+train: {str(train_txt_path.absolute()).replace(chr(92), '/')}  # train image paths ({train_count} images)
+val: {str(val_txt_path.absolute()).replace(chr(92), '/')}  # validation image paths ({val_count} images)
 
 # Classes
 nc: {len(category_names)}  # number of classes
@@ -303,8 +387,10 @@ names: {category_names}  # class names
         f.write(data_yaml_content)
 
     print(f"[DICE→YOLO] Converted {converted_images} images ({train_count} train, {val_count} val) with {converted_annotations} annotations ({train_ann_count} train, {val_ann_count} val)")
-    print(f"[DICE→YOLO] Output: {output_path}")
+    print(f"[DICE→YOLO] Output directory: {output_path}")
+    print(f"[DICE→YOLO] Labels directory: {labels_dir}")
     print(f"[DICE→YOLO] Classes: {category_names}")
+    print(f"[DICE→YOLO] Structure: Images remain in {dice_path / 'images'}, labels in {labels_dir}")
 
     return {
         'output_dir': str(output_path),
