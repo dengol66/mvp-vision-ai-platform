@@ -1,0 +1,81 @@
+# Railway Ignore File
+# Exclude files/directories from Railway deployment builds
+
+# Virtual environments (use container dependencies instead)
+venv/
+venv-*/
+ENV/
+env/
+.venv/
+
+# Development files
+.git/
+.github/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+**/test_*.py
+test_*.json
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Logs
+*.log
+logs/
+
+# Database (use Railway PostgreSQL)
+*.db
+*.sqlite
+*.sqlite3
+*.db.backup*
+
+# Data directories (use R2 storage)
+mvp/data/datasets/
+mvp/data/uploads/
+mvp/data/models/
+mvp/data/checkpoints/
+
+# Frontend (deployed separately)
+mvp/frontend/
+node_modules/
+.next/
+
+# Model weights (download from R2 at runtime)
+*.pt
+*.pth
+*.onnx
+*.pb
+
+# Environment files (set in Railway dashboard)
+.env
+.env.*
+*.env
+
+# Temporary files
+*.tmp
+*.temp
+nul
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# MLflow (use Railway MLflow service)
+mlruns/
+runs/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
