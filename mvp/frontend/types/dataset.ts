@@ -13,6 +13,10 @@ export interface Dataset {
   tags?: string[];
   created_at?: string;
   updated_at?: string;
+  visibility?: string;  // 'public', 'private', 'organization'
+  owner_id?: number | null;
+  owner_name?: string | null;
+  owner_email?: string | null;
 }
 
 export interface DatasetAnalysis {
