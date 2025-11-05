@@ -1092,3 +1092,72 @@ async def get_job_checkpoints(
             status_code=500,
             detail=f"Failed to get checkpoints: {str(e)}"
         )
+
+
+@router.post("/stop/{job_id}")
+async def stop_training_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Stop a running training job.
+
+    This endpoint stops the training process and updates the job status.
+    """
+    try:
+        # Get training job
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+
+        if not job:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Training job {job_id} not found"
+            )
+
+        # Check if job is running
+        if job.status not in ["pending", "running"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot stop job with status '{job.status}'. Job must be 'pending' or 'running'."
+            )
+
+        logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
+
+        # Initialize training manager
+        global training_manager
+        if training_manager is None:
+            training_manager = TrainingManager(db)
+
+        # Stop the training job
+        success = training_manager.stop_training(job_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to stop training job"
+            )
+
+        # Update job status
+        job.status = "stopped"
+        job.completed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(job)
+
+        logger.info(f"[stop-training] Successfully stopped job {job_id}")
+
+        return {
+            "job_id": job_id,
+            "status": job.status,
+            "message": "Training job stopped successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[stop-training] Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to stop training job: {str(e)}"
+        )
