@@ -567,8 +567,8 @@ async def get_dataset_file(
         if not dataset:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
-        # Check user ownership
-        if dataset.user_id != current_user.id:
+        # Check user ownership or public access
+        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
             raise HTTPException(status_code=403, detail="Access denied")
 
         # Construct R2 key for the file
