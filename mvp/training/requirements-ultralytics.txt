@@ -1,6 +1,11 @@
 # ultralytics Service Dependencies
 # Object Detection, Segmentation, Pose: YOLO family
 
+# Web Framework (API Server)
+fastapi==0.108.0
+uvicorn[standard]==0.25.0
+python-multipart==0.0.6
+
 # Deep Learning Framework
 torch==2.1.1
 torchvision==0.16.1
