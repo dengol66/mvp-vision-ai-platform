@@ -194,6 +194,40 @@ class R2Storage:
             logger.error(f"Failed to download file from R2: {e}")
             return False
 
+    def get_file_content(self, object_key: str) -> Optional[bytes]:
+        """
+        Get file content from R2 as bytes.
+
+        Args:
+            object_key: R2 object key
+
+        Returns:
+            File content as bytes, or None if not found
+        """
+        if not self.client:
+            logger.error("R2 client not initialized")
+            return None
+
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket_name,
+                Key=object_key
+            )
+
+            content = response['Body'].read()
+            logger.info(f"Retrieved file content from R2: {object_key} ({len(content)} bytes)")
+            return content
+
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                logger.warning(f"File not found in R2: {object_key}")
+            else:
+                logger.error(f"Failed to get file content from R2: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting file content: {e}")
+            return None
+
     def delete_file(self, object_key: str) -> bool:
         """
         Delete a file from R2.

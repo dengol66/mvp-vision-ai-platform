@@ -847,7 +847,7 @@ async def get_config_schema(framework: str, task_type: str = None):
         response = requests.get(
             f"{client.base_url}/config-schema",
             params={"task_type": task_type or ""},
-            timeout=10
+            timeout=30  # Increased timeout for cold start (schema loading)
         )
 
         # Handle errors

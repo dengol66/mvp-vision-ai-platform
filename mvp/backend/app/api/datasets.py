@@ -210,6 +210,11 @@ class SampleDatasetInfo(BaseModel):
     size_mb: Optional[float] = None
     source: str
     path: str
+    visibility: str  # 'public', 'private', 'organization'
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
+    owner_badge_color: Optional[str] = None
 
 
 class DatasetListItem(BaseModel):
@@ -289,6 +294,11 @@ async def list_sample_datasets(
             "size_mb": None,  # Size not stored in DB yet
             "source": ds.storage_type,
             "path": ds.id,  # Use ID as path
+            "visibility": ds.visibility,
+            "owner_id": ds.owner_id,
+            "owner_name": ds.owner.full_name if ds.owner else None,
+            "owner_email": ds.owner.email if ds.owner else None,
+            "owner_badge_color": ds.owner.badge_color if ds.owner else None,
         })
 
     return result
@@ -545,4 +555,70 @@ async def delete_dataset(
         return DeleteDatasetResponse(
             status="error",
             message=f"Failed to delete dataset: {str(e)}"
+        )
+
+
+@router.get("/{dataset_id}/file/{filename}")
+async def get_dataset_file(
+    dataset_id: str,
+    filename: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get a specific file from dataset (e.g., annotations.json).
+
+    This endpoint allows downloading dataset metadata files like annotations.json
+    to check which images have labels without downloading all images.
+    """
+    try:
+        # Verify dataset exists and user has access
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+        # Check user ownership or public access
+        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Construct R2 key for the file
+        r2_key = f"datasets/{dataset_id}/{filename}"
+
+        logger.info(f"Fetching file from R2: {r2_key}")
+
+        # Get file content from R2
+        file_content = r2_storage.get_file_content(r2_key)
+
+        if file_content is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File '{filename}' not found in dataset"
+            )
+
+        # Parse JSON if it's a JSON file
+        if filename.endswith('.json'):
+            try:
+                # Decode bytes to string, then parse JSON
+                json_str = file_content.decode('utf-8')
+                json_data = json.loads(json_str)
+                return JSONResponse(content=json_data)
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                logger.error(f"Failed to parse JSON file {filename}: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to parse JSON file: {str(e)}"
+                )
+
+        # For non-JSON files, return raw content as base64
+        import base64
+        encoded_content = base64.b64encode(file_content).decode('utf-8')
+        return JSONResponse(content={"content": encoded_content})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching dataset file: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch file: {str(e)}"
         )

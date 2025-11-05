@@ -879,7 +879,7 @@ class TimmAdapter(TrainingAdapter):
         """
         import time
         from pathlib import Path
-        from .base import InferenceResult, TaskType
+        from platform_sdk import InferenceResult, TaskType
 
         # Timing
         start_time = time.time()

@@ -326,6 +326,10 @@ def _try_download_dataset_from_r2(
     """
     Try to download and extract dataset from R2.
 
+    Supports two formats:
+    1. Zip file: datasets/{dataset_id}.zip
+    2. Directory: datasets/{dataset_id}/ (with multiple files)
+
     Returns:
         Local directory path if successful, None otherwise
     """
@@ -352,36 +356,93 @@ def _try_download_dataset_from_r2(
         )
 
         bucket = 'vision-platform-prod'
-        key = f'datasets/{dataset_id}.zip'
 
-        print(f"[R2] Downloading from s3://{bucket}/{key}...")
+        # Try 1: Check for zip file
+        zip_key = f'datasets/{dataset_id}.zip'
+        print(f"[R2] Trying zip file: s3://{bucket}/{zip_key}...")
         sys.stdout.flush()
-
-        # Download to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-            tmp_path = tmp_file.name
 
         try:
-            s3.download_file(bucket, key, tmp_path)
-            print(f"[R2] Download successful, extracting...")
+            # Check if zip file exists
+            s3.head_object(Bucket=bucket, Key=zip_key)
+
+            # Download to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                tmp_path = tmp_file.name
+
+            try:
+                s3.download_file(bucket, zip_key, tmp_path)
+                print(f"[R2] Zip download successful, extracting...")
+                sys.stdout.flush()
+
+                # Extract to destination
+                _extract_dataset(tmp_path, dest_dir)
+
+                print(f"[R2] Extraction successful")
+                sys.stdout.flush()
+
+                return str(dest_dir)
+
+            finally:
+                # Clean up temporary file
+                if Path(tmp_path).exists():
+                    Path(tmp_path).unlink()
+
+        except s3.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                # Zip not found, try directory structure
+                print(f"[R2] Zip not found, trying directory structure...")
+                sys.stdout.flush()
+            else:
+                raise
+
+        # Try 2: Check for directory structure
+        dir_prefix = f'datasets/{dataset_id}/'
+        print(f"[R2] Trying directory: s3://{bucket}/{dir_prefix}...")
+        sys.stdout.flush()
+
+        # List all objects with this prefix
+        response = s3.list_objects_v2(Bucket=bucket, Prefix=dir_prefix)
+
+        if 'Contents' not in response or len(response['Contents']) == 0:
+            print(f"[R2] No files found in directory")
+            sys.stdout.flush()
+            return None
+
+        # Create destination directory
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        # Download all files
+        total_files = len(response['Contents'])
+        print(f"[R2] Found {total_files} files, downloading...")
+        sys.stdout.flush()
+
+        for idx, obj in enumerate(response['Contents'], 1):
+            key = obj['Key']
+            # Get relative path (remove prefix)
+            relative_path = key[len(dir_prefix):]
+
+            if not relative_path:  # Skip directory marker
+                continue
+
+            local_file = dest_dir / relative_path
+            local_file.parent.mkdir(parents=True, exist_ok=True)
+
+            print(f"[R2] [{idx}/{total_files}] Downloading {relative_path}...")
             sys.stdout.flush()
 
-            # Extract to destination
-            _extract_dataset(tmp_path, dest_dir)
+            s3.download_file(bucket, key, str(local_file))
 
-            print(f"[R2] Extraction successful")
-            sys.stdout.flush()
+        print(f"[R2] Directory download successful: {dest_dir}")
+        sys.stdout.flush()
 
-            return str(dest_dir)
-
-        finally:
-            # Clean up temporary file
-            if Path(tmp_path).exists():
-                Path(tmp_path).unlink()
+        return str(dest_dir)
 
     except Exception as e:
-        print(f"[R2] Not found in R2 or download failed: {e}")
+        print(f"[R2] Download failed: {e}")
         sys.stdout.flush()
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -459,3 +520,209 @@ def _upload_dataset_to_r2(
         warnings.warn(f"[R2 WARNING] Failed to upload dataset to R2: {e}", UserWarning)
         print(f"[R2 WARNING] Dataset upload failed (non-critical): {e}")
         sys.stdout.flush()
+
+
+# ========== Checkpoint Management ==========
+
+def upload_checkpoint(
+    checkpoint_path: str,
+    job_id: int,
+    checkpoint_name: str = "best.pt",
+    project_id: int = None
+) -> bool:
+    """
+    Upload training checkpoint to R2.
+
+    Non-blocking: Warns on failure but doesn't crash.
+
+    Storage structure:
+    - With project: checkpoints/projects/{project_id}/jobs/{job_id}/{checkpoint_name}
+    - Without project (test jobs): checkpoints/test-jobs/job_{job_id}/{checkpoint_name}
+
+    Args:
+        checkpoint_path: Local path to checkpoint file
+        job_id: Training job ID
+        checkpoint_name: Name of checkpoint (e.g., "best.pt", "last.pt")
+        project_id: Optional project ID for organizing checkpoints
+
+    Returns:
+        bool: True if upload successful, False otherwise
+
+    Examples:
+        >>> # Project job
+        >>> success = upload_checkpoint("/path/to/best.pt", job_id=123, checkpoint_name="best.pt", project_id=5)
+        # Uploads to: s3://vision-platform-prod/checkpoints/projects/5/jobs/123/best.pt
+        # Returns: True
+
+        >>> # Test job (no project)
+        >>> success = upload_checkpoint("/path/to/best.pt", job_id=456, checkpoint_name="best.pt")
+        # Uploads to: s3://vision-platform-prod/checkpoints/test-jobs/job_456/best.pt
+        # Returns: True
+    """
+    try:
+        import boto3
+        from pathlib import Path
+
+        checkpoint_file = Path(checkpoint_path)
+        if not checkpoint_file.exists():
+            print(f"[R2 WARNING] Checkpoint file not found: {checkpoint_path}")
+            sys.stdout.flush()
+            return False
+
+        # Check if R2 credentials are available
+        endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        if not all([endpoint, access_key, secret_key]):
+            print(f"[R2] R2 credentials not configured, skipping checkpoint upload")
+            sys.stdout.flush()
+            return False
+
+        s3 = boto3.client(
+            's3',
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+
+        bucket = 'vision-platform-prod'
+
+        # Build path based on project_id
+        if project_id:
+            key = f'checkpoints/projects/{project_id}/jobs/{job_id}/{checkpoint_name}'
+        else:
+            key = f'checkpoints/test-jobs/job_{job_id}/{checkpoint_name}'
+
+        print(f"[R2] Uploading checkpoint to R2: s3://{bucket}/{key}...")
+        sys.stdout.flush()
+
+        # Get file size for progress reporting
+        file_size_mb = checkpoint_file.stat().st_size / (1024 * 1024)
+        print(f"[R2] Checkpoint size: {file_size_mb:.2f} MB")
+        sys.stdout.flush()
+
+        s3.upload_file(str(checkpoint_file), bucket, key)
+
+        print(f"[R2] Checkpoint upload successful!")
+        print(f"[R2] Checkpoint available at: s3://{bucket}/{key}")
+        sys.stdout.flush()
+        return True
+
+    except Exception as e:
+        # Don't fail training just because upload failed
+        warnings.warn(f"[R2 WARNING] Failed to upload checkpoint to R2: {e}", UserWarning)
+        print(f"[R2 WARNING] Checkpoint upload failed (non-critical): {e}")
+        sys.stdout.flush()
+        return False
+
+
+def download_checkpoint(
+    checkpoint_path: str,
+    dest_path: Optional[str] = None
+) -> str:
+    """
+    Download checkpoint from R2 if it's an R2 URL, or return local path if already local.
+
+    Args:
+        checkpoint_path: Either local path or R2 URL (r2://bucket/key)
+        dest_path: Optional destination path. If not provided, uses temp directory
+
+    Returns:
+        Local file path to checkpoint
+
+    Raises:
+        FileNotFoundError: If checkpoint cannot be downloaded or found
+
+    Examples:
+        >>> # Local file - just validates and returns
+        >>> path = download_checkpoint("/path/to/best.pt")
+        # Returns: "/path/to/best.pt"
+
+        >>> # R2 URL - downloads to temp directory
+        >>> path = download_checkpoint("r2://vision-platform-prod/checkpoints/projects/2/jobs/20/best.pt")
+        # Downloads to: C:/Users/.../Temp/best.pt (or /tmp/best.pt on Linux)
+        # Returns: temp file path
+    """
+    # If it's a local path, just verify it exists
+    if not checkpoint_path.startswith('r2://'):
+        if os.path.exists(checkpoint_path):
+            print(f"[CHECKPOINT] Using local checkpoint: {checkpoint_path}")
+            sys.stdout.flush()
+            return checkpoint_path
+        else:
+            raise FileNotFoundError(f"Local checkpoint not found: {checkpoint_path}")
+
+    # Parse R2 URL: r2://bucket/key
+    # Example: r2://vision-platform-prod/checkpoints/projects/2/jobs/20/best.pt
+    try:
+        import boto3
+        import tempfile
+
+        # Parse URL
+        parts = checkpoint_path.replace('r2://', '').split('/', 1)
+        if len(parts) != 2:
+            raise ValueError(f"Invalid R2 URL format: {checkpoint_path}")
+
+        bucket = parts[0]
+        key = parts[1]
+
+        # Determine destination path
+        if dest_path is None:
+            # Use temp directory with the checkpoint name
+            checkpoint_name = Path(key).name
+            temp_dir = Path(tempfile.gettempdir()) / "checkpoints"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = temp_dir / checkpoint_name
+
+        dest_file = Path(dest_path)
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # If already downloaded, return it (avoid re-downloading)
+        if dest_file.exists():
+            print(f"[CHECKPOINT] Using cached checkpoint: {dest_file}")
+            sys.stdout.flush()
+            return str(dest_file)
+
+        # Check if R2 credentials are available
+        endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        if not all([endpoint, access_key, secret_key]):
+            raise RuntimeError("R2 credentials not configured")
+
+        s3 = boto3.client(
+            's3',
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+
+        print(f"[R2] Downloading checkpoint from s3://{bucket}/{key}...")
+        sys.stdout.flush()
+
+        # Get file size for progress reporting
+        try:
+            response = s3.head_object(Bucket=bucket, Key=key)
+            file_size_mb = response['ContentLength'] / (1024 * 1024)
+            print(f"[R2] Checkpoint size: {file_size_mb:.2f} MB")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[R2] Warning: Could not get file size: {e}")
+            sys.stdout.flush()
+
+        # Download
+        s3.download_file(bucket, key, str(dest_file))
+
+        print(f"[R2] Checkpoint download successful: {dest_file}")
+        sys.stdout.flush()
+
+        return str(dest_file)
+
+    except Exception as e:
+        print(f"[R2] Checkpoint download failed: {e}")
+        sys.stdout.flush()
+        import traceback
+        traceback.print_exc()
+        raise FileNotFoundError(f"Failed to download checkpoint from R2: {checkpoint_path}") from e

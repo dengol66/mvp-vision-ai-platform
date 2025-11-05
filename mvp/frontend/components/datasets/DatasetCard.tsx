@@ -1,6 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
+import { Globe, Lock } from 'lucide-react';
 import { Dataset } from '@/types/dataset';
+import { cn } from '@/lib/utils/cn';
+import { getAvatarColorStyle } from '@/lib/utils/avatarColors';
 
 interface DatasetCardProps {
   dataset: Dataset;
@@ -16,11 +19,35 @@ const formatNames: Record<string, string> = {
   dice: 'DICE Format',
 };
 
+// Avatar helper function
+const getAvatarInitials = (owner_name: string | null | undefined, owner_email: string | null | undefined): string => {
+  if (owner_name) {
+    if (/[가-힣]/.test(owner_name)) {
+      return owner_name.slice(0, 2);
+    }
+    const parts = owner_name.split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return owner_name.slice(0, 2).toUpperCase();
+  }
+  if (owner_email) {
+    return owner_email.slice(0, 2).toUpperCase();
+  }
+  return '?';
+};
+
 export default function DatasetCard({ dataset, onSelect, selected }: DatasetCardProps) {
   const formatName = formatNames[dataset.format] || dataset.format;
   const labeledBadge = dataset.labeled
     ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
     : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' };
+
+  const avatarInitials = getAvatarInitials(dataset.owner_name, dataset.owner_email);
+  const avatarColorStyle = getAvatarColorStyle(dataset.owner_badge_color);
+  const ownerTooltip = dataset.owner_name
+    ? `${dataset.owner_name} (${dataset.owner_email})`
+    : dataset.owner_email || 'Unknown';
 
   return (
     <div
@@ -63,7 +90,28 @@ export default function DatasetCard({ dataset, onSelect, selected }: DatasetCard
         <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
           {dataset.source}
         </span>
+        <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 flex items-center gap-1">
+          {dataset.visibility === 'public' ? (
+            <Globe className="w-3 h-3 text-green-600" />
+          ) : (
+            <Lock className="w-3 h-3 text-gray-600" />
+          )}
+          <span className="capitalize">{dataset.visibility || 'private'}</span>
+        </span>
       </div>
+
+      {/* Owner */}
+      {(dataset.owner_name || dataset.owner_email) && (
+        <div className="mb-3">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white cursor-pointer hover:ring-2 hover:ring-offset-2 transition-all"
+            style={avatarColorStyle}
+            title={ownerTooltip}
+          >
+            {avatarInitials}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 text-sm">

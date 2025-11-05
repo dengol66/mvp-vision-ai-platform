@@ -13,6 +13,15 @@ sys.stderr.reconfigure(line_buffering=True)
 # Add training directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Load .env file for R2 credentials
+from dotenv import load_dotenv
+dotenv_path = Path(__file__).parent / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path)
+    print(f"[INFO] Loaded environment variables from {dotenv_path}")
+else:
+    print(f"[WARNING] .env file not found at {dotenv_path}")
+
 from platform_sdk import (
     ModelConfig,
     DatasetConfig,
@@ -23,12 +32,8 @@ from platform_sdk import (
 )
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
-# Configure MLflow tracking URI
-# Use MLflow server instead of local file storage
+# Configure MLflow tracking URI (only if not already set by .env)
 os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
-os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
-os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
-os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")
 
 
 def parse_args():
@@ -48,7 +53,7 @@ def parse_args():
     parser.add_argument('--dataset_path', type=str, required=True,
                         help='Path to dataset directory')
     parser.add_argument('--dataset_format', type=str, default='imagefolder',
-                        choices=['imagefolder', 'coco', 'yolo', 'voc', 'custom'],
+                        choices=['imagefolder', 'coco', 'yolo', 'voc', 'custom', 'dice'],
                         help='Dataset format')
     parser.add_argument('--num_classes', type=int, required=False,
                         help='Number of classes (required for classification)')
@@ -85,6 +90,10 @@ def parse_args():
     # Advanced config (passed from Backend via API)
     parser.add_argument('--advanced_config', type=str, default=None,
                         help='Advanced configuration JSON string from Backend')
+
+    # Project ID for checkpoint organization
+    parser.add_argument('--project_id', type=int, default=None,
+                        help='Project ID for organizing checkpoints in R2')
 
     return parser.parse_args()
 
@@ -192,9 +201,14 @@ def main():
             image_size = 640
             print(f"[CONFIG] Adjusting image_size from 224 to 640 for YOLO")
 
+        # Normalize task_type: convert hyphen to underscore for enum compatibility
+        # Backend may send "object-detection" but enum expects "object_detection"
+        normalized_task_type = args.task_type.replace('-', '_')
+        print(f"[CONFIG] Task type: {args.task_type} → {normalized_task_type}")
+
         model_config = ModelConfig(
             framework=args.framework,
-            task_type=TaskType(args.task_type),
+            task_type=TaskType(normalized_task_type),
             model_name=args.model_name,
             pretrained=args.pretrained,
             num_classes=args.num_classes,
@@ -280,6 +294,7 @@ def main():
         training_config=training_config,
         output_dir=args.output_dir,
         job_id=args.job_id,
+        project_id=args.project_id,
         logger=logger
     )
 
