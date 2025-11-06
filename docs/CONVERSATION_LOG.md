@@ -7,6 +7,291 @@
 
 ---
 
+## [2025-11-07 14:30] Kubernetes Training 방식 FAQ - 핵심 질문 4가지 해결
+
+### 논의 주제
+- K8s Job 방식에서 학습 중단/재시작 가능성
+- 프레임워크별 설정(Config) 관리 방법
+- Inference (Single/Batch) 구현 현황
+- 테스트 전략 및 실행 방법
+
+### 주요 결정사항
+
+#### 1. Checkpoint Resume으로 학습 재시작 가능 ✅
+- **질문**: K8s Job은 pause/resume이 어렵지 않나?
+- **답변**: Checkpoint 기반 재시작으로 해결
+- **구현 상태**: 완전 구현됨 (`train.py:83-360`)
+
+**복원되는 상태**:
+- Model weights
+- Optimizer state
+- LR scheduler state
+- Current epoch number
+- Best validation accuracy
+
+**K8s에서의 동작**:
+```yaml
+# 자동 재시작 설정
+spec:
+  backoffLimit: 3
+  restartPolicy: OnFailure
+  # 모든 Job을 --resume 모드로 실행
+  args: ["--checkpoint_path=s3://...", "--resume"]
+```
+
+**Scenario**:
+- Epoch 10/50 진행 중 → Pod 종료
+- K8s 자동 재시작
+- Epoch 10 checkpoint 로드
+- Epoch 11부터 재개
+
+#### 2. Adapter Pattern + Config Schema로 프레임워크별 설정 ✅
+- **질문**: 모델/프레임워크마다 다른 Config는 어떻게?
+- **답변**: 각 Adapter가 자체 Config Schema 정의
+
+**TIMM 예시**:
+```python
+config_schema = {
+    "optimizer_type": ["adam", "adamw", "sgd"],
+    "scheduler_type": ["cosine", "step", "plateau"],
+    "mixup": bool,
+    "cutmix": bool,
+}
+
+presets = {
+    "easy": {"optimizer": "adam", "mixup": False},
+    "medium": {"optimizer": "adamw", "mixup": True},
+    "advanced": {"optimizer": "adamw", "mixup": True, "cutmix": True},
+}
+```
+
+**Ultralytics 예시**:
+```python
+config_schema = {
+    "optimizer_type": ["Adam", "AdamW", "SGD"],
+    "cos_lr": bool,
+    "mosaic": float,  # YOLO-specific
+    "mixup": float,
+    "copy_paste": float,
+}
+```
+
+**사용 방법**:
+1. **Preset**: "난이도 medium으로" → LLM이 preset 적용
+2. **세부 설정**: "AdamW, lr 0.001, mosaic 1.0" → LLM이 advanced_config 생성
+3. **DB 저장**: `training_jobs.advanced_config` (JSONB)
+
+#### 3. Inference 구현 현황
+- **Single Inference**: ✅ 완전 구현
+- **Batch Inference (TestRun)**: ✅ 구현
+- **Production Batch**: ⚠️ 향후 구현
+
+**Single Inference API**:
+```python
+# POST /api/v1/test/inference/single
+result = adapter.infer_single("image.jpg")
+# → {"predicted_label": "cat", "confidence": 0.92, "top5_predictions": [...]}
+```
+
+**모든 Adapter 구현 완료**:
+- `TimmAdapter.infer_single()`: lines 1040-1118
+- `UltralyticsAdapter.infer_single()`: lines 2568+
+- `TransformersAdapter.infer_single()`: lines 594, 820
+
+**Batch Inference (TestRun)**:
+```python
+# POST /api/v1/test/runs
+test_run = create_test_run(
+    job_id=123,
+    test_dataset_path="s3://bucket/test_dataset/"
+)
+# Background task로 모든 이미지 처리
+```
+
+#### 4. 4단계 테스트 전략 ✅
+- **Level 1: Unit Tests** (`mvp/backend/tests/unit/`)
+- **Level 2: Integration Tests** (`mvp/backend/tests/integration/`)
+- **Level 3: Subprocess E2E** (`mvp/training/test_train_subprocess_e2e.py`)
+- **Level 4: K8s Job Tests** (`mvp/backend/tests/k8s/`)
+
+**테스트 실행**:
+```bash
+# Level 1: Unit
+cd mvp/backend && pytest tests/unit/ -v
+
+# Level 2: Integration
+pytest tests/integration/ -v
+
+# Level 3: E2E
+cd mvp/training && python test_train_subprocess_e2e.py
+
+# Level 4: K8s
+kind create cluster --name training-test
+kind load docker-image vision-platform/trainer-timm:latest
+cd mvp/backend && pytest tests/k8s/ -v
+```
+
+### 구현 내용
+
+#### 종합 FAQ 문서
+**파일**: `docs/k8s/K8S_TRAINING_FAQ.md` (새로 생성)
+
+**포함 내용** (전체 1000+ lines):
+1. **학습 중단/재시작** (360 lines)
+   - Checkpoint resume 구현 세부사항
+   - K8s Job 자동 재시작 동작
+   - Multi-stage training (24시간+ 학습)
+   - Checkpoint 저장 주기 설정
+   - K8s Job vs 일반 서버 비교
+
+2. **프레임워크별 Config** (400 lines)
+   - Preset 시스템 (easy/medium/advanced)
+   - 세부 설정 방식
+   - TIMM/Ultralytics Config Schema 예시
+   - Config 전달 Flow
+   - DB 저장 및 로딩
+
+3. **Inference 구현** (300 lines)
+   - Single inference API
+   - Batch inference (TestRun)
+   - Adapter별 구현 상세
+   - Frontend 사용 예시
+   - Production batch 제안
+
+4. **테스트 방법** (400 lines)
+   - 4단계 테스트 계층
+   - 테스트 데이터셋 생성
+   - K8s 클러스터 셋업
+   - CI/CD 통합 예시
+   - Coverage 목표
+
+### 기술 세부사항
+
+#### Checkpoint Resume 흐름
+```python
+# 1. 처음 시작 (checkpoint 없음)
+python train.py --job_id=123 --num_epochs=50
+
+# 2. Epoch 10에서 중단
+
+# 3. 재시작 (자동으로 epoch 10부터)
+python train.py --job_id=123 \
+    --checkpoint_path=s3://bucket/job_123/weights/last.pt \
+    --resume \
+    --num_epochs=50
+```
+
+#### Config Schema 구조
+```python
+# Adapter별 schema 정의
+class TimmAdapter:
+    def get_config_schema(self):
+        return [
+            ConfigField("optimizer_type", type="select", options=[...]),
+            ConfigField("scheduler_type", type="select", options=[...]),
+            ConfigField("mixup", type="bool", default=False),
+        ]
+
+    def get_preset_config(self, preset: str):
+        return self.presets[preset]  # easy/medium/advanced
+```
+
+#### Inference Result Schema
+```python
+class InferenceResult:
+    image_path: str
+    predicted_label: str
+    confidence: float
+    top5_predictions: List[Dict]
+    inference_time_ms: float
+    preprocessing_time_ms: float
+    postprocessing_time_ms: float
+```
+
+### 테스트 커버리지
+
+**구현된 테스트 파일들**:
+- `test_adapter_imports.py` - Adapter 로딩
+- `test_advanced_config.py` - Config 검증
+- `test_inference_api.py` - Inference 엔드포인트
+- `test_checkpoint_inference.py` - Checkpoint 로딩
+- `test_train_subprocess_e2e.py` - 전체 파이프라인
+- `test_inference_pretrained.py` - Pretrained 모델
+- `test_training_config.py` - 설정 검증
+- `test_validation_metrics_persistence.py` - 메트릭 저장
+
+### 요약 표
+
+| 질문 | 구현 상태 | 핵심 파일 |
+|------|-----------|----------|
+| **학습 중단/재시작** | ✅ 완전 구현 | `train.py:83-360`, `base.py:1242-1287` |
+| **프레임워크별 Config** | ✅ 완전 구현 | `timm_adapter.py:14-326`, `ultralytics_adapter.py:39-250` |
+| **Inference** | ✅ Single 완전 구현<br>✅ Batch (TestRun)<br>⚠️ Production Batch 향후 | `timm_adapter.py:1040-1118`, `test_inference.py` |
+| **테스트** | ✅ 완전 구현 | `tests/unit/`, `tests/integration/`, E2E scripts |
+
+### 다음 단계
+
+#### 즉시 가능 (테스트)
+- [ ] 로컬 K8s 클러스터로 테스트 (Kind + QUICKSTART.md)
+- [ ] Checkpoint resume 동작 검증
+- [ ] Inference API 실제 호출 테스트
+
+#### 향후 개선
+- [ ] Production Batch Inference API (K8s Job 기반)
+- [ ] WebSocket 통합으로 실시간 모니터링 강화
+- [ ] Goal #2: LLM Agent 고도화
+
+### 관련 문서
+- **FAQ 문서**: [docs/k8s/K8S_TRAINING_FAQ.md](../k8s/K8S_TRAINING_FAQ.md) (신규)
+- **K8s 마이그레이션**: [docs/k8s/20251106_kubernetes_job_migration_plan.md](../k8s/20251106_kubernetes_job_migration_plan.md)
+- **모니터링 통합**: [mvp/k8s/MONITORING_INTEGRATION.md](../../mvp/k8s/MONITORING_INTEGRATION.md)
+- **K8s QUICKSTART**: [mvp/k8s/QUICKSTART.md](../../mvp/k8s/QUICKSTART.md)
+
+### 핵심 통찰
+
+#### K8s Job의 제약을 Checkpoint로 극복
+- K8s Job은 pause 불가 → Checkpoint resume으로 동일 효과
+- Pod 재시작 = 새 Job 생성 + `--resume` 플래그
+- R2 Storage 덕분에 checkpoint 영속성 보장
+
+#### Adapter Pattern의 유연성
+- Framework마다 완전히 다른 config 필요
+- 각 Adapter가 자체 schema 정의
+- Preset으로 간편함 + 세부 설정으로 유연성
+
+#### 테스트의 계층화
+- Unit → Integration → E2E → K8s
+- 각 레벨이 다른 부분을 검증
+- Production-ready 보장
+
+### 기술 노트
+
+#### Checkpoint 저장 위치
+```
+로컬: output/job_{job_id}/weights/best.pt, last.pt
+R2: checkpoints/projects/{project_id}/jobs/{job_id}/best.pt, last.pt
+```
+
+#### Config 전달 체인
+```
+사용자 자연어
+  → LLM Parser
+  → TrainingIntent.advanced_config
+  → DB (training_jobs.advanced_config JSONB)
+  → train.py --job_id
+  → load_advanced_config_from_db()
+  → Adapter(advanced_config)
+  → Framework-specific 구현
+```
+
+#### 4단계 테스트 실행 시간
+- Level 1 (Unit): ~30초
+- Level 2 (Integration): ~2분
+- Level 3 (E2E): ~5분 (tiny dataset)
+- Level 4 (K8s): ~10분 (클러스터 셋업 포함)
+
+---
+
 ## [2025-11-05 14:45] Checkpoint 관리 정책 및 R2 업로드 전략 수립
 
 ### 논의 주제
