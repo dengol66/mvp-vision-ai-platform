@@ -118,6 +118,9 @@ def load_advanced_config_from_db(job_id: int):
 
         # Check for DATABASE_URL environment variable first (Railway/production)
         database_url = os.getenv('DATABASE_URL')
+        print(f"[DB_DEBUG] DATABASE_URL present: {bool(database_url)}")
+        if database_url:
+            print(f"[DB_DEBUG] DATABASE_URL value: {database_url[:20]}...")  # Show first 20 chars only
 
         if database_url:
             print(f"[INFO] Using DATABASE_URL from environment")
