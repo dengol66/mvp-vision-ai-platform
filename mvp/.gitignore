@@ -59,3 +59,5 @@ checkpoints/
 # Frontend (for later)
 node_modules/
 .next/
+training/venv-timm/
+training/venv-ultralytics/
