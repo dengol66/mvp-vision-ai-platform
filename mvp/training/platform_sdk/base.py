@@ -507,17 +507,9 @@ class TrainingAdapter(ABC):
         try:
             import sqlite3
             import json
+            import os
             from pathlib import Path
             from datetime import datetime
-
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-            if not db_path.exists():
-                print(f"[WARNING] Database not found at {db_path}, skipping validation result save")
-                return
 
             # Get task-specific metrics
             task_metrics = validation_metrics.get_task_metrics()
@@ -564,17 +556,37 @@ class TrainingAdapter(ABC):
                 if pose.per_keypoint_pck:
                     per_class_metrics_json = json.dumps(pose.per_keypoint_pck)
 
-            # Insert into database
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
+            # Get database connection (support both Railway and local)
+            database_url = os.getenv('DATABASE_URL')
 
+            if database_url:
+                # Railway/production: use PostgreSQL
+                import psycopg2
+                conn = psycopg2.connect(database_url)
+                cursor = conn.cursor()
+                placeholder = '%s'
+            else:
+                # Local: use SQLite
+                training_dir = Path(__file__).parent.parent
+                mvp_dir = training_dir.parent
+                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+                if not db_path.exists():
+                    print(f"[WARNING] Database not found at {db_path}, skipping validation result save")
+                    return
+
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+                placeholder = '?'
+
+            # Insert into database with appropriate placeholder
             cursor.execute(
-                """
+                f"""
                 INSERT INTO validation_results
                 (job_id, epoch, task_type, primary_metric_value, primary_metric_name,
                  overall_loss, metrics, per_class_metrics, confusion_matrix, pr_curves,
                  class_names, checkpoint_path, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                 """,
                 (
                     self.job_id,
@@ -628,22 +640,11 @@ class TrainingAdapter(ABC):
         try:
             import sqlite3
             import json
+            import os
             from pathlib import Path
             from datetime import datetime
 
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-            if not db_path.exists():
-                print(f"[WARNING] Database not found at {db_path}, skipping image results save")
-                return
-
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-
-            # Prepare batch insert
+            # Prepare batch insert data
             records = []
             for img_result in image_results:
                 true_label = class_names[img_result['true_label_id']] if class_names else str(img_result['true_label_id'])
@@ -679,15 +680,39 @@ class TrainingAdapter(ABC):
                     datetime.utcnow().isoformat()
                 ))
 
-            # Batch insert
+            # Get database connection (support both Railway and local)
+            database_url = os.getenv('DATABASE_URL')
+
+            if database_url:
+                # Railway/production: use PostgreSQL
+                import psycopg2
+                conn = psycopg2.connect(database_url)
+                cursor = conn.cursor()
+                placeholder = '%s'
+            else:
+                # Local: use SQLite
+                training_dir = Path(__file__).parent.parent
+                mvp_dir = training_dir.parent
+                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+                if not db_path.exists():
+                    print(f"[WARNING] Database not found at {db_path}, skipping image results save")
+                    return
+
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+                placeholder = '?'
+
+            # Batch insert with appropriate placeholder
+            placeholders = ', '.join([placeholder] * 23)  # 23 fields
             cursor.executemany(
-                """
+                f"""
                 INSERT INTO validation_image_results
                 (validation_result_id, job_id, epoch, image_path, image_name, image_index,
                  true_label, true_label_id, predicted_label, predicted_label_id, confidence,
                  top5_predictions, true_boxes, predicted_boxes, true_mask_path, predicted_mask_path,
                  true_keypoints, predicted_keypoints, is_correct, iou, oks, extra_data, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES ({placeholders})
                 """,
                 records
             )
@@ -715,30 +740,42 @@ class TrainingAdapter(ABC):
         """
         try:
             import sqlite3
+            import os
             from pathlib import Path
 
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+            # Get database connection (support both Railway and local)
+            database_url = os.getenv('DATABASE_URL')
 
-            if not db_path.exists():
-                print(f"[WARNING] Database not found at {db_path}, skipping validation clear")
-                return
+            if database_url:
+                # Railway/production: use PostgreSQL
+                import psycopg2
+                conn = psycopg2.connect(database_url)
+                cursor = conn.cursor()
+                placeholder = '%s'
+            else:
+                # Local: use SQLite
+                training_dir = Path(__file__).parent.parent
+                mvp_dir = training_dir.parent
+                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
 
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
+                if not db_path.exists():
+                    print(f"[WARNING] Database not found at {db_path}, skipping validation clear")
+                    return
+
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+                placeholder = '?'
 
             # Delete image results first (foreign key constraint)
             cursor.execute(
-                "DELETE FROM validation_image_results WHERE job_id = ?",
+                f"DELETE FROM validation_image_results WHERE job_id = {placeholder}",
                 (self.job_id,)
             )
             deleted_images = cursor.rowcount
 
             # Delete validation results
             cursor.execute(
-                "DELETE FROM validation_results WHERE job_id = ?",
+                f"DELETE FROM validation_results WHERE job_id = {placeholder}",
                 (self.job_id,)
             )
             deleted_results = cursor.rowcount
@@ -1266,22 +1303,43 @@ class TrainingAdapter(ABC):
 
         try:
             import sqlite3
+            import os
             from pathlib import Path
 
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+            # Get database connection (support both Railway and local)
+            database_url = os.getenv('DATABASE_URL')
 
-            if db_path.exists():
-                conn = sqlite3.connect(str(db_path))
+            if database_url:
+                # Railway/production: use PostgreSQL
+                import psycopg2
+                conn = psycopg2.connect(database_url)
                 cursor = conn.cursor()
 
                 # Query job's primary metric configuration
                 cursor.execute(
-                    "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = ?",
+                    "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = %s",
                     (self.job_id,)
                 )
+            else:
+                # Local: use SQLite
+                training_dir = Path(__file__).parent.parent
+                mvp_dir = training_dir.parent
+                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+                if not db_path.exists():
+                    print(f"[WARNING] Database not found at {db_path}")
+                    conn = None
+                else:
+                    conn = sqlite3.connect(str(db_path))
+                    cursor = conn.cursor()
+
+                    # Query job's primary metric configuration
+                    cursor.execute(
+                        "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = ?",
+                        (self.job_id,)
+                    )
+
+            if conn:
                 result = cursor.fetchone()
                 conn.close()
 
@@ -1296,8 +1354,6 @@ class TrainingAdapter(ABC):
                     print(f"[INFO] Best checkpoint selection: {primary_metric} ({primary_metric_mode})")
                 else:
                     print(f"[WARNING] Job {self.job_id} not found in database")
-            else:
-                print(f"[WARNING] Database not found at {db_path}")
         except Exception as e:
             print(f"[WARNING] Failed to load primary metric config: {e}")
 
