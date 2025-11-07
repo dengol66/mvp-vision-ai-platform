@@ -7,6 +7,607 @@
 
 ---
 
+## [2025-11-07 19:00] 로컬 개발 워크플로우 최적화 - Docker 빌드 제거
+
+### 논의 주제
+- Training 코드 수정 시 매번 Docker 이미지 빌드 문제 해결
+- Frontend + Backend + Training 전체 통합 테스트 방법
+- Framework별 Training Service 실행 방식
+- 로컬 개발 환경 설정 및 자동화
+
+### 주요 결정사항
+
+#### 1. 3단계 개발 워크플로우 확립 ✅
+- **Tier 1: 로컬 개발 (subprocess)** - 99% 사용 ⚡⚡⚡
+  - Backend가 Python subprocess로 train.py 직접 실행
+  - Framework별 가상환경 사용 (venv-timm, venv-ultralytics, venv-huggingface)
+  - 실행 속도: 5-30초 (Docker 빌드 불필요)
+  - 시간 절약: **145분/일** (10회 반복 기준)
+
+- **Tier 2: K8s 테스트 (ConfigMap 주입)** - 배포 전 검증 ⚡⚡
+  - 코드를 ConfigMap으로 주입하여 K8s Job 실행
+  - 이미지 재빌드 불필요 (1-3분 소요)
+  - 실제 K8s 환경 테스트 가능
+
+- **Tier 3: Production 배포** - 최종 단계만 ⚡
+  - Docker 이미지 빌드 및 배포
+  - 10-15분 소요
+  - 배포 직전에만 실행
+
+#### 2. 로컬 개발 인프라 구성 ✅
+**Kind 클러스터 기반 서비스**:
+- MLflow (Port 30500): Experiment tracking, SQLite backend
+- MinIO (Port 30900/30901): S3-compatible object storage (R2 대체)
+- Prometheus (Port 30090): Metrics collection
+- Grafana (Port 30030): Monitoring dashboard
+
+**데이터 영속성**:
+- MLflow PVC: 5Gi (SQLite database)
+- MinIO PVC: 20Gi (datasets, checkpoints, results)
+
+**R2 → MinIO 전환 이유**:
+- 로컬 개발에 인터넷 불필요
+- Credentials 관리 불필요
+- 무료 (비용 절감)
+- S3-compatible API 동일
+
+#### 3. Framework별 Training Service 구조 ✅
+**현재 구현 상태**:
+```
+Backend API (Port 8000)
+  ↓ HTTP
+TrainingServiceClient (framework 기반 라우팅)
+  ↓
+api_server.py (Training Service)
+  ↓
+subprocess.Popen([venv-{framework}/python, train.py])
+  ↓
+Adapter Pattern (TimmAdapter, UltralyticsAdapter, HuggingFaceAdapter)
+```
+
+**Framework별 가상환경**:
+```
+mvp/training/
+├── venv-timm/          # timm 전용 의존성
+├── venv-ultralytics/   # ultralytics 전용 의존성
+├── venv-huggingface/   # huggingface 전용 의존성
+└── train.py            # 공통 Adapter 패턴
+```
+
+**동작 방식**:
+1. Backend: `TrainingServiceClient(framework="ultralytics")`
+2. Training Service: `venv-ultralytics/python train.py --framework=ultralytics`
+3. train.py: `UltralyticsAdapter` 선택 및 실행
+
+#### 4. 일상 개발 플로우 (전체 통합 테스트)
+
+**환경 시작 (아침 한 번)**:
+```powershell
+# K8s 서비스 시작 (MLflow, MinIO)
+.\dev-start.ps1 -SkipBuild  # 2-3분 소요
+```
+
+**개발 (3개 터미널)**:
+```powershell
+# Terminal 1: Backend
+cd mvp/backend
+.\venv\Scripts\activate
+python -m uvicorn app.main:app --reload --port 8000
+
+# Terminal 2: Frontend
+cd mvp/frontend
+npm run dev
+
+# Terminal 3: 브라우저
+start http://localhost:3000
+```
+
+**Training 실행**:
+1. Frontend에서 자연어 입력: "ResNet50으로 고양이/개 분류 학습해줘"
+2. Backend가 TrainingJob 생성
+3. Backend가 subprocess로 train.py 실행 (Framework별 venv 사용)
+4. MLflow에 실시간 메트릭 기록
+5. Frontend에서 결과 확인
+
+**환경 종료 (저녁)**:
+```powershell
+.\dev-stop.ps1
+```
+
+### 구현 내용
+
+#### 자동화 스크립트 (6개 생성)
+
+**환경 관리**:
+- `dev-start.ps1`: K8s 환경 자동 시작
+  - Kind 클러스터 생성/검증
+  - Docker 이미지 빌드 (선택적 `-SkipBuild`)
+  - K8s 리소스 배포 (MLflow, MinIO, Prometheus, Grafana)
+  - 서비스 Ready 대기
+  - MinIO 버킷 생성
+
+- `dev-stop.ps1`: K8s 환경 종료
+  - `-DeleteCluster`: 완전 삭제
+  - 기본: 중지 (데이터 유지)
+
+- `dev-status.ps1`: 환경 상태 확인
+  - 클러스터 상태
+  - 서비스 상태
+  - 리소스 사용량
+  - `-Watch`: 실시간 모니터링
+
+**Training 실행**:
+- `dev-train-local.ps1`: 로컬 Python 직접 실행
+  - 환경변수 자동 설정 (MLflow, MinIO)
+  - subprocess 실행
+  - 가장 빠름 (초 단위)
+
+- `dev-train-k8s.ps1`: K8s Job (ConfigMap 주입)
+  - 코드를 ConfigMap으로 생성
+  - 기존 Docker 이미지 사용
+  - 이미지 재빌드 불필요 (분 단위)
+
+**K8s 설정**:
+- `mvp/k8s/minio-config.yaml`: MinIO 배포
+- `mvp/k8s/minio-pvc.yaml`: MinIO 영속 스토리지 (20Gi)
+- `mvp/k8s/mlflow-config.yaml`: MLflow 배포 (수정)
+- `mvp/k8s/mlflow-pvc.yaml`: MLflow 영속 스토리지 (5Gi)
+
+#### 문서화
+
+**가이드 문서** (4개 생성):
+- `GETTING_STARTED.md`: 5분 안에 시작하기
+  - 실전 예제 (고양이/개 분류)
+  - 일반적인 개발 사이클
+  - 트러블슈팅
+
+- `DEV_WORKFLOW.md`: 개발 워크플로우 상세 가이드
+  - 3단계 접근법 설명
+  - 스크립트 상세 사용법
+  - 실전 팁
+
+- `QUICK_DEV_GUIDE.md`: 한 페이지 빠른 참조
+  - 핵심 명령어만
+  - 개발 효율성 비교
+  - TL;DR
+
+- `README.md`: 업데이트
+  - Getting Started 링크 추가
+  - 개발 워크플로우 섹션 추가
+
+**인프라 문서** (4개 생성):
+- `mvp/k8s/MINIO_SETUP.md`: MinIO 사용법
+- `mvp/k8s/MLFLOW_SETUP.md`: MLflow 사용법
+- `mvp/k8s/DATA_PERSISTENCE.md`: 데이터 영속성 설명
+- `mvp/k8s/DOCKER_VS_K8S.md`: Docker vs K8s 비교
+
+**기술 문서**:
+- `docs/k8s/20251107_development_workflow_setup.md`: 전체 설계 문서
+  - 배경 및 컨텍스트
+  - 3단계 워크플로우 상세
+  - 대안 비교
+  - 비용 분석
+  - 마이그레이션 경로
+
+### 샘플 데이터셋
+
+**sample_dataset (고양이/개 분류)**:
+- 위치: `mvp/data/datasets/sample_dataset/`
+- 구조:
+  ```
+  sample_dataset/
+  ├── train/
+  │   ├── cats/  (20장)
+  │   └── dogs/  (20장)
+  └── val/
+      ├── cats/  (5장)
+      └── dogs/  (5장)
+  ```
+- Format: ImageFolder (image_classification)
+- 용도: 로컬 개발 테스트
+
+### 환경 변수 설정
+
+**dev-train-local.ps1 자동 설정**:
+```powershell
+MLFLOW_TRACKING_URI    = http://localhost:30500
+MLFLOW_S3_ENDPOINT_URL = http://localhost:30900
+AWS_ACCESS_KEY_ID      = minioadmin
+AWS_SECRET_ACCESS_KEY  = minioadmin
+MLFLOW_S3_IGNORE_TLS   = true
+JOB_ID                 = local-20251107-143000
+MODEL_NAME             = yolo11n
+FRAMEWORK              = ultralytics
+NUM_EPOCHS             = 10
+```
+
+### 개발 효율성 비교
+
+| 방법 | 시간 | 사용 시기 | 빈도 |
+|------|------|-----------|------|
+| **로컬 실행 (subprocess)** | 5-30초 | 일상 개발 | 99% |
+| ConfigMap 주입 (K8s) | 1-3분 | 통합 테스트 | 배포 전 1회 |
+| Docker 이미지 빌드 | 10-15분 | 최종 배포 | 배포 시만 |
+
+**시간 절약 계산**:
+```
+기존 방식: 10회 반복 × 15분 = 150분
+새 방식: 10회 반복 × 30초 = 5분
+절약: 145분/일 (약 2.4시간)
+```
+
+### 다음 단계
+
+#### 즉시 가능 (테스트)
+- [ ] 로컬 환경 시작: `.\dev-start.ps1 -SkipBuild`
+- [ ] Backend + Frontend 실행
+- [ ] 전체 플로우 테스트 (Frontend → Backend → Training → MLflow)
+
+#### 향후 개선
+- [ ] Docker Compose 대안 제공 (Kind 대신)
+- [ ] Health check 개선 (Training Service)
+- [ ] 자동 실행 스크립트 (`dev-all.ps1` - Backend + Frontend 동시 시작)
+
+### 관련 문서
+- **가이드**: [GETTING_STARTED.md](../GETTING_STARTED.md), [DEV_WORKFLOW.md](../DEV_WORKFLOW.md), [QUICK_DEV_GUIDE.md](../QUICK_DEV_GUIDE.md)
+- **인프라**: [mvp/k8s/MINIO_SETUP.md](../mvp/k8s/MINIO_SETUP.md), [mvp/k8s/MLFLOW_SETUP.md](../mvp/k8s/MLFLOW_SETUP.md)
+- **설계**: [docs/k8s/20251107_development_workflow_setup.md](../docs/k8s/20251107_development_workflow_setup.md)
+
+### 핵심 통찰
+
+#### Docker 빌드 제거의 임팩트
+- **개발 속도**: 30배 향상 (15분 → 30초)
+- **개발자 경험**: 즉각적 피드백 가능
+- **비용**: 컴퓨팅 리소스 절약
+
+#### Microservice 아키텍처 일관성
+- **로컬 = Production**: 동일한 구조
+- **Framework 격리**: 가상환경으로 의존성 충돌 방지
+- **subprocess**: 개발 시 빠름, Production은 K8s Job
+
+#### 데이터 영속성
+- **PVC 활용**: Kind 재시작해도 데이터 유지
+- **MLflow 메타데이터**: SQLite + PVC (5Gi)
+- **MinIO 객체**: PVC (20Gi)
+
+### 기술 노트
+
+#### ConfigMap 코드 주입 방식
+```yaml
+# ConfigMap 생성
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: training-code-dev-123
+data:
+  train.py: |
+    # 실제 train.py 내용
+
+# Job에서 마운트
+volumes:
+- name: training-code
+  configMap:
+    name: training-code-dev-123
+volumeMounts:
+- name: training-code
+  mountPath: /code/train.py
+  subPath: train.py
+```
+
+#### Framework별 subprocess 실행
+```python
+# api_server.py:99-106
+venv_python = f"venv-{request.framework}/Scripts/python.exe"
+if os.path.exists(venv_python):
+    python_exe = venv_python  # Framework-specific venv
+else:
+    python_exe = "python"  # Fallback
+
+cmd = [python_exe, "train.py", "--framework", request.framework, ...]
+process = subprocess.Popen(cmd)
+```
+
+#### Kind 클러스터 Port Mapping
+```yaml
+# dev-start.ps1에서 생성
+kind: Cluster
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 30500  # MLflow
+  - containerPort: 30900  # MinIO API
+  - containerPort: 30901  # MinIO Console
+  - containerPort: 30090  # Prometheus
+  - containerPort: 30030  # Grafana
+```
+
+---
+
+## [2025-11-07 14:30] Kubernetes Training 방식 FAQ - 핵심 질문 4가지 해결
+
+### 논의 주제
+- K8s Job 방식에서 학습 중단/재시작 가능성
+- 프레임워크별 설정(Config) 관리 방법
+- Inference (Single/Batch) 구현 현황
+- 테스트 전략 및 실행 방법
+
+### 주요 결정사항
+
+#### 1. Checkpoint Resume으로 학습 재시작 가능 ✅
+- **질문**: K8s Job은 pause/resume이 어렵지 않나?
+- **답변**: Checkpoint 기반 재시작으로 해결
+- **구현 상태**: 완전 구현됨 (`train.py:83-360`)
+
+**복원되는 상태**:
+- Model weights
+- Optimizer state
+- LR scheduler state
+- Current epoch number
+- Best validation accuracy
+
+**K8s에서의 동작**:
+```yaml
+# 자동 재시작 설정
+spec:
+  backoffLimit: 3
+  restartPolicy: OnFailure
+  # 모든 Job을 --resume 모드로 실행
+  args: ["--checkpoint_path=s3://...", "--resume"]
+```
+
+**Scenario**:
+- Epoch 10/50 진행 중 → Pod 종료
+- K8s 자동 재시작
+- Epoch 10 checkpoint 로드
+- Epoch 11부터 재개
+
+#### 2. Adapter Pattern + Config Schema로 프레임워크별 설정 ✅
+- **질문**: 모델/프레임워크마다 다른 Config는 어떻게?
+- **답변**: 각 Adapter가 자체 Config Schema 정의
+
+**TIMM 예시**:
+```python
+config_schema = {
+    "optimizer_type": ["adam", "adamw", "sgd"],
+    "scheduler_type": ["cosine", "step", "plateau"],
+    "mixup": bool,
+    "cutmix": bool,
+}
+
+presets = {
+    "easy": {"optimizer": "adam", "mixup": False},
+    "medium": {"optimizer": "adamw", "mixup": True},
+    "advanced": {"optimizer": "adamw", "mixup": True, "cutmix": True},
+}
+```
+
+**Ultralytics 예시**:
+```python
+config_schema = {
+    "optimizer_type": ["Adam", "AdamW", "SGD"],
+    "cos_lr": bool,
+    "mosaic": float,  # YOLO-specific
+    "mixup": float,
+    "copy_paste": float,
+}
+```
+
+**사용 방법**:
+1. **Preset**: "난이도 medium으로" → LLM이 preset 적용
+2. **세부 설정**: "AdamW, lr 0.001, mosaic 1.0" → LLM이 advanced_config 생성
+3. **DB 저장**: `training_jobs.advanced_config` (JSONB)
+
+#### 3. Inference 구현 현황
+- **Single Inference**: ✅ 완전 구현
+- **Batch Inference (TestRun)**: ✅ 구현
+- **Production Batch**: ⚠️ 향후 구현
+
+**Single Inference API**:
+```python
+# POST /api/v1/test/inference/single
+result = adapter.infer_single("image.jpg")
+# → {"predicted_label": "cat", "confidence": 0.92, "top5_predictions": [...]}
+```
+
+**모든 Adapter 구현 완료**:
+- `TimmAdapter.infer_single()`: lines 1040-1118
+- `UltralyticsAdapter.infer_single()`: lines 2568+
+- `TransformersAdapter.infer_single()`: lines 594, 820
+
+**Batch Inference (TestRun)**:
+```python
+# POST /api/v1/test/runs
+test_run = create_test_run(
+    job_id=123,
+    test_dataset_path="s3://bucket/test_dataset/"
+)
+# Background task로 모든 이미지 처리
+```
+
+#### 4. 4단계 테스트 전략 ✅
+- **Level 1: Unit Tests** (`mvp/backend/tests/unit/`)
+- **Level 2: Integration Tests** (`mvp/backend/tests/integration/`)
+- **Level 3: Subprocess E2E** (`mvp/training/test_train_subprocess_e2e.py`)
+- **Level 4: K8s Job Tests** (`mvp/backend/tests/k8s/`)
+
+**테스트 실행**:
+```bash
+# Level 1: Unit
+cd mvp/backend && pytest tests/unit/ -v
+
+# Level 2: Integration
+pytest tests/integration/ -v
+
+# Level 3: E2E
+cd mvp/training && python test_train_subprocess_e2e.py
+
+# Level 4: K8s
+kind create cluster --name training-test
+kind load docker-image vision-platform/trainer-timm:latest
+cd mvp/backend && pytest tests/k8s/ -v
+```
+
+### 구현 내용
+
+#### 종합 FAQ 문서
+**파일**: `docs/k8s/K8S_TRAINING_FAQ.md` (새로 생성)
+
+**포함 내용** (전체 1000+ lines):
+1. **학습 중단/재시작** (360 lines)
+   - Checkpoint resume 구현 세부사항
+   - K8s Job 자동 재시작 동작
+   - Multi-stage training (24시간+ 학습)
+   - Checkpoint 저장 주기 설정
+   - K8s Job vs 일반 서버 비교
+
+2. **프레임워크별 Config** (400 lines)
+   - Preset 시스템 (easy/medium/advanced)
+   - 세부 설정 방식
+   - TIMM/Ultralytics Config Schema 예시
+   - Config 전달 Flow
+   - DB 저장 및 로딩
+
+3. **Inference 구현** (300 lines)
+   - Single inference API
+   - Batch inference (TestRun)
+   - Adapter별 구현 상세
+   - Frontend 사용 예시
+   - Production batch 제안
+
+4. **테스트 방법** (400 lines)
+   - 4단계 테스트 계층
+   - 테스트 데이터셋 생성
+   - K8s 클러스터 셋업
+   - CI/CD 통합 예시
+   - Coverage 목표
+
+### 기술 세부사항
+
+#### Checkpoint Resume 흐름
+```python
+# 1. 처음 시작 (checkpoint 없음)
+python train.py --job_id=123 --num_epochs=50
+
+# 2. Epoch 10에서 중단
+
+# 3. 재시작 (자동으로 epoch 10부터)
+python train.py --job_id=123 \
+    --checkpoint_path=s3://bucket/job_123/weights/last.pt \
+    --resume \
+    --num_epochs=50
+```
+
+#### Config Schema 구조
+```python
+# Adapter별 schema 정의
+class TimmAdapter:
+    def get_config_schema(self):
+        return [
+            ConfigField("optimizer_type", type="select", options=[...]),
+            ConfigField("scheduler_type", type="select", options=[...]),
+            ConfigField("mixup", type="bool", default=False),
+        ]
+
+    def get_preset_config(self, preset: str):
+        return self.presets[preset]  # easy/medium/advanced
+```
+
+#### Inference Result Schema
+```python
+class InferenceResult:
+    image_path: str
+    predicted_label: str
+    confidence: float
+    top5_predictions: List[Dict]
+    inference_time_ms: float
+    preprocessing_time_ms: float
+    postprocessing_time_ms: float
+```
+
+### 테스트 커버리지
+
+**구현된 테스트 파일들**:
+- `test_adapter_imports.py` - Adapter 로딩
+- `test_advanced_config.py` - Config 검증
+- `test_inference_api.py` - Inference 엔드포인트
+- `test_checkpoint_inference.py` - Checkpoint 로딩
+- `test_train_subprocess_e2e.py` - 전체 파이프라인
+- `test_inference_pretrained.py` - Pretrained 모델
+- `test_training_config.py` - 설정 검증
+- `test_validation_metrics_persistence.py` - 메트릭 저장
+
+### 요약 표
+
+| 질문 | 구현 상태 | 핵심 파일 |
+|------|-----------|----------|
+| **학습 중단/재시작** | ✅ 완전 구현 | `train.py:83-360`, `base.py:1242-1287` |
+| **프레임워크별 Config** | ✅ 완전 구현 | `timm_adapter.py:14-326`, `ultralytics_adapter.py:39-250` |
+| **Inference** | ✅ Single 완전 구현<br>✅ Batch (TestRun)<br>⚠️ Production Batch 향후 | `timm_adapter.py:1040-1118`, `test_inference.py` |
+| **테스트** | ✅ 완전 구현 | `tests/unit/`, `tests/integration/`, E2E scripts |
+
+### 다음 단계
+
+#### 즉시 가능 (테스트)
+- [ ] 로컬 K8s 클러스터로 테스트 (Kind + QUICKSTART.md)
+- [ ] Checkpoint resume 동작 검증
+- [ ] Inference API 실제 호출 테스트
+
+#### 향후 개선
+- [ ] Production Batch Inference API (K8s Job 기반)
+- [ ] WebSocket 통합으로 실시간 모니터링 강화
+- [ ] Goal #2: LLM Agent 고도화
+
+### 관련 문서
+- **FAQ 문서**: [docs/k8s/K8S_TRAINING_FAQ.md](../k8s/K8S_TRAINING_FAQ.md) (신규)
+- **K8s 마이그레이션**: [docs/k8s/20251106_kubernetes_job_migration_plan.md](../k8s/20251106_kubernetes_job_migration_plan.md)
+- **모니터링 통합**: [mvp/k8s/MONITORING_INTEGRATION.md](../../mvp/k8s/MONITORING_INTEGRATION.md)
+- **K8s QUICKSTART**: [mvp/k8s/QUICKSTART.md](../../mvp/k8s/QUICKSTART.md)
+
+### 핵심 통찰
+
+#### K8s Job의 제약을 Checkpoint로 극복
+- K8s Job은 pause 불가 → Checkpoint resume으로 동일 효과
+- Pod 재시작 = 새 Job 생성 + `--resume` 플래그
+- R2 Storage 덕분에 checkpoint 영속성 보장
+
+#### Adapter Pattern의 유연성
+- Framework마다 완전히 다른 config 필요
+- 각 Adapter가 자체 schema 정의
+- Preset으로 간편함 + 세부 설정으로 유연성
+
+#### 테스트의 계층화
+- Unit → Integration → E2E → K8s
+- 각 레벨이 다른 부분을 검증
+- Production-ready 보장
+
+### 기술 노트
+
+#### Checkpoint 저장 위치
+```
+로컬: output/job_{job_id}/weights/best.pt, last.pt
+R2: checkpoints/projects/{project_id}/jobs/{job_id}/best.pt, last.pt
+```
+
+#### Config 전달 체인
+```
+사용자 자연어
+  → LLM Parser
+  → TrainingIntent.advanced_config
+  → DB (training_jobs.advanced_config JSONB)
+  → train.py --job_id
+  → load_advanced_config_from_db()
+  → Adapter(advanced_config)
+  → Framework-specific 구현
+```
+
+#### 4단계 테스트 실행 시간
+- Level 1 (Unit): ~30초
+- Level 2 (Integration): ~2분
+- Level 3 (E2E): ~5분 (tiny dataset)
+- Level 4 (K8s): ~10분 (클러스터 셋업 포함)
+
+---
+
 ## [2025-11-05 14:45] Checkpoint 관리 정책 및 R2 업로드 전략 수립
 
 ### 논의 주제
