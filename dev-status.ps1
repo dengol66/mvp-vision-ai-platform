@@ -20,7 +20,12 @@ function Show-Status {
     Write-Host ""
 
     # Check if cluster exists
-    $clusterExists = kind get clusters 2>$null | Select-String -Pattern "^$ClusterName$"
+    try {
+        $clusterList = kind get clusters 2>&1
+        $clusterExists = ($clusterList -join "`n") -match "^$ClusterName$"
+    } catch {
+        $clusterExists = $false
+    }
 
     if (-not $clusterExists) {
         Write-Host "✗ Cluster '$ClusterName' does not exist" -ForegroundColor Red

@@ -93,7 +93,12 @@ Write-Host ""
 # 3. Handle existing cluster
 Write-Host "Step 3: Checking Kind cluster..." -ForegroundColor Yellow
 
-$clusterExists = kind get clusters 2>$null | Select-String -Pattern "^$ClusterName$"
+try {
+    $clusterList = kind get clusters 2>&1
+    $clusterExists = ($clusterList -join "`n") -match "^$ClusterName$"
+} catch {
+    $clusterExists = $false
+}
 
 if ($Fresh -and $clusterExists) {
     Write-Host "Deleting existing cluster (--Fresh flag)..." -ForegroundColor Yellow
