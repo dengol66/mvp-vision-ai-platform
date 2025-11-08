@@ -834,71 +834,82 @@ async def get_config_schema(framework: str, task_type: str = None):
     Returns:
         Configuration schema with fields, types, defaults, and presets
     """
-    try:
-        logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
+    logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-        # Use Training Service API to get config schema
-        # This maintains dependency isolation between Backend and Training code
-        from app.utils.training_client import TrainingServiceClient
-        import requests
+    # K8s Job 방식에서는 Training Service가 HTTP로 실행되지 않으므로,
+    # 정적 스키마를 반환합니다. (의존성 격리 유지)
+    # 실제 Training은 K8s Job으로 실행되므로 HTTP Training Service 불필요
 
-        # Initialize Training Service client for the requested framework
-        client = TrainingServiceClient(framework=framework)
-
-        logger.info(f"[config-schema] Fetching schema from Training Service: {client.base_url}")
-
-        # Call Training Service /config-schema endpoint
-        response = requests.get(
-            f"{client.base_url}/config-schema",
-            params={"task_type": task_type or ""},
-            timeout=30  # Increased timeout for cold start (schema loading)
-        )
-
-        # Handle errors
-        if response.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Framework '{framework}' not supported or config schema not available"
-            )
-        elif response.status_code == 503:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Training Service for framework '{framework}' is not available"
-            )
-        elif response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Training Service error: {response.text}"
-            )
-
-        # Parse response
-        schema_data = response.json()
-
-        logger.info(f"[config-schema] Schema retrieved with {len(schema_data.get('schema', {}).get('fields', []))} fields")
-
-        return schema_data
-
-    except HTTPException:
-        raise
-    except requests.exceptions.ConnectionError as e:
-        logger.error(f"[config-schema] Connection error to Training Service: {str(e)}")
+    if framework == "ultralytics":
+        return {
+            "framework": "ultralytics",
+            "task_type": task_type or "object_detection",
+            "description": "Ultralytics YOLO - Object Detection, Segmentation, Pose Estimation",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "imgsz",
+                        "type": "int",
+                        "default": 640,
+                        "description": "Image size for training",
+                        "required": False
+                    },
+                    {
+                        "name": "patience",
+                        "type": "int",
+                        "default": 50,
+                        "description": "Early stopping patience",
+                        "required": False
+                    },
+                    {
+                        "name": "augment",
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Enable data augmentation",
+                        "required": False
+                    }
+                ],
+                "presets": {
+                    "quick": {"epochs": 10, "batch_size": 16, "imgsz": 640},
+                    "balanced": {"epochs": 50, "batch_size": 16, "imgsz": 640},
+                    "best": {"epochs": 100, "batch_size": 8, "imgsz": 1280}
+                }
+            }
+        }
+    elif framework == "timm":
+        return {
+            "framework": "timm",
+            "task_type": "image_classification",
+            "description": "PyTorch Image Models - Image Classification",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "optimizer_type",
+                        "type": "select",
+                        "default": "adam",
+                        "options": ["adam", "adamw", "sgd"],
+                        "description": "Optimizer algorithm",
+                        "required": False
+                    },
+                    {
+                        "name": "weight_decay",
+                        "type": "float",
+                        "default": 0.0001,
+                        "description": "L2 regularization",
+                        "required": False
+                    }
+                ],
+                "presets": {
+                    "quick": {"epochs": 10, "batch_size": 32},
+                    "balanced": {"epochs": 50, "batch_size": 32},
+                    "best": {"epochs": 100, "batch_size": 16}
+                }
+            }
+        }
+    else:
         raise HTTPException(
-            status_code=503,
-            detail=f"Training Service for framework '{framework}' is not reachable. Please check deployment."
-        )
-    except requests.exceptions.Timeout as e:
-        logger.error(f"[config-schema] Timeout connecting to Training Service: {str(e)}")
-        raise HTTPException(
-            status_code=504,
-            detail=f"Training Service timeout. Please try again later."
-        )
-    except Exception as e:
-        import traceback
-        logger.error(f"[config-schema] Error: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get configuration schema: {str(e)}"
+            status_code=404,
+            detail=f"Framework '{framework}' not supported"
         )
 
 
