@@ -1,5 +1,10 @@
 """
-Cloudflare R2 Storage Utility for Dataset Management.
+S3-Compatible Storage Utility for Dataset Management.
+
+Supports multiple S3-compatible storage backends:
+- Cloudflare R2 (production)
+- MinIO (local development)
+- AWS S3 (generic)
 
 Handles:
 - Dataset upload (zip files)
@@ -23,31 +28,55 @@ from io import BytesIO
 logger = logging.getLogger(__name__)
 
 
-class R2Storage:
-    """Cloudflare R2 Storage client for dataset management."""
+class S3Storage:
+    """
+    S3-compatible storage client for dataset management.
+
+    Supports Cloudflare R2, MinIO, AWS S3, and other S3-compatible backends.
+    """
 
     def __init__(self):
-        """Initialize R2 client with credentials from environment."""
+        """Initialize S3-compatible client with credentials from environment."""
         self.endpoint_url = os.getenv("AWS_S3_ENDPOINT_URL")
         self.access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
         self.secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
         self.bucket_name = os.getenv("S3_BUCKET", "vision-platform-dev")
 
         if not all([self.endpoint_url, self.access_key_id, self.secret_access_key]):
-            logger.warning("R2 credentials not configured. R2 operations will fail.")
+            logger.warning(
+                "S3 storage credentials not configured. Storage operations will fail. "
+                "Set AWS_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY."
+            )
             self.client = None
             return
 
-        # Initialize S3 client (R2 is S3-compatible)
+        # Initialize S3 client (works with R2, MinIO, S3, etc.)
         self.client = boto3.client(
             "s3",
             endpoint_url=self.endpoint_url,
             aws_access_key_id=self.access_key_id,
             aws_secret_access_key=self.secret_access_key,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                retries={
+                    'max_attempts': 3,  # Reduce from default (unlimited)
+                    'mode': 'standard'  # Use exponential backoff
+                },
+                connect_timeout=5,  # 5 seconds connection timeout
+                read_timeout=10,    # 10 seconds read timeout
+            ),
         )
 
-        logger.info(f"R2 Storage initialized: bucket={self.bucket_name}")
+        # Detect storage type for logging
+        storage_type = "unknown"
+        if "r2.cloudflarestorage.com" in self.endpoint_url:
+            storage_type = "Cloudflare R2"
+        elif "localhost" in self.endpoint_url or "127.0.0.1" in self.endpoint_url:
+            storage_type = "MinIO (local)"
+        elif "amazonaws.com" in self.endpoint_url:
+            storage_type = "AWS S3"
+
+        logger.info(f"S3 Storage initialized: type={storage_type}, bucket={self.bucket_name}, endpoint={self.endpoint_url}")
 
     def upload_file(
         self,
@@ -56,18 +85,18 @@ class R2Storage:
         content_type: Optional[str] = None,
     ) -> bool:
         """
-        Upload a file to R2.
+        Upload a file to S3 storage.
 
         Args:
             file_path: Local file path
-            object_key: R2 object key (e.g., "datasets/my-dataset.zip")
+            object_key: S3 object key (e.g., "datasets/my-dataset.zip")
             content_type: MIME type (optional, auto-detected if not provided)
 
         Returns:
             True if successful, False otherwise
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return False
 
         try:
@@ -82,11 +111,11 @@ class R2Storage:
                 ExtraArgs=extra_args
             )
 
-            logger.info(f"Uploaded file to R2: {object_key}")
+            logger.info(f"Uploaded file to storage: {object_key}")
             return True
 
         except ClientError as e:
-            logger.error(f"Failed to upload file to R2: {e}")
+            logger.error(f"Failed to upload file to storage: {e}")
             return False
 
     def upload_fileobj(
@@ -96,18 +125,18 @@ class R2Storage:
         content_type: Optional[str] = None,
     ) -> bool:
         """
-        Upload a file object to R2.
+        Upload a file object to storage.
 
         Args:
             file_obj: File-like object
-            object_key: R2 object key
+            object_key: S3 object key
             content_type: MIME type
 
         Returns:
             True if successful
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return False
 
         try:
@@ -122,11 +151,11 @@ class R2Storage:
                 ExtraArgs=extra_args
             )
 
-            logger.info(f"Uploaded file object to R2: {object_key}")
+            logger.info(f"Uploaded file object to storage: {object_key}")
             return True
 
         except ClientError as e:
-            logger.error(f"Failed to upload file object to R2: {e}")
+            logger.error(f"Failed to upload file object to storage: {e}")
             return False
 
     def upload_bytes(
@@ -136,18 +165,18 @@ class R2Storage:
         content_type: Optional[str] = None,
     ) -> bool:
         """
-        Upload bytes data to R2.
+        Upload bytes data to storage.
 
         Args:
             data: Bytes data to upload
-            object_key: R2 object key
+            object_key: S3 object key
             content_type: MIME type
 
         Returns:
             True if successful
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return False
 
         try:
@@ -156,7 +185,7 @@ class R2Storage:
             return self.upload_fileobj(file_obj, object_key, content_type)
 
         except Exception as e:
-            logger.error(f"Failed to upload bytes to R2: {e}")
+            logger.error(f"Failed to upload bytes to storage: {e}")
             return False
 
     def download_file(
@@ -165,17 +194,17 @@ class R2Storage:
         file_path: Path
     ) -> bool:
         """
-        Download a file from R2.
+        Download a file from storage.
 
         Args:
-            object_key: R2 object key
+            object_key: S3 object key
             file_path: Local destination path
 
         Returns:
             True if successful
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return False
 
         try:
@@ -187,25 +216,25 @@ class R2Storage:
                 str(file_path)
             )
 
-            logger.info(f"Downloaded file from R2: {object_key}")
+            logger.info(f"Downloaded file from storage: {object_key}")
             return True
 
         except ClientError as e:
-            logger.error(f"Failed to download file from R2: {e}")
+            logger.error(f"Failed to download file from storage: {e}")
             return False
 
     def get_file_content(self, object_key: str) -> Optional[bytes]:
         """
-        Get file content from R2 as bytes.
+        Get file content from storage as bytes.
 
         Args:
-            object_key: R2 object key
+            object_key: S3 object key
 
         Returns:
             File content as bytes, or None if not found
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return None
 
         try:
@@ -215,14 +244,14 @@ class R2Storage:
             )
 
             content = response['Body'].read()
-            logger.info(f"Retrieved file content from R2: {object_key} ({len(content)} bytes)")
+            logger.info(f"Retrieved file content from storage: {object_key} ({len(content)} bytes)")
             return content
 
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
-                logger.warning(f"File not found in R2: {object_key}")
+                logger.warning(f"File not found in storage: {object_key}")
             else:
-                logger.error(f"Failed to get file content from R2: {e}")
+                logger.error(f"Failed to get file content from storage: {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error getting file content: {e}")
@@ -230,16 +259,16 @@ class R2Storage:
 
     def delete_file(self, object_key: str) -> bool:
         """
-        Delete a file from R2.
+        Delete a file from storage.
 
         Args:
-            object_key: R2 object key
+            object_key: S3 object key
 
         Returns:
             True if successful
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return False
 
         try:
@@ -248,19 +277,19 @@ class R2Storage:
                 Key=object_key
             )
 
-            logger.info(f"Deleted file from R2: {object_key}")
+            logger.info(f"Deleted file from storage: {object_key}")
             return True
 
         except ClientError as e:
-            logger.error(f"Failed to delete file from R2: {e}")
+            logger.error(f"Failed to delete file from storage: {e}")
             return False
 
     def file_exists(self, object_key: str) -> bool:
         """
-        Check if a file exists in R2.
+        Check if a file exists in storage.
 
         Args:
-            object_key: R2 object key
+            object_key: S3 object key
 
         Returns:
             True if file exists
@@ -287,14 +316,14 @@ class R2Storage:
         Generate a presigned URL for temporary access.
 
         Args:
-            object_key: R2 object key
+            object_key: S3 object key
             expiration: URL expiration time in seconds (default: 1 hour)
 
         Returns:
             Presigned URL or None if failed
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return None
 
         try:
@@ -320,7 +349,7 @@ class R2Storage:
         dataset_id: str
     ) -> bool:
         """
-        Upload a dataset zip file to R2.
+        Upload a dataset zip file to storage.
 
         Args:
             zip_file_path: Path to dataset zip file
@@ -342,7 +371,7 @@ class R2Storage:
         dest_dir: Path
     ) -> Optional[Path]:
         """
-        Download a dataset zip file from R2.
+        Download a dataset zip file from storage.
 
         Args:
             dataset_id: Dataset identifier
@@ -428,17 +457,17 @@ class R2Storage:
         expiration: int = 3600
     ) -> Optional[str]:
         """
-        Generate a presigned URL for downloading an object from R2.
+        Generate a presigned URL for downloading an object from storage.
 
         Args:
-            object_key: R2 object key (e.g., "datasets/{id}/images/000001.jpg")
+            object_key: S3 object key (e.g., "datasets/{id}/images/000001.jpg")
             expiration: URL expiration time in seconds (default: 1 hour)
 
         Returns:
             Presigned URL string or None if failed
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return None
 
         try:
@@ -464,7 +493,7 @@ class R2Storage:
         content_type: str = "image/jpeg"
     ) -> bool:
         """
-        Upload an individual image to R2.
+        Upload an individual image to storage.
 
         Args:
             file_obj: File-like object
@@ -498,7 +527,7 @@ class R2Storage:
             List of image keys (relative to dataset root)
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return []
 
         try:
@@ -534,7 +563,7 @@ class R2Storage:
             Number of objects deleted
         """
         if not self.client:
-            logger.error("R2 client not initialized")
+            logger.error("S3 client not initialized")
             return 0
 
         try:
@@ -577,5 +606,6 @@ class R2Storage:
             return 0
 
 
-# Global R2 client instance
-r2_storage = R2Storage()
+# Global S3-compatible storage client instance
+# Works with Cloudflare R2, MinIO, AWS S3, etc.
+s3_storage = S3Storage()
