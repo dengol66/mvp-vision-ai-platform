@@ -3,6 +3,7 @@
 
 param(
     [switch]$SkipBuild,      # Skip Docker image build
+    [switch]$SkipLoadImages, # Skip loading Docker images to cluster
     [switch]$Fresh,          # Delete existing cluster and start fresh
     [string]$ClusterName = "training-dev"
 )
@@ -129,38 +130,43 @@ if (-not $clusterExists) {
 Write-Host ""
 
 # 4. Build and load Docker images
-if (-not $SkipBuild) {
-    Write-Host "Step 4: Building Docker images..." -ForegroundColor Yellow
-    Write-Host "(This may take 5-10 minutes on first build)" -ForegroundColor Gray
-    Write-Host ""
+if (-not $SkipLoadImages) {
+    if (-not $SkipBuild) {
+        Write-Host "Step 4: Building Docker images..." -ForegroundColor Yellow
+        Write-Host "(This may take 5-10 minutes on first build)" -ForegroundColor Gray
+        Write-Host ""
 
-    # Check if images already exist
-    $baseImage = docker images ghcr.io/myorg/trainer-base:v1.0 -q
-    $ultralyticsImage = docker images ghcr.io/myorg/trainer-ultralytics:v1.0 -q
-    $timmImage = docker images ghcr.io/myorg/trainer-timm:v1.0 -q
+        # Check if images already exist
+        $baseImage = docker images ghcr.io/myorg/trainer-base:v1.0 -q
+        $ultralyticsImage = docker images ghcr.io/myorg/trainer-ultralytics:v1.0 -q
+        $timmImage = docker images ghcr.io/myorg/trainer-timm:v1.0 -q
 
-    if ($baseImage -and $ultralyticsImage -and $timmImage) {
-        Write-Host "✓ Docker images already built" -ForegroundColor Green
-        Write-Host "  Use --Fresh to rebuild" -ForegroundColor Gray
+        if ($baseImage -and $ultralyticsImage -and $timmImage) {
+            Write-Host "✓ Docker images already built" -ForegroundColor Green
+            Write-Host "  Use --Fresh to rebuild" -ForegroundColor Gray
+        } else {
+            Push-Location mvp/training/docker
+
+            # Build images
+            Write-Host "Building base image..." -ForegroundColor Yellow
+            powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target base
+
+            Write-Host "Building ultralytics image..." -ForegroundColor Yellow
+            powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target ultralytics
+
+            Write-Host "Building timm image..." -ForegroundColor Yellow
+            powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target timm
+
+            Pop-Location
+
+            Write-Host "✓ Docker images built" -ForegroundColor Green
+        }
+        Write-Host ""
     } else {
-        Push-Location mvp/training/docker
-
-        # Build images
-        Write-Host "Building base image..." -ForegroundColor Yellow
-        powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target base
-
-        Write-Host "Building ultralytics image..." -ForegroundColor Yellow
-        powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target ultralytics
-
-        Write-Host "Building timm image..." -ForegroundColor Yellow
-        powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target timm
-
-        Pop-Location
-
-        Write-Host "✓ Docker images built" -ForegroundColor Green
+        Write-Host "Step 4: Skipping Docker build (--SkipBuild flag)" -ForegroundColor Gray
+        Write-Host ""
     }
 
-    Write-Host ""
     Write-Host "Step 5: Loading images to Kind cluster..." -ForegroundColor Yellow
     Write-Host "(This may take 2-3 minutes)" -ForegroundColor Gray
 
@@ -179,13 +185,19 @@ if (-not $SkipBuild) {
     }
     Write-Host ""
 } else {
-    Write-Host "Step 4-5: Skipping Docker build (--SkipBuild flag)" -ForegroundColor Gray
+    Write-Host "Step 4-5: Skipping Docker image loading (--SkipLoadImages flag)" -ForegroundColor Gray
+    Write-Host "  Note: Trainer images will need to be loaded manually before running training jobs" -ForegroundColor Yellow
     Write-Host ""
 }
 
 # 6. Deploy Kubernetes resources
 Write-Host "Step 6: Deploying Kubernetes resources..." -ForegroundColor Yellow
 Write-Host ""
+
+# Create namespaces
+Write-Host "  - Creating namespaces..." -ForegroundColor Gray
+kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f - >$null 2>&1
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >$null 2>&1
 
 # Training namespace and secrets
 Write-Host "  - Training namespace and secrets..." -ForegroundColor Gray
