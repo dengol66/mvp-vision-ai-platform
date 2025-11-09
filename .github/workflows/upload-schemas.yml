@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd mvp/training
-          pip install --no-cache-dir boto3 pydantic
+          pip install --no-cache-dir boto3 pydantic requests python-dotenv
 
       # PR: Validate schemas only (dry-run)
       - name: Validate schemas (Pull Request)
