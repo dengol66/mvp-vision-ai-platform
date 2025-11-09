@@ -21,6 +21,10 @@ on:
 jobs:
   validate-and-upload:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # Allow PR comments
+      issues: write  # Allow issue comments
 
     steps:
       - name: Checkout code
