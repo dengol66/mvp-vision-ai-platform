@@ -238,17 +238,22 @@ Write-Host ""
 
 # 8. Create MinIO buckets (Dual Storage Architecture)
 Write-Host "Step 8: Setting up MinIO buckets..." -ForegroundColor Yellow
-$bucketCheck = kubectl exec -n storage deployment/minio -- sh -c "ls -d /data/model-* 2>/dev/null" 2>$null
 
-if (-not $bucketCheck) {
-    kubectl exec -n storage deployment/minio -- sh -c "mkdir -p /data/model-weights /data/training-checkpoints /data/config-schemas /data/training-datasets" >$null 2>&1
-    Write-Host "✓ MinIO buckets created:" -ForegroundColor Green
+# Always ensure all buckets exist (mkdir -p is idempotent)
+kubectl exec -n storage deployment/minio -- sh -c "mkdir -p /data/model-weights /data/training-checkpoints /data/config-schemas /data/training-datasets" >$null 2>&1
+
+# Verify all buckets were created
+$bucketCheck = kubectl exec -n storage deployment/minio -- sh -c "ls -d /data/model-weights /data/training-checkpoints /data/config-schemas /data/training-datasets 2>&1" 2>$null
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "✓ MinIO buckets verified:" -ForegroundColor Green
     Write-Host "  - model-weights (internal)" -ForegroundColor Gray
     Write-Host "  - training-checkpoints (internal)" -ForegroundColor Gray
     Write-Host "  - config-schemas (internal)" -ForegroundColor Gray
     Write-Host "  - training-datasets (external)" -ForegroundColor Gray
 } else {
-    Write-Host "✓ MinIO buckets already exist" -ForegroundColor Green
+    Write-Host "⚠ Warning: Some buckets may not have been created" -ForegroundColor Yellow
+    Write-Host "  You may need to manually create them in MinIO" -ForegroundColor Gray
 }
 Write-Host ""
 
