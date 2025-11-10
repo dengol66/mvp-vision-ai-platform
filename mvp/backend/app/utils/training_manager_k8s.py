@@ -283,9 +283,20 @@ class TrainingManagerK8s:
                 print(f"[TrainingManager] GPU enabled - devices: {cuda_visible_devices}")
 
             # Set up log file for Loki/Promtail collection
-            log_dir = Path(os.getenv("LOG_DIR", "../../mvp/data/logs"))
+            # LOG_DIR is relative to project root (e.g., "mvp/data/logs")
             # __file__ is at mvp/backend/app/utils/ -> go up 4 levels to project root
-            log_dir = Path(__file__).parent.parent.parent.parent / log_dir
+            project_root = Path(__file__).parent.parent.parent.parent
+            log_dir_rel = os.getenv("LOG_DIR", "../../mvp/data/logs")
+
+            # If LOG_DIR starts with ../, resolve it from mvp/backend directory
+            if log_dir_rel.startswith("../"):
+                # Resolve from mvp/backend directory
+                backend_dir = project_root / "mvp" / "backend"
+                log_dir = (backend_dir / log_dir_rel).resolve()
+            else:
+                # Otherwise treat as relative to project root
+                log_dir = project_root / log_dir_rel
+
             log_dir.mkdir(parents=True, exist_ok=True)
 
             log_file_path = log_dir / f"training_{job_id}.log"
