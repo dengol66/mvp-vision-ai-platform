@@ -24,11 +24,45 @@ Tier 2: Kind (Local K8s)
 Tier 3: Production (K8s Cluster)
 ```
 
-### Key Principle
+### Key Principles
 
 **One Codebase, Three Environments**
 
 The ONLY differences between tiers are environment variables. The application code is identical.
+
+**S3-Only Storage (NO Local File System)**
+
+CRITICAL: All tiers use S3-compatible storage API. This is a **HARD REQUIREMENT** for environment parity.
+
+```
+❌ WRONG - Environment-specific code:
+if settings.environment == "development":
+    path = "/tmp/datasets/{dataset_id}"  # Local path
+else:
+    path = "s3://bucket/datasets/{dataset_id}"  # S3 URI
+
+✅ CORRECT - Same code for all tiers:
+dataset_s3_uri = f"s3://{BUCKET}/datasets/{dataset_id}"
+# Tier 1: MinIO (localhost:9000)
+# Tier 2: MinIO (minio.platform.svc:9000)
+# Tier 3: R2 or S3 (cloud endpoint)
+```
+
+**HTTP API Communication (NO Direct Imports)**
+
+Backend MUST communicate with Trainer services via HTTP API, never direct imports.
+
+```
+❌ WRONG - Direct coupling:
+from trainers.ultralytics.train import start_training
+result = start_training(config)
+
+✅ CORRECT - HTTP API:
+response = await httpx.post(
+    f"{TRAINER_URL}/training/start",
+    json={"config": config, "callback_url": callback_url}
+)
+```
 
 ## Tier Comparison
 
@@ -65,13 +99,14 @@ Developer Machine
 ```bash
 # .env.tier1
 EXECUTION_MODE=subprocess
-STORAGE_TYPE=minio
+STORAGE_TYPE=minio  # REQUIRED: Always use S3-compatible storage (MinIO for local)
 
 # Database & Cache (Docker Compose)
 DATABASE_URL=postgresql://postgres:devpass@localhost:5432/platform
 REDIS_URL=redis://localhost:6379/0
 
-# Storage (Docker Compose - S3-compatible)
+# Storage (Docker Compose - S3-compatible) - REQUIRED
+# All tiers use S3 API - only endpoint differs
 S3_ENDPOINT=http://localhost:9000
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
@@ -92,6 +127,11 @@ OPENAI_API_KEY=sk-...
 
 # Backend
 BACKEND_BASE_URL=http://localhost:8000
+
+# Trainer Service URLs (for HTTP API communication)
+TRAINER_TIMM_URL=http://localhost:8001
+TRAINER_ULTRALYTICS_URL=http://localhost:8002
+TRAINER_HUGGINGFACE_URL=http://localhost:8003
 ```
 
 **Pros**:
@@ -115,11 +155,59 @@ BACKEND_BASE_URL=http://localhost:8000
 
 **Setup Once**:
 ```bash
-# 1. Create Kind cluster with monitoring stack
+# 1. Create Kind cluster with monitoring stack (optional but recommended)
 ./scripts/setup-monitoring-stack.sh
 
-# 2. Start Docker Compose services
+# 2. Start Docker Compose services (REQUIRED)
 docker-compose -f infrastructure/docker-compose.dev.yml up -d
+# This starts: PostgreSQL, Redis, MinIO
+
+# Verify services are running
+docker-compose -f infrastructure/docker-compose.dev.yml ps
+# All services should show "Up"
+```
+
+**Docker Compose Services** (infrastructure/docker-compose.dev.yml):
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: devpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+volumes:
+  postgres_data:
+  minio_data:
 ```
 
 **Daily Usage**:
@@ -245,16 +333,24 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     EXECUTION_MODE: str = "subprocess"  # subprocess | kubernetes
-    STORAGE_TYPE: str = "local"         # local | minio | r2 | s3
+    STORAGE_TYPE: str = "minio"         # minio | r2 | s3 (NO local - always S3 API)
 
     DATABASE_URL: str
     REDIS_URL: str
 
-    # Storage credentials (conditional based on STORAGE_TYPE)
-    S3_ENDPOINT: str | None = None
-    R2_ENDPOINT: str | None = None
-    R2_ACCESS_KEY_ID: str | None = None
-    R2_SECRET_ACCESS_KEY: str | None = None
+    # Storage credentials (REQUIRED - all tiers use S3-compatible API)
+    # Tier 1: MinIO (localhost:9000)
+    # Tier 2: MinIO (minio.platform.svc:9000)
+    # Tier 3: R2 or S3 (cloud endpoints)
+    S3_ENDPOINT: str
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    BUCKET_NAME: str = "vision-platform"
+
+    # Trainer service URLs (for HTTP API communication)
+    TRAINER_TIMM_URL: str = "http://localhost:8001"
+    TRAINER_ULTRALYTICS_URL: str = "http://localhost:8002"
+    TRAINER_HUGGINGFACE_URL: str = "http://localhost:8003"
 
     class Config:
         env_file = ".env"
@@ -278,16 +374,28 @@ class TrainingExecutor:
             raise ValueError(f"Unknown EXECUTION_MODE: {settings.EXECUTION_MODE}")
 
     async def _start_subprocess(self, job_config: dict) -> str:
-        """Tier 1: Spawn subprocess"""
+        """
+        Tier 1: Spawn subprocess
+
+        IMPORTANT: Even in subprocess mode, we use S3 API (MinIO).
+        NO local file system paths. This ensures identical behavior across all tiers.
+        """
+        # Storage environment - same as Kubernetes mode
+        storage_env = self._get_storage_env()
+
         env = {
             "JOB_ID": str(job_config["job_id"]),
             "TRACE_ID": job_config["trace_id"],
-            "BACKEND_BASE_URL": "http://localhost:8000",
+            "BACKEND_BASE_URL": settings.BACKEND_BASE_URL,
             "CALLBACK_TOKEN": job_config["callback_token"],
             "TASK_TYPE": job_config["task_type"],
             "MODEL_NAME": job_config["model_name"],
-            "DATASET_PATH": f"/tmp/datasets/{job_config['dataset_id']}",
-            # Storage not needed in subprocess mode - uses local files
+            "DATASET_ID": job_config["dataset_id"],
+            # Storage credentials (MinIO for local dev)
+            "S3_ENDPOINT": storage_env["S3_ENDPOINT"],
+            "AWS_ACCESS_KEY_ID": storage_env["AWS_ACCESS_KEY_ID"],
+            "AWS_SECRET_ACCESS_KEY": storage_env["AWS_SECRET_ACCESS_KEY"],
+            "BUCKET_NAME": storage_env["BUCKET_NAME"],
         }
 
         trainer_script = f"platform/trainers/{job_config['framework']}/train.py"
@@ -301,8 +409,12 @@ class TrainingExecutor:
         return f"subprocess-{process.pid}"
 
     async def _start_kubernetes_job(self, job_config: dict) -> str:
-        """Tier 2 & 3: Create K8s Job"""
-        storage_env = self._get_storage_env()
+        """
+        Tier 2 & 3: Create K8s Job
+
+        Uses same S3 API as subprocess mode - only endpoint differs.
+        """
+        storage_env = self._get_storage_env_k8s_format()
 
         job_manifest = {
             "apiVersion": "batch/v1",
@@ -320,12 +432,12 @@ class TrainingExecutor:
                             "env": [
                                 {"name": "JOB_ID", "value": str(job_config["job_id"])},
                                 {"name": "TRACE_ID", "value": job_config["trace_id"]},
-                                {"name": "BACKEND_BASE_URL", "value": os.environ["BACKEND_BASE_URL"]},
+                                {"name": "BACKEND_BASE_URL", "value": settings.BACKEND_BASE_URL},
                                 {"name": "CALLBACK_TOKEN", "value": job_config["callback_token"]},
                                 {"name": "TASK_TYPE", "value": job_config["task_type"]},
                                 {"name": "MODEL_NAME", "value": job_config["model_name"]},
                                 {"name": "DATASET_ID", "value": job_config["dataset_id"]},
-                                *storage_env,  # R2/S3 credentials
+                                *storage_env,  # S3 credentials (MinIO/R2/S3)
                             ],
                             "resources": {
                                 "requests": {"memory": "4Gi", "cpu": "2"},
@@ -343,21 +455,28 @@ class TrainingExecutor:
 
         return f"training-job-{job_config['job_id']}"
 
-    def _get_storage_env(self) -> list[dict]:
+    def _get_storage_env(self) -> dict:
         """
         Get S3 storage credentials.
 
-        All tiers use S3-compatible API:
-        - Tier 1: MinIO (Docker Compose)
-        - Tier 2: MinIO (Kind)
-        - Tier 3: R2 or S3 (Production)
+        CRITICAL: All tiers use S3-compatible API - NO local file system.
+        - Tier 1 (Subprocess): MinIO (http://localhost:9000)
+        - Tier 2 (Kind): MinIO (http://minio.platform.svc:9000)
+        - Tier 3 (Production): R2 or S3 (cloud endpoints)
+
+        This ensures identical code paths across all tiers.
         """
-        return [
-            {"name": "S3_ENDPOINT", "value": settings.S3_ENDPOINT},
-            {"name": "AWS_ACCESS_KEY_ID", "value": settings.AWS_ACCESS_KEY_ID},
-            {"name": "AWS_SECRET_ACCESS_KEY", "value": settings.AWS_SECRET_ACCESS_KEY},
-            {"name": "BUCKET_NAME", "value": settings.BUCKET_NAME},
-        ]
+        return {
+            "S3_ENDPOINT": settings.S3_ENDPOINT,
+            "AWS_ACCESS_KEY_ID": settings.AWS_ACCESS_KEY_ID,
+            "AWS_SECRET_ACCESS_KEY": settings.AWS_SECRET_ACCESS_KEY,
+            "BUCKET_NAME": settings.BUCKET_NAME,
+        }
+
+    def _get_storage_env_k8s_format(self) -> list[dict]:
+        """Get storage credentials in Kubernetes env format"""
+        env_dict = self._get_storage_env()
+        return [{"name": k, "value": v} for k, v in env_dict.items()]
 ```
 
 ### Storage Abstraction
@@ -455,12 +574,18 @@ S3_ENDPOINT: "https://xxx.r2.cloudflarestorage.com"
 ### Day-to-Day Development (Tier 1)
 
 ```bash
-# 1. Start infrastructure
-docker-compose up -d  # postgres, redis, minio (optional)
+# 1. Start infrastructure (REQUIRED - includes MinIO for S3 API)
+docker-compose -f infrastructure/docker-compose.dev.yml up -d
+# This starts: postgres, redis, minio
+
+# Verify MinIO is running
+curl http://localhost:9000/minio/health/live
+# Should return: 200 OK
 
 # 2. Start backend
 cd platform/backend
 cp .env.tier1.example .env
+# IMPORTANT: Verify S3_ENDPOINT=http://localhost:9000 in .env
 poetry install
 poetry run uvicorn app.main:app --reload --port 8000
 
@@ -470,20 +595,27 @@ cp .env.tier1.example .env.local
 pnpm install
 pnpm dev  # localhost:3000
 
-# 4. Make changes
+# 4. (Optional) Start trainer services as separate processes
+# For testing HTTP API communication
+cd platform/trainers/ultralytics
+poetry run uvicorn app.main:app --port 8002
+
+# 5. Make changes
 # Edit code in VS Code
 # Backend auto-reloads
 # Frontend auto-reloads
 
-# 5. Test
+# 6. Test
 poetry run pytest tests/unit/
 pnpm test
 
-# 6. Run training (subprocess mode)
-# Just use the UI - backend will spawn subprocess
-# Or test directly:
-cd platform/trainers/ultralytics
-python train.py  # Uses env vars from .env
+# 7. Run training (subprocess mode)
+# Backend will:
+# 1. Upload dataset to MinIO (S3 API)
+# 2. Spawn subprocess trainer
+# 3. Trainer downloads dataset from MinIO
+# 4. Trainer uploads checkpoints to MinIO
+# This is IDENTICAL to K8s behavior, just subprocess vs pod
 ```
 
 ### Pre-Deployment Testing (Tier 2)
@@ -771,9 +903,9 @@ test('complete training workflow', async ({ page }) => {
 
 **Common Issues**:
 - **DNS resolution**: Use service names (e.g., `postgres` not `localhost`)
-- **File paths**: Use `/workspace` in containers, not local paths
+- **S3 endpoint**: Update from `http://localhost:9000` to `http://minio.platform.svc:9000`
 - **Ports**: Services exposed on different ports in K8s
-- **Permissions**: FS permissions differ in containers
+- **Trainer communication**: Use trainer service URLs, not direct imports
 
 ### Tier 2 → Tier 3 Checklist
 
@@ -900,13 +1032,25 @@ kubectl get secret platform-secrets -n platform -o yaml | grep R2
 ```bash
 # Execution
 EXECUTION_MODE=subprocess
-STORAGE_TYPE=local
+STORAGE_TYPE=minio  # REQUIRED: Always S3-compatible (MinIO for local)
 
 # Database
 DATABASE_URL=postgresql://admin:devpass@localhost:5432/platform
 
 # Redis
 REDIS_URL=redis://localhost:6379/0
+
+# Storage (REQUIRED - MinIO for S3 API)
+# Must start docker-compose with MinIO container
+S3_ENDPOINT=http://localhost:9000
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+BUCKET_NAME=vision-platform
+
+# Trainer Service URLs (HTTP API communication)
+TRAINER_TIMM_URL=http://localhost:8001
+TRAINER_ULTRALYTICS_URL=http://localhost:8002
+TRAINER_HUGGINGFACE_URL=http://localhost:8003
 
 # LLM
 ANTHROPIC_API_KEY=sk-ant-api03-...
@@ -920,10 +1064,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 # Backend
 BACKEND_BASE_URL=http://localhost:8000
 
-# Storage (optional for subprocess)
-# S3_ENDPOINT=http://localhost:9000
-# AWS_ACCESS_KEY_ID=minioadmin
-# AWS_SECRET_ACCESS_KEY=minioadmin
+# Monitoring (optional - if using Kind monitoring stack)
+MLFLOW_TRACKING_URI=http://localhost:5000
+PROMETHEUS_URL=http://localhost:9090
+GRAFANA_URL=http://localhost:3001
+TEMPORAL_HOST=localhost:7233
 ```
 
 ### Complete ConfigMap for Tier 2 (Kind)
@@ -1018,12 +1163,19 @@ stringData:
 | **Code** | Same | Same | Same |
 | **Config** | .env file | K8s ConfigMap/Secret | K8s Secret |
 | **Training** | Subprocess | K8s Job | K8s Job |
-| **Storage** | Local FS or MinIO | MinIO | R2/S3 |
+| **Storage** | MinIO (S3 API) | MinIO (S3 API) | R2/S3 (S3 API) |
 | **Database** | Local PostgreSQL | K8s PostgreSQL | Managed PostgreSQL |
 | **Iteration Speed** | Fast (seconds) | Medium (minutes) | Slow (deploy) |
-| **Fidelity** | Low (no K8s) | High (same as prod) | Production |
+| **Fidelity** | High (same S3 API) | High (same as prod) | Production |
 
 The key insight: **One codebase, three configurations, identical behavior.**
+
+**CRITICAL**: All tiers use S3-compatible storage API. NO local file system.
+- Tier 1: MinIO (http://localhost:9000)
+- Tier 2: MinIO (http://minio.platform.svc:9000)
+- Tier 3: Cloudflare R2 or AWS S3
+
+This ensures **identical code paths** across all environments.
 
 ## References
 
