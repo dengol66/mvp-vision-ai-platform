@@ -237,8 +237,13 @@ services:
     container_name: vision-loki
     restart: unless-stopped
     ports:
-      - "3100:3100"
+      - "${LOKI_HTTP_PORT:-3100}:3100"
     command: -config.file=/etc/loki/local-config.yaml
+    environment:
+      - LOKI_HTTP_PORT=${LOKI_HTTP_PORT:-3100}
+      - LOKI_GRPC_PORT=${LOKI_GRPC_PORT:-9096}
+      - LOKI_RETENTION_PERIOD=${LOKI_RETENTION_PERIOD:-720h}
+      - LOKI_STORAGE_TYPE=${LOKI_STORAGE_TYPE:-filesystem}
     volumes:
       - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml
       - loki_data:/loki
@@ -252,6 +257,10 @@ services:
     image: grafana/promtail:2.9.3
     container_name: vision-promtail
     restart: unless-stopped
+    environment:
+      - PROMTAIL_HTTP_PORT=${PROMTAIL_HTTP_PORT:-9080}
+      - PROMTAIL_LOKI_URL=${PROMTAIL_LOKI_URL:-http://loki:3100}
+      - PROMTAIL_LOG_PATH=${PROMTAIL_LOG_PATH:-/app/logs/*.log}
     volumes:
       - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yaml
       - /var/log:/var/log:ro
