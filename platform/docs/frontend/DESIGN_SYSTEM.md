@@ -165,17 +165,17 @@ const inter = Inter({
   display: "swap",
 });
 
-const pretendard = localFont({
-  src: "../fonts/PretendardVariable.woff2",
-  variable: "--font-pretendard",
+const suit = localFont({
+  src: "../fonts/SUIT-Variable.woff2",
+  variable: "--font-suit",
   display: "swap",
-  weight: "45 920",
+  weight: "100 900",
 });
 
 // Tailwind config
 fontFamily: {
   sans: [
-    "var(--font-pretendard)",  // Korean
+    "var(--font-suit)",        // Korean (SUIT)
     "var(--font-inter)",       // Latin
     "system-ui",
     "-apple-system",
@@ -872,7 +872,7 @@ frontend/
 │   │   ├── layout.tsx           # Root layout
 │   │   └── page.tsx
 │   └── fonts/
-│       └── PretendardVariable.woff2
+│       └── SUIT-Variable.woff2
 └── tailwind.config.ts
 ```
 
@@ -882,7 +882,7 @@ frontend/
 
 ### Week 1: Foundation
 - [ ] Add missing color tokens (success, warning, info)
-- [ ] Install Pretendard font
+- [ ] Install SUIT font
 - [ ] Add missing shadcn/ui components (skeleton, toast, dialog)
 - [ ] Update globals.css with new tokens
 
@@ -911,7 +911,7 @@ frontend/
 - [shadcn/ui Documentation](https://ui.shadcn.com/)
 - [Tailwind CSS Documentation](https://tailwindcss.com/)
 - [WCAG 2.1 Guidelines](https://www.w3.org/WAI/WCAG21/quickref/)
-- [Pretendard Font](https://github.com/orioncactus/pretendard)
+- [SUIT Font](https://sunn.us/suit/)
 
 ---
 

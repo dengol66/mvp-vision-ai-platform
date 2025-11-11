@@ -917,15 +917,15 @@ Build a consistent, accessible, production-ready frontend by refining MVP compon
      variable: "--font-inter",
    });
 
-   const pretendard = localFont({
-     src: "../fonts/PretendardVariable.woff2",
-     variable: "--font-pretendard",
-     weight: "45 920",
+   const suit = localFont({
+     src: "../fonts/SUIT-Variable.woff2",
+     variable: "--font-suit",
+     weight: "100 900",
    });
 
    export default function RootLayout({ children }: { children: React.ReactNode }) {
      return (
-       <html lang="ko" className={`${inter.variable} ${pretendard.variable}`}>
+       <html lang="ko" className={`${inter.variable} ${suit.variable}`}>
          <body className="font-sans">{children}</body>
        </html>
      );
@@ -936,7 +936,7 @@ Build a consistent, accessible, production-ready frontend by refining MVP compon
    // platform/frontend/tailwind.config.ts
    fontFamily: {
      sans: [
-       "var(--font-pretendard)",  // Korean
+       "var(--font-suit)",        // Korean (SUIT)
        "var(--font-inter)",       // Latin
        "system-ui",
        "sans-serif",
@@ -962,7 +962,7 @@ Build a consistent, accessible, production-ready frontend by refining MVP compon
 
 **Deliverables**:
 - ✅ Design tokens configured (including success/warning/info)
-- ✅ Korean font (Pretendard) + Latin font (Inter) working
+- ✅ Korean font (SUIT) + Latin font (Inter) working
 - ✅ shadcn/ui components installed
 - ✅ Storybook setup for component development (optional)
 
