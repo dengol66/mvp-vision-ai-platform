@@ -20,6 +20,7 @@
 - **analysis/** - MVP 분석 문서
 - **features/** - 기능 설계
 - **scenarios/** - 사용 시나리오
+- **_archived/** - 구 버전 아카이브 문서
 
 ---
 
