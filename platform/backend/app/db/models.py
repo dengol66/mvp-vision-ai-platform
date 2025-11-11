@@ -11,7 +11,6 @@ from enum import Enum as PyEnum
 from typing import Optional
 
 from sqlalchemy import Column, String, DateTime, Float, Integer, Text, Enum, JSON
-from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.session import Base
 
@@ -36,8 +35,8 @@ class TrainingJob(Base):
 
     __tablename__ = "training_jobs"
 
-    # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Primary key (UUID stored as string for SQLite compatibility)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
     # User info
     user_id = Column(String(255), nullable=False, index=True)
@@ -92,8 +91,8 @@ class TrainingMetric(Base):
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # Foreign key to TrainingJob
-    job_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    # Foreign key to TrainingJob (UUID stored as string)
+    job_id = Column(String(36), nullable=False, index=True)
 
     # Metric data
     epoch = Column(Integer, nullable=False)

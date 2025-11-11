@@ -11,12 +11,13 @@ const inter = Inter({
 });
 
 // SUIT font for Korean characters
-const suit = localFont({
-  src: "../fonts/SUIT-Variable.woff2",
-  variable: "--font-suit",
-  display: "swap",
-  weight: "100 900",
-});
+// Temporarily commented out until font file is downloaded
+// const suit = localFont({
+//   src: "../fonts/SUIT-Variable.woff2",
+//   variable: "--font-suit",
+//   display: "swap",
+//   weight: "100 900",
+// });
 
 export const metadata: Metadata = {
   title: "Vision AI Training Platform",
@@ -29,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" className={`${inter.variable} ${suit.variable}`}>
+    <html lang="ko" className={`${inter.variable}`}>
       <body className="font-sans antialiased">{children}</body>
     </html>
   );

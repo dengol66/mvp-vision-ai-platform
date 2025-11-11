@@ -6,7 +6,6 @@ Provides CRUD operations for training jobs and handles callbacks from Training S
 
 from datetime import datetime
 from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -96,7 +95,7 @@ async def list_training_jobs(
 
 @router.get("/jobs/{job_id}", response_model=TrainingJobResponse)
 async def get_training_job(
-    job_id: UUID,
+    job_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific training job by ID."""
@@ -114,7 +113,7 @@ async def get_training_job(
 
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_training_job(
-    job_id: UUID,
+    job_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -149,7 +148,7 @@ async def cancel_training_job(
 
 @router.post("/jobs/{job_id}/callback", status_code=status.HTTP_200_OK)
 async def training_callback(
-    job_id: UUID,
+    job_id: str,
     update: TrainingUpdate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -211,7 +210,7 @@ async def training_callback(
 
 @router.get("/jobs/{job_id}/metrics", response_model=List[TrainingMetricResponse])
 async def get_training_metrics(
-    job_id: UUID,
+    job_id: str,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
