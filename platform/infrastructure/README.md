@@ -1,88 +1,80 @@
-# Infrastructure as Code
+# Platform Infrastructure
 
-**Deployment configurations** for multiple environments.
+Docker Compose configurations for local development and Kubernetes configurations for production.
 
-## Structure
+## Local Development (Docker Compose)
 
-```
-infrastructure/
-├── helm/              # Kubernetes Helm charts
-│   ├── backend/       # Backend service chart
-│   ├── frontend/      # Frontend service chart
-│   ├── temporal/      # Temporal cluster
-│   ├── trainers/      # Trainer job templates
-│   └── observability/ # Grafana stack
-├── terraform/         # Cloud infrastructure
-│   ├── railway/       # Railway resources
-│   ├── aws/          # AWS EKS + RDS + S3
-│   └── onprem/       # On-premise K8s
-└── k8s/              # Raw manifests (if needed)
-```
+### Services
 
-## Helm Charts
+#### MinIO (S3-compatible storage)
+- **API Port**: 9000
+- **Console**: http://localhost:9001
+- **Credentials**: minioadmin / minioadmin
+- **Purpose**: Dataset and checkpoint storage
 
-### Backend Service
+#### PostgreSQL (Optional)
+- **Port**: 5432
+- **Database**: platform
+- **Credentials**: platform / platform
+- **Purpose**: Production-like database testing
+
+#### Redis (Optional)
+- **Port**: 6379
+- **Purpose**: Cache and message queue
+
+### Quick Start
+
 ```bash
-helm install backend ./helm/backend \
-  --set image.tag=v1.0.0 \
-  --set env.DATABASE_URL=$DATABASE_URL \
-  --set env.STORAGE_ENDPOINT=$STORAGE_ENDPOINT
+# Start all services
+docker-compose -f docker-compose.dev.yml up -d
+
+# Start MinIO only
+docker-compose -f docker-compose.dev.yml up -d minio
+
+# Check status
+docker-compose -f docker-compose.dev.yml ps
+
+# View logs
+docker-compose -f docker-compose.dev.yml logs -f minio
+
+# Stop services
+docker-compose -f docker-compose.dev.yml down
 ```
 
-### Temporal Cluster
+### MinIO Setup
+
+Access console at http://localhost:9001 and create bucket:
+
+1. Login: `minioadmin` / `minioadmin`
+2. Create bucket: `vision-platform`
+
+Or use CLI:
+
 ```bash
-helm repo add temporalio https://go.temporal.io/helm-charts
-helm install temporal temporalio/temporal \
-  --set server.replicaCount=1 \
-  --set cassandra.enabled=false \
-  --set postgresql.enabled=true
+mc alias set local http://localhost:9000 minioadmin minioadmin
+mc mb local/vision-platform
 ```
 
-### Observability Stack
-```bash
-helm install observability ./helm/observability \
-  --set grafana.adminPassword=$GRAFANA_PASSWORD \
-  --set loki.persistence.enabled=true
+## Production (Kubernetes)
+
+See `helm/` and `terraform/` directories for production deployment configurations:
+
+- **Helm Charts**: Kubernetes deployments
+- **Terraform**: Cloud infrastructure (AWS, Railway, etc.)
+
+## Environment Configuration
+
+Update `.env` files to use local services:
+
+```env
+# Backend
+DATABASE_URL=postgresql+asyncpg://platform:platform@localhost:5432/platform
+S3_ENDPOINT=http://localhost:9000
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+BUCKET_NAME=vision-platform
 ```
 
-## Terraform
+## License
 
-### Railway
-```bash
-cd terraform/railway
-terraform init
-terraform plan
-terraform apply
-```
-
-### AWS
-```bash
-cd terraform/aws
-terraform init
-terraform plan -var-file=production.tfvars
-terraform apply -var-file=production.tfvars
-```
-
-## Environment-Specific Configs
-
-```
-config/
-├── dev.yaml          # Local development
-├── railway.yaml      # Railway production
-├── aws.yaml         # AWS production
-└── onprem.yaml      # On-premise
-```
-
-Usage:
-```bash
-helm install backend ./helm/backend -f config/railway.yaml
-```
-
-## Secrets Management
-
-**Never commit secrets!**
-
-Use:
-- Railway: Environment variables in dashboard
-- AWS: AWS Secrets Manager + External Secrets Operator
-- On-premise: Sealed Secrets or Vault
+Copyright © 2025 Vision AI Platform Team
