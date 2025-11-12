@@ -6,7 +6,7 @@ from sqlalchemy import func
 from typing import List
 
 from app.db.database import get_db
-from app.db.models import Project, TrainingJob, User, ProjectMember
+from app.db.models import Project, TrainingJob, User, ProjectMember, InvitationType, UserRole
 from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
@@ -14,6 +14,7 @@ from app.schemas.project import (
     ProjectWithExperimentsResponse,
 )
 from app.utils.dependencies import get_current_active_user
+from app.api.invitations import create_invitation
 from pydantic import BaseModel, EmailStr
 
 router = APIRouter(tags=["projects"])
@@ -56,6 +57,7 @@ class MemberInviteRequest(BaseModel):
     """Schema for inviting a member to project."""
     email: EmailStr
     role: str = "member"  # member, viewer, etc.
+    message: str | None = None  # Optional personal message
 
 
 @router.post("", response_model=ProjectResponse)
@@ -347,7 +349,12 @@ def invite_project_member(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Invite a user to join the project."""
+    """
+    Invite a user to join the project.
+
+    - If user exists: Add directly as ProjectMember
+    - If user doesn't exist: Create Invitation and send email
+    """
 
     # Check if project exists
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -358,43 +365,100 @@ def invite_project_member(
     if project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only project owner can invite members")
 
+    # Map role string to UserRole enum (default to GUEST)
+    role_mapping = {
+        "owner": UserRole.ADMIN,
+        "admin": UserRole.ADMIN,
+        "manager": UserRole.MANAGER,
+        "engineer_ii": UserRole.ENGINEER_II,
+        "engineer_i": UserRole.ENGINEER_I,
+        "engineer": UserRole.ENGINEER_I,
+        "member": UserRole.ENGINEER_I,
+        "viewer": UserRole.GUEST,
+        "guest": UserRole.GUEST
+    }
+    user_role = role_mapping.get(invite.role.lower(), UserRole.GUEST)
+
     # Find user by email
     user = db.query(User).filter(User.email == invite.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User with this email not found")
 
-    # Check if user is already the owner
-    if user.id == project.user_id:
-        raise HTTPException(status_code=400, detail="User is already the project owner")
+    if user:
+        # User exists - Add directly as ProjectMember
 
-    # Check if user is already a member
-    existing_member = db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id == user.id
-    ).first()
-    if existing_member:
-        raise HTTPException(status_code=400, detail="User is already a member of this project")
+        # Check if user is already the owner
+        if user.id == project.user_id:
+            raise HTTPException(status_code=400, detail="User is already the project owner")
 
-    # Create membership
-    from datetime import datetime
-    new_member = ProjectMember(
-        project_id=project_id,
-        user_id=user.id,
-        role=invite.role,
-        invited_by=current_user.id,
-        joined_at=datetime.utcnow()
-    )
+        # Check if user is already a member
+        existing_member = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user.id
+        ).first()
+        if existing_member:
+            raise HTTPException(status_code=400, detail="User is already a member of this project")
 
-    db.add(new_member)
-    db.commit()
-    db.refresh(new_member)
+        # Create membership
+        from datetime import datetime
+        new_member = ProjectMember(
+            project_id=project_id,
+            user_id=user.id,
+            role=invite.role,
+            invited_by=current_user.id,
+            joined_at=datetime.utcnow()
+        )
 
-    return {
-        "message": "Member invited successfully",
-        "user_id": user.id,
-        "email": user.email,
-        "role": invite.role
-    }
+        db.add(new_member)
+        db.commit()
+        db.refresh(new_member)
+
+        return {
+            "message": "Member added successfully",
+            "user_id": user.id,
+            "email": user.email,
+            "role": invite.role,
+            "method": "direct_add"
+        }
+
+    else:
+        # User doesn't exist - Create Invitation and send email
+
+        # Check if there's already a pending invitation for this email
+        from app.db.models import Invitation, InvitationStatus
+        existing_invitation = db.query(Invitation).filter(
+            Invitation.project_id == project_id,
+            Invitation.invitee_email == invite.email,
+            Invitation.status == InvitationStatus.PENDING
+        ).first()
+
+        if existing_invitation and not existing_invitation.is_expired():
+            raise HTTPException(
+                status_code=400,
+                detail="A pending invitation already exists for this email"
+            )
+
+        # Create invitation
+        invitation = create_invitation(
+            db=db,
+            inviter=current_user,
+            invitee_email=invite.email,
+            invitation_type=InvitationType.PROJECT,
+            entity_id=project_id,
+            invitee_role=user_role,
+            message=invite.message,
+            expires_in_days=7
+        )
+
+        db.commit()
+
+        return {
+            "message": "Invitation sent successfully",
+            "invitee_email": invite.email,
+            "invitation_id": invitation.id,
+            "token": invitation.token,
+            "expires_at": invitation.expires_at.isoformat(),
+            "role": invite.role,
+            "method": "invitation_email"
+        }
 
 
 @router.delete("/{project_id}/members/{user_id}")

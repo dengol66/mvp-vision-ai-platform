@@ -1,6 +1,7 @@
 """Authentication API endpoints."""
 
 import random
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -25,6 +26,79 @@ BADGE_COLORS = [
     'teal', 'cyan', 'sky', 'blue',
     'indigo', 'violet', 'purple', 'fuchsia', 'pink'
 ]
+
+# Avatar name adjectives and nouns for random generation
+AVATAR_ADJECTIVES = [
+    'happy', 'brave', 'clever', 'wise', 'swift',
+    'bright', 'cool', 'kind', 'bold', 'calm',
+    'eager', 'fair', 'gentle', 'keen', 'noble'
+]
+
+AVATAR_NOUNS = [
+    'panda', 'tiger', 'eagle', 'dolphin', 'fox',
+    'wolf', 'lion', 'bear', 'hawk', 'owl',
+    'falcon', 'lynx', 'otter', 'raven', 'phoenix'
+]
+
+
+def generate_avatar_name() -> str:
+    """Generate a random avatar name in the format 'adjective-noun-number'."""
+    adjective = random.choice(AVATAR_ADJECTIVES)
+    noun = random.choice(AVATAR_NOUNS)
+    number = random.randint(100, 999)
+    return f"{adjective}-{noun}-{number}"
+
+
+def find_or_create_organization(
+    db: Session,
+    company: str | None,
+    company_custom: str | None,
+    division: str | None,
+    division_custom: str | None
+) -> models.Organization:
+    """
+    Find or create an organization based on company and division.
+
+    Args:
+        db: Database session
+        company: Company name or selection
+        company_custom: Custom company name if "직접입력" selected
+        division: Division name or selection
+        division_custom: Custom division name if "직접입력" selected
+
+    Returns:
+        Organization object
+    """
+    # Determine actual company name
+    actual_company = company_custom if company == "직접입력" else (company or "Default")
+
+    # Determine actual division name
+    actual_division = division_custom if division == "직접입력" else (division or "Engineering")
+
+    # Try to find existing organization with same company and division
+    org = db.query(models.Organization).filter(
+        models.Organization.company == actual_company,
+        models.Organization.division == actual_division
+    ).first()
+
+    if org:
+        return org
+
+    # Create new organization
+    org_name = f"{actual_company} - {actual_division}"
+    new_org = models.Organization(
+        name=org_name,
+        company=actual_company,
+        division=actual_division,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+
+    db.add(new_org)
+    db.commit()
+    db.refresh(new_org)
+
+    return new_org
 
 
 @router.post("/register", response_model=user_schemas.UserResponse, status_code=status.HTTP_201_CREATED)
@@ -53,7 +127,16 @@ def register(
             detail="Email already registered"
         )
 
-    # Create new user with default system_role='guest' and random badge color
+    # Find or create organization
+    organization = find_or_create_organization(
+        db=db,
+        company=user_in.company,
+        company_custom=user_in.company_custom,
+        division=user_in.division,
+        division_custom=user_in.division_custom
+    )
+
+    # Create new user with default system_role='guest', random badge color, and avatar name
     hashed_password = get_password_hash(user_in.password)
     db_user = models.User(
         email=user_in.email,
@@ -66,7 +149,9 @@ def register(
         department=user_in.department,
         phone_number=user_in.phone_number,
         bio=user_in.bio,
-        system_role='guest',  # New users start as guest
+        organization_id=organization.id,
+        system_role=models.UserRole.GUEST,  # New users start as guest
+        avatar_name=generate_avatar_name(),  # Generate random avatar name
         is_active=True,
         badge_color=random.choice(BADGE_COLORS)  # Assign random badge color
     )
@@ -112,8 +197,14 @@ def login(
             detail="Inactive user"
         )
 
-    # Create tokens
-    access_token = create_access_token(data={"sub": user.id})
+    # Create tokens with additional user data for frontend
+    token_data = {
+        "sub": user.id,
+        "email": user.email,
+        "role": user.system_role.value,  # Include role for permission checks
+        "organization_id": user.organization_id  # Include org for multi-tenancy
+    }
+    access_token = create_access_token(data=token_data)
     refresh_token = create_refresh_token(data={"sub": user.id})
 
     return {
@@ -160,8 +251,14 @@ def refresh_token(
                 detail="User not found or inactive"
             )
 
-        # Create new tokens
-        new_access_token = create_access_token(data={"sub": user.id})
+        # Create new tokens with additional user data
+        token_data = {
+            "sub": user.id,
+            "email": user.email,
+            "role": user.system_role.value,
+            "organization_id": user.organization_id
+        }
+        new_access_token = create_access_token(data=token_data)
         new_refresh_token = create_refresh_token(data={"sub": user.id})
 
         return {
@@ -255,3 +352,106 @@ def logout():
         Success message
     """
     return {"message": "Successfully logged out"}
+
+
+@router.post("/forgot-password")
+def request_password_reset(
+    request: user_schemas.ForgotPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Request a password reset email.
+
+    Args:
+        request: Email of the user requesting password reset
+        db: Database session
+
+    Returns:
+        Success message (always returns success to prevent email enumeration)
+
+    Note:
+        Even if the email doesn't exist, we return success to prevent
+        email enumeration attacks.
+    """
+    # Find user by email
+    user = db.query(models.User).filter(models.User.email == request.email).first()
+
+    if user and user.is_active:
+        # Generate password reset token (expires in 1 hour)
+        import secrets
+        reset_token = secrets.token_urlsafe(32)
+
+        # Store token in database with expiration
+        from datetime import timedelta
+        user.password_reset_token = reset_token
+        user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+        db.commit()
+
+        # Send password reset email
+        from app.services.email_service import get_email_service
+        email_service = get_email_service()
+        email_service.send_password_reset_email(
+            to_email=user.email,
+            reset_token=reset_token,
+            user_name=user.full_name
+        )
+
+    # Always return success to prevent email enumeration
+    return {
+        "message": "If the email exists, a password reset link has been sent",
+        "detail": "Please check your email for the password reset link"
+    }
+
+
+@router.post("/reset-password")
+def reset_password(
+    request: user_schemas.ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Reset password using a reset token.
+
+    Args:
+        request: Reset token and new password
+        db: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: If token is invalid or expired
+    """
+    # Find user by reset token
+    user = db.query(models.User).filter(
+        models.User.password_reset_token == request.token
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    # Check if token is expired
+    if not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired. Please request a new one."
+        )
+
+    # Update password
+    user.hashed_password = get_password_hash(request.new_password)
+
+    # Clear reset token
+    user.password_reset_token = None
+    user.password_reset_expires = None
+
+    user.updated_at = datetime.utcnow()
+
+    db.commit()
+
+    return {
+        "message": "Password has been reset successfully",
+        "detail": "You can now login with your new password"
+    }
+

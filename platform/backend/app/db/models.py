@@ -1,10 +1,121 @@
 """Database models."""
 
+import enum
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, JSON, Boolean, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+
+
+class UserRole(str, enum.Enum):
+    """5-tier user permission system"""
+    ADMIN = "admin"              # All permissions
+    MANAGER = "manager"          # Can grant permissions below manager
+    ENGINEER_II = "engineer_ii"  # Advanced training features
+    ENGINEER_I = "engineer_i"    # Basic training features
+    GUEST = "guest"              # Limited: 1 project, 1 dataset, no collaboration
+
+
+class InvitationType(str, enum.Enum):
+    """Type of invitation"""
+    ORGANIZATION = "organization"  # Invite to organization
+    PROJECT = "project"            # Invite to project
+    DATASET = "dataset"            # Invite to dataset
+
+
+class InvitationStatus(str, enum.Enum):
+    """Status of invitation"""
+    PENDING = "pending"      # Invitation sent, awaiting response
+    ACCEPTED = "accepted"    # Invitation accepted
+    DECLINED = "declined"    # Invitation declined by invitee
+    EXPIRED = "expired"      # Invitation expired
+    CANCELLED = "cancelled"  # Invitation cancelled by inviter
+
+
+class Organization(Base):
+    """Organization model for multi-tenancy support.
+
+    Organizations group users by company and division.
+    Each organization has resource quotas and limits.
+    """
+
+    __tablename__ = "organizations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)  # "Samsung Electronics - MX Division"
+    company = Column(String(255), nullable=False, index=True)
+    division = Column(String(255), nullable=True)
+
+    # Resource quotas (nullable = unlimited)
+    max_users = Column(Integer, nullable=True)
+    max_storage_gb = Column(Integer, nullable=True)
+    max_gpu_hours_per_month = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    users = relationship("User", back_populates="organization")
+    projects = relationship("Project", back_populates="organization")
+
+
+class Invitation(Base):
+    """Invitation model for user invitations to organizations, projects, or datasets.
+
+    Supports inviting users via email. When accepted, the user is automatically
+    added to the relevant entity with the specified role.
+    """
+
+    __tablename__ = "invitations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(255), unique=True, nullable=False, index=True)  # Unique invitation token
+
+    # Invitation metadata
+    invitation_type = Column(SQLEnum(InvitationType), nullable=False, index=True)
+    status = Column(SQLEnum(InvitationStatus), nullable=False, default=InvitationStatus.PENDING, index=True)
+
+    # Target entities (one of these will be set based on invitation_type)
+    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=True, index=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
+    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)
+
+    # Invitation parties
+    inviter_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    invitee_email = Column(String(255), nullable=False, index=True)  # Email of person being invited
+    invitee_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)  # Set when accepted
+
+    # Role to assign upon acceptance
+    invitee_role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.GUEST)
+
+    # Optional invitation message
+    message = Column(Text, nullable=True)
+
+    # Expiration
+    expires_at = Column(DateTime, nullable=False)  # Invitation expiration datetime
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    accepted_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    inviter = relationship("User", foreign_keys=[inviter_id], backref="sent_invitations")
+    invitee = relationship("User", foreign_keys=[invitee_id], backref="received_invitations")
+    organization = relationship("Organization")
+    project = relationship("Project")
+    dataset = relationship("Dataset")
+
+    def is_expired(self) -> bool:
+        """Check if invitation is expired."""
+        return datetime.utcnow() > self.expires_at
+
+    @classmethod
+    def generate_token(cls) -> str:
+        """Generate a unique invitation token."""
+        import secrets
+        return secrets.token_urlsafe(32)
 
 
 class User(Base):
@@ -17,27 +128,78 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
 
+    # Organization info
     company = Column(String(100), nullable=True)
     company_custom = Column(String(255), nullable=True)
     division = Column(String(100), nullable=True)
     division_custom = Column(String(255), nullable=True)
     department = Column(String(255), nullable=True)
+    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='SET NULL'), nullable=True, index=True)
 
     phone_number = Column(String(50), nullable=True)
     bio = Column(Text, nullable=True)
 
-    system_role = Column(String(50), nullable=False, default='guest')
+    # Role and permissions
+    system_role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.GUEST, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    badge_color = Column(String(20), nullable=True)  # Avatar badge color (e.g., 'blue', 'green', 'purple')
 
+    # Avatar
+    avatar_name = Column(String(100), nullable=True)  # "John D", "JD", etc.
+    badge_color = Column(String(20), nullable=True)  # Avatar badge color
+
+    # Password reset
+    password_reset_token = Column(String(255), nullable=True, unique=True, index=True)
+    password_reset_expires = Column(DateTime, nullable=True)
+
+    # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Relationships
+    organization = relationship("Organization", back_populates="users")
     owned_projects = relationship("Project", back_populates="owner", foreign_keys="[Project.user_id]")
     sessions = relationship("Session", back_populates="user")
     created_training_jobs = relationship("TrainingJob", back_populates="creator", foreign_keys="[TrainingJob.created_by]")
     project_memberships = relationship("ProjectMember", back_populates="user", foreign_keys="[ProjectMember.user_id]")
     invited_members = relationship("ProjectMember", back_populates="inviter", foreign_keys="[ProjectMember.invited_by]")
+
+    def can_create_project(self) -> bool:
+        """Check if user can create a new project"""
+        if self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ENGINEER_II, UserRole.ENGINEER_I]:
+            return True
+
+        if self.system_role == UserRole.GUEST:
+            # Check if user already has 1 project
+            return len(self.owned_projects) < 1
+
+        return False
+
+    def can_create_dataset(self) -> bool:
+        """Check if user can create a new dataset"""
+        if self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ENGINEER_II, UserRole.ENGINEER_I]:
+            return True
+
+        if self.system_role == UserRole.GUEST:
+            # Check if user already has 1 dataset
+            owned_datasets = [d for d in getattr(self, 'owned_datasets', []) if d.owner_id == self.id]
+            return len(owned_datasets) < 1
+
+        return False
+
+    def can_grant_role(self, target_role: UserRole) -> bool:
+        """Check if user can grant a specific role"""
+        if self.system_role == UserRole.ADMIN:
+            return True
+
+        if self.system_role == UserRole.MANAGER:
+            # Manager can grant GUEST, ENGINEER_I, ENGINEER_II
+            return target_role in [UserRole.GUEST, UserRole.ENGINEER_I, UserRole.ENGINEER_II]
+
+        return False
+
+    def has_advanced_features(self) -> bool:
+        """Check if user can access advanced training features"""
+        return self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ENGINEER_II]
 
 
 class ProjectMember(Base):
@@ -151,13 +313,95 @@ class Project(Base):
     description = Column(Text, nullable=True)
     task_type = Column(String(50), nullable=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='SET NULL'), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     owner = relationship("User", back_populates="owned_projects", foreign_keys=[user_id])
+    organization = relationship("Organization", back_populates="projects")
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
-    experiments = relationship("TrainingJob", back_populates="project", cascade="all, delete-orphan")
+    experiments = relationship("Experiment", back_populates="project", cascade="all, delete-orphan")
+    training_jobs = relationship("TrainingJob", back_populates="project", cascade="all, delete-orphan")
+
+
+class Experiment(Base):
+    """Experiment model for organizing training runs.
+
+    Experiments group related training jobs and integrate with MLflow.
+    Each experiment corresponds to one MLflow experiment.
+    """
+
+    __tablename__ = "experiments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Basic info
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    tags = Column(JSON, nullable=True, default=list)  # ["baseline", "production", etc.]
+
+    # MLflow integration
+    mlflow_experiment_id = Column(String(100), nullable=True, unique=True, index=True)
+    mlflow_experiment_name = Column(String(255), nullable=True)
+
+    # Cached statistics (updated periodically)
+    num_runs = Column(Integer, nullable=False, default=0)
+    num_completed_runs = Column(Integer, nullable=False, default=0)
+    best_metrics = Column(JSON, nullable=True)  # {"accuracy": 0.95, "loss": 0.05}
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    project = relationship("Project", back_populates="experiments")
+    training_jobs = relationship("TrainingJob", back_populates="experiment", cascade="all, delete-orphan")
+    stars = relationship("ExperimentStar", back_populates="experiment", cascade="all, delete-orphan")
+    notes = relationship("ExperimentNote", back_populates="experiment", cascade="all, delete-orphan")
+
+
+class ExperimentStar(Base):
+    """User's starred experiments for quick access."""
+
+    __tablename__ = "experiment_stars"
+
+    id = Column(Integer, primary_key=True, index=True)
+    experiment_id = Column(Integer, ForeignKey('experiments.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    starred_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    experiment = relationship("Experiment", back_populates="stars")
+    user = relationship("User")
+
+    # Prevent duplicate stars
+    __table_args__ = (
+        # UniqueConstraint('experiment_id', 'user_id', name='uq_experiment_user_star'),
+    )
+
+
+class ExperimentNote(Base):
+    """Markdown notes attached to experiments.
+
+    Users can document experiment insights, findings, and decisions.
+    """
+
+    __tablename__ = "experiment_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    experiment_id = Column(Integer, ForeignKey('experiments.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)  # Markdown format
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    experiment = relationship("Experiment", back_populates="notes")
+    user = relationship("User")
 
 
 class Session(Base):
@@ -200,6 +444,7 @@ class TrainingJob(Base):
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    experiment_id = Column(Integer, ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     experiment_name = Column(String(200), nullable=True)
@@ -247,7 +492,8 @@ class TrainingJob(Base):
 
     creator = relationship("User", back_populates="created_training_jobs", foreign_keys=[created_by])
     session = relationship("Session", back_populates="training_jobs")
-    project = relationship("Project", back_populates="experiments")
+    project = relationship("Project", back_populates="training_jobs")
+    experiment = relationship("Experiment", back_populates="training_jobs")
     dataset = relationship("Dataset", back_populates="training_jobs", foreign_keys=[dataset_id])
     dataset_snapshot = relationship("Dataset", back_populates="snapshot_training_jobs", foreign_keys=[dataset_snapshot_id])
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")

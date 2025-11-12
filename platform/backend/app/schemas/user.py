@@ -51,6 +51,8 @@ class UserResponse(UserBase):
     system_role: SystemRole  # 시스템 권한
     is_active: bool
     badge_color: Optional[str] = None  # Avatar badge color
+    avatar_name: Optional[str] = None  # Random avatar name
+    organization_id: Optional[int] = None  # Organization membership
     created_at: datetime
 
     class Config:
@@ -84,3 +86,16 @@ class TokenData(BaseModel):
 
     user_id: Optional[int] = None
     email: Optional[str] = None
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Schema for requesting password reset."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema for resetting password with token."""
+
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=100)
