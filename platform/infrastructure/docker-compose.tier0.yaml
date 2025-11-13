@@ -113,7 +113,7 @@ services:
       - "5000:5000"
     environment:
       # PostgreSQL backend for experiments metadata
-      BACKEND_STORE_URI: postgresql://admin:devpass@postgres:5432/platform
+      BACKEND_STORE_URI: postgresql://admin:devpass@postgres:5432/mlflow
       # MinIO for artifacts storage
       ARTIFACT_ROOT: s3://mlflow-artifacts
       AWS_ACCESS_KEY_ID: minioadmin
