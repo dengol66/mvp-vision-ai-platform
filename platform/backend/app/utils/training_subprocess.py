@@ -11,6 +11,7 @@ Architecture:
 """
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -145,6 +146,8 @@ class TrainingSubprocessManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",  # Replace decode errors instead of failing
             )
 
             # Store process
@@ -172,13 +175,27 @@ class TrainingSubprocessManager:
         For production, you should store logs in database or forward to Loki.
         """
         try:
+            # Wrap stdout/stderr with explicit UTF-8 encoding to avoid Windows cp949 issues
+            # Even though we set encoding="utf-8" on Popen, iteration over the stream
+            # still uses system default encoding, so we need to wrap it explicitly
+            stdout_reader = io.TextIOWrapper(
+                process.stdout.buffer,
+                encoding='utf-8',
+                errors='replace'  # Replace undecodable bytes instead of failing
+            )
+            stderr_reader = io.TextIOWrapper(
+                process.stderr.buffer,
+                encoding='utf-8',
+                errors='replace'
+            )
+
             # Read stdout
-            for line in process.stdout:
+            for line in stdout_reader:
                 if line.strip():
                     logger.info(f"[JOB {job_id}] {line.rstrip()}")
 
             # Read stderr
-            for line in process.stderr:
+            for line in stderr_reader:
                 if line.strip():
                     logger.error(f"[JOB {job_id}] {line.rstrip()}")
 
