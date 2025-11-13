@@ -532,7 +532,8 @@ async def start_training_job(
 
     try:
         # Build absolute callback URL
-        callback_base_url = f"http://localhost:{settings.BACKEND_PORT}{settings.API_V1_PREFIX}/training"
+        backend_port = os.getenv("BACKEND_PORT", "8000")
+        callback_base_url = f"http://localhost:{backend_port}{settings.API_V1_PREFIX}/training"
 
         if executor == "subprocess":
             # Tier-0 (Docker Compose), Tier-1 (Kind): Execute via subprocess

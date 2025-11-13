@@ -1512,10 +1512,15 @@ job_config = {
   ```
   Backend (Port 8000)
     ↓ HTTP
-  ultralytics-service (Port 8002)
-  timm-service (Port 8001)
+  ultralytics-service (Port 8001) ← UPDATED 2025-11-13
+  timm-service (Port 8002) ← UPDATED 2025-11-13
   huggingface-service (Port 8003)
   ```
+
+  **⚠️ Port Change Log (2025-11-13)**:
+  - Original plan: timm=8001, ultralytics=8002
+  - Current: ultralytics=8001, timm=8002 (planned)
+  - Reason: Ultralytics implemented first on 8001, kept for stability
 
 - **구현 내용**:
   - Framework별 독립 venv 생성 (`venv-ultralytics`, `venv-timm`)
@@ -1630,21 +1635,21 @@ job_config = {
 #### Microservice 인프라
 **스크립트 생성**:
 - `mvp/scripts/setup-ultralytics-service.bat` - venv 생성 및 의존성 설치
-- `mvp/scripts/start-ultralytics-service.bat` - 서비스 시작 (Port 8002)
+- `mvp/scripts/start-ultralytics-service.bat` - 서비스 시작 (Port 8001) ← **UPDATED 2025-11-13**
 - `mvp/scripts/setup-timm-service.bat` - timm 서비스 셋업
-- `mvp/scripts/start-timm-service.bat` - timm 서비스 시작 (Port 8001)
+- `mvp/scripts/start-timm-service.bat` - timm 서비스 시작 (Port 8002) ← **UPDATED 2025-11-13**
 
-**Backend 설정**:
+**Backend 설정** (Updated 2025-11-13):
 ```bash
-# mvp/backend/.env
-TIMM_SERVICE_URL=http://localhost:8001
-ULTRALYTICS_SERVICE_URL=http://localhost:8002
+# platform/backend/.env
+ULTRALYTICS_SERVICE_URL=http://localhost:8001  # UPDATED: was 8002
+TIMM_SERVICE_URL=http://localhost:8002  # UPDATED: was 8001
 HUGGINGFACE_SERVICE_URL=http://localhost:8003
-TRAINING_SERVICE_URL=http://localhost:8001  # Fallback
+TRAINING_SERVICE_URL=http://localhost:8001  # Fallback (Ultralytics)
 ```
 
-**ultralytics-service 실행 확인**:
-- ✅ Port 8002에서 정상 동작
+**ultralytics-service 실행 확인** (Updated 2025-11-13):
+- ✅ Port 8001에서 정상 동작
 - ✅ Health Check: `{"status":"healthy"}`
 - ✅ Models API: 5개 모델 (yolo11n, yolo11n-seg, yolo11n-pose, yolo_world_v2_s, sam2_t)
 
@@ -1753,14 +1758,16 @@ vision-platform-prod/
    - Log metrics → Backend
 ```
 
-#### Framework별 Port 할당
+#### Framework별 Port 할당 (Updated 2025-11-13)
 ```
-Backend:           8000
-timm-service:      8001
-ultralytics-service: 8002
+Backend:             8000
+ultralytics-service: 8001  ← UPDATED (was 8002)
+timm-service:        8002  ← UPDATED (was 8001, planned)
 huggingface-service: 8003
-Frontend:          3000
+Frontend:            3000
 ```
+
+**Change Log**: Ultralytics implemented first on 8001, timm moved to 8002 to avoid conflict
 
 ---
 

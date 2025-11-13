@@ -89,27 +89,40 @@ def process_dataset_split(dataset_dir: Path, split_config: Optional[Dict[str, An
         dataset_dir: Path to downloaded dataset directory
         split_config: Split configuration from Backend (contains split assignments)
     """
-    if not split_config or "splits" not in split_config:
-        logger.info("No split configuration provided, using default data.yaml splits")
-        return
-
-    logger.info(f"Processing dataset split with method: {split_config.get('method')}")
-
-    # Load annotations.json
+    # Load annotations.json (DICEFormat)
     annotations_file = dataset_dir / "annotations.json"
     if not annotations_file.exists():
-        logger.warning(f"annotations.json not found at {annotations_file}, skipping split processing")
+        logger.info(f"annotations.json not found, assuming data.yaml already exists")
         return
+
+    logger.info("Found annotations.json (DICEFormat) - converting to YOLO format")
 
     with open(annotations_file, 'r') as f:
         annotations = json.load(f)
 
     images = annotations.get('images', [])
-    splits = split_config.get('splits', {})
 
-    if not images or not splits:
-        logger.warning("No images or splits found in configuration")
+    if not images:
+        logger.warning("No images found in annotations.json")
         return
+
+    # Determine splits
+    if split_config and "splits" in split_config:
+        logger.info(f"Using provided split configuration (method: {split_config.get('method')})")
+        splits = split_config.get('splits', {})
+    else:
+        logger.info("No split configuration provided, creating default 80/20 train/val split")
+        # Create default 80/20 split
+        import random
+        random.seed(42)  # Reproducible split
+        shuffled_images = images.copy()
+        random.shuffle(shuffled_images)
+
+        train_count = int(len(shuffled_images) * 0.8)
+        splits = {}
+        for i, img in enumerate(shuffled_images):
+            img_id = str(img['id'])
+            splits[img_id] = 'train' if i < train_count else 'val'
 
     # Create train.txt and val.txt
     images_dir = dataset_dir / "images"
@@ -156,9 +169,76 @@ def process_dataset_split(dataset_dir: Path, split_config: Optional[Dict[str, An
 
     logger.info(f"Created val.txt with {len(val_images)} images")
 
-    # Update data.yaml to use train.txt and val.txt
+    # Convert DICEFormat annotations to YOLO format labels
+    logger.info("Converting DICEFormat annotations to YOLO format labels")
+    labels_dir = dataset_dir / "labels"
+    labels_dir.mkdir(exist_ok=True)
+
+    # Group annotations by image_id for faster lookup
+    image_annotations = {}
+    for ann in annotations.get('annotations', []):
+        img_id = ann['image_id']
+        if img_id not in image_annotations:
+            image_annotations[img_id] = []
+        image_annotations[img_id].append(ann)
+
+    # Create label files for each image
+    for img in images:
+        img_id = img['id']
+        img_filename = img.get('file_name', '')
+
+        if not img_filename:
+            continue
+
+        # Get image dimensions
+        img_width = img.get('width', 0)
+        img_height = img.get('height', 0)
+
+        if img_width == 0 or img_height == 0:
+            logger.warning(f"Image {img_filename} has invalid dimensions, skipping")
+            continue
+
+        # Create label file
+        label_filename = Path(img_filename).stem + '.txt'
+        label_path = labels_dir / label_filename
+
+        label_lines = []
+
+        # Get annotations for this image
+        img_anns = image_annotations.get(img_id, [])
+
+        for ann in img_anns:
+            # YOLO format: <class_id> <x_center> <y_center> <width> <height> (normalized 0-1)
+            bbox = ann.get('bbox', [])  # [x, y, width, height]
+
+            if len(bbox) != 4:
+                continue
+
+            x, y, w, h = bbox
+            category_id = ann.get('category_id', 0)
+
+            # Convert to YOLO format (normalize and convert to center coordinates)
+            x_center = (x + w / 2) / img_width
+            y_center = (y + h / 2) / img_height
+            w_norm = w / img_width
+            h_norm = h / img_height
+
+            # YOLO uses 0-indexed class IDs
+            class_id = category_id - 1 if category_id > 0 else 0
+
+            label_lines.append(f"{class_id} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}")
+
+        # Write label file
+        with open(label_path, 'w') as f:
+            f.write('\n'.join(label_lines))
+
+    logger.info(f"Created YOLO format labels in {labels_dir}")
+
+    # Create or update data.yaml to use train.txt and val.txt
     data_yaml = dataset_dir / "data.yaml"
+
     if data_yaml.exists():
+        # Update existing data.yaml
         with open(data_yaml, 'r') as f:
             data_config = yaml.safe_load(f)
 
@@ -171,7 +251,30 @@ def process_dataset_split(dataset_dir: Path, split_config: Optional[Dict[str, An
 
         logger.info(f"Updated data.yaml to use train.txt and val.txt")
     else:
-        logger.warning(f"data.yaml not found at {data_yaml}, cannot update split paths")
+        # Create new data.yaml from annotations.json
+        logger.info(f"data.yaml not found, creating from annotations.json")
+
+        # Extract class information from annotations
+        categories = annotations.get('categories', [])
+        class_names = [cat['name'] for cat in sorted(categories, key=lambda x: x['id'])]
+
+        if not class_names:
+            logger.error("No categories found in annotations.json")
+            raise ValueError("Cannot create data.yaml without class information")
+
+        # Create data.yaml configuration
+        data_config = {
+            'path': str(dataset_dir.absolute()),
+            'train': str(train_txt.absolute()),
+            'val': str(val_txt.absolute()),
+            'nc': len(class_names),
+            'names': class_names
+        }
+
+        with open(data_yaml, 'w') as f:
+            yaml.dump(data_config, f, default_flow_style=False)
+
+        logger.info(f"Created data.yaml with {len(class_names)} classes: {class_names}")
 
 
 async def train_model(
@@ -258,13 +361,11 @@ async def train_model(
         await s3_client.download_directory(s3_path, dataset_dir)
         logger.info(f"Dataset downloaded to {dataset_dir}")
 
-        # Process dataset split configuration (if provided)
+        # Process dataset split configuration
+        # This ALWAYS runs if annotations.json exists (DICEFormat)
+        # If split_config not provided, creates default 80/20 train/val split
         split_config = config.get("split_config")
-        if split_config:
-            logger.info("Processing dataset split configuration...")
-            process_dataset_split(dataset_dir, split_config)
-        else:
-            logger.info("No split configuration provided, using default data.yaml splits")
+        process_dataset_split(dataset_dir, split_config)
 
         # Training config
         epochs = config.get("epochs", 50)
