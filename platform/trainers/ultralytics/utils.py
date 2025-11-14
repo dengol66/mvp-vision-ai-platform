@@ -210,12 +210,14 @@ class CallbackClient:
     )
     async def send_validation(self, job_id: str, data: Dict[str, Any]) -> None:
         """Send validation result callback"""
-        url = f"{self.base_url}/jobs/{job_id}/validation"
+        # Convert /training base URL to /validation
+        validation_base_url = self.base_url.replace('/training', '/validation')
+        url = f"{validation_base_url}/jobs/{job_id}/results"
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:  # Longer timeout for validation data
             response = await client.post(url, json=data)
             response.raise_for_status()
-            logger.debug(f"Validation callback sent: epoch {data.get('epoch')}")
+            logger.info(f"Validation callback sent: epoch {data.get('epoch')}")
 
     # ========================================================================
     # Synchronous versions for use in non-async contexts (Ultralytics callbacks)
@@ -246,6 +248,21 @@ class CallbackClient:
             response = client.post(url, json=data)
             response.raise_for_status()
             logger.info(f"Completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def send_validation_sync(self, job_id: str, data: Dict[str, Any]) -> None:
+        """Send validation result callback (synchronous version for Ultralytics callbacks)"""
+        # Convert /training base URL to /validation
+        validation_base_url = self.base_url.replace('/training', '/validation')
+        url = f"{validation_base_url}/jobs/{job_id}/results"
+
+        with httpx.Client(timeout=30.0) as client:  # Longer timeout for validation data
+            response = client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Validation callback sent: epoch {data.get('epoch')}")
 
 
 # ============================================================================

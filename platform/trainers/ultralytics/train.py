@@ -360,6 +360,92 @@ async def train_model(
                 mlflow.log_metrics(sanitized_metrics)
                 logger.info(f"Logged {len(sanitized_metrics)} metrics to MLflow")
 
+            # ========================================================================
+            # Process validation results and send validation callback
+            # ========================================================================
+            try:
+                logger.info("Processing validation results...")
+
+                # Find validation plots
+                plots_dir = project_dir / "train"
+                visualization_urls = {}
+
+                plot_files = {
+                    'confusion_matrix': 'confusion_matrix.png',
+                    'confusion_matrix_normalized': 'confusion_matrix_normalized.png',
+                    'f1_curve': 'F1_curve.png',
+                    'pr_curve': 'PR_curve.png',
+                    'p_curve': 'P_curve.png',
+                    'r_curve': 'R_curve.png',
+                }
+
+                # Upload validation plots to MinIO Internal Storage
+                for plot_name, plot_file in plot_files.items():
+                    plot_path = plots_dir / plot_file
+                    if plot_path.exists():
+                        try:
+                            # Upload to MinIO Internal Storage: s3://training-checkpoints/job{id}/validation/{plot_file}
+                            s3_key = f"job{job_id}/validation/{plot_file}"
+                            storage.internal_client.client.upload_file(
+                                str(plot_path),
+                                storage.internal_client.bucket,
+                                s3_key,
+                                ExtraArgs={'ContentType': 'image/png'}
+                            )
+                            plot_uri = f"s3://{storage.internal_client.bucket}/{s3_key}"
+                            visualization_urls[plot_name] = plot_uri
+                            logger.info(f"Uploaded {plot_file} → {plot_uri}")
+                        except Exception as e:
+                            logger.warning(f"Failed to upload {plot_file}: {e}")
+
+                # Extract class names from data.yaml
+                import yaml
+                class_names = None
+                try:
+                    with open(data_yaml, 'r') as f:
+                        data_config = yaml.safe_load(f)
+                        class_names = data_config.get('names', [])
+                except Exception as e:
+                    logger.warning(f"Failed to extract class names: {e}")
+
+                # Determine task type from model name
+                task_type = 'detection'  # Default
+                if 'seg' in model_name.lower():
+                    task_type = 'segmentation'
+                elif 'pose' in model_name.lower():
+                    task_type = 'pose'
+                elif 'cls' in model_name.lower() or 'classify' in model_name.lower():
+                    task_type = 'classification'
+
+                # Prepare validation callback data
+                validation_data = {
+                    'job_id': int(job_id),
+                    'epoch': epochs,  # Final epoch
+                    'task_type': task_type,
+                    'primary_metric_name': 'mAP50-95',
+                    'primary_metric_value': final_metrics.get('mAP50-95') if final_metrics else None,
+                    'overall_loss': None,  # Ultralytics doesn't provide val loss separately
+                    'metrics': final_metrics,
+                    'per_class_metrics': None,  # TODO: Extract per-class metrics if needed
+                    'confusion_matrix': None,  # Could extract from confusion_matrix.png if needed
+                    'pr_curves': None,
+                    'class_names': class_names,
+                    'visualization_urls': visualization_urls if visualization_urls else None,
+                }
+
+                # Send validation callback (synchronous)
+                try:
+                    callback_client.send_validation_sync(job_id, validation_data)
+                    logger.info(f"✓ Validation callback sent for epoch {epochs}")
+                except Exception as e:
+                    logger.warning(f"Failed to send validation callback: {e}")
+                    # Don't fail the job if validation callback fails
+
+            except Exception as e:
+                logger.warning(f"Failed to process validation results: {e}")
+                logger.warning(traceback.format_exc())
+                # Continue to completion callback even if validation processing fails
+
             # Send completion callback (K8s Job compatible schema)
             completion_data = {
                 'job_id': int(job_id),
