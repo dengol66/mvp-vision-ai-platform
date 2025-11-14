@@ -20,9 +20,78 @@
 
 **전체 진행률**: 93% (Phase 0 95%, Phase 1.1-1.3 완료, Phase 2.1-2.2 완료 85%, Phase 3.1-3.3 완료 + 3.2 90% = 79%)
 
-**최근 업데이트**: 2025-11-14
+**최근 업데이트**: 2025-11-14 (Frontend Diagnostics Complete)
 
-**Recent Session (2025-11-14)** 🎉
+**Current Session (2025-11-14 Evening)** 📋
+
+**Frontend Code-Level Diagnostics** ✅ COMPLETED:
+- ✅ **DynamicConfigPanel.tsx**: Advanced Config UI 존재 및 정상 작동
+  - Backend API `/training/config-schema` 연동 확인
+  - 24개 field types, grouping, presets 모두 지원
+  - Dynamic rendering 완벽 구현
+- ✅ **Epoch Information**: useTrainingJob + useTrainingMonitor hooks
+  - REST API: GET /training/jobs/{id} (metadata)
+  - WebSocket: /ws/training?job_id={id} (real-time)
+  - DatabaseMetricsTable: extra_metrics 자동 추출
+- ✅ **Train/Valid Results**: MLflowMetricsCharts.tsx
+  - GET /training/jobs/{id}/mlflow/metrics 연동
+  - SVG 기반 차트, 5초 auto-refresh
+  - Interactive hover tooltips
+- ✅ **Validation Dashboard**: ValidationDashboard.tsx
+  - GET /validation/jobs/{id}/summary 연동
+  - Epoch selector, task-specific visualizations
+  - Confusion matrix, per-class metrics
+- ✅ **MLflow Integration**: 정상 작동
+  - Backend .env + Trainer .env 모두 설정됨
+  - train.py에서 MLflow tracking 완벽 구현
+
+**Critical Issues Identified** 🔴:
+1. **Metrics Not Populating TrainingMetric Table**
+   - 원인: training.py callback handlers가 DB 레코드 생성 안함
+   - 영향: DatabaseMetricsTable 항상 empty state
+   - 수정 필요: training.py:1527, 1631
+
+2. **No Validation Results Callbacks**
+   - 원인: train.py에 validation callback 미구현
+   - 영향: ValidationDashboard shows "No validation results"
+   - 수정 필요: train.py on_train_epoch_end에 validation callback 추가
+
+3. **WebSocket Not Broadcasting**
+   - 원인: training.py callback handlers가 ws_manager 호출 안함
+   - 영향: Real-time updates 작동 안함
+   - 수정 필요: training.py에 ws_manager.broadcast_to_job() 추가
+
+4. ⚠️ **Metric Key Hardcoding** (User Concern)
+   - 문제: MLflowMetricsCharts.tsx의 findMetricKey()가 패턴 매칭 사용
+   - 요구사항: 다양한 모델 개발자의 임의 메트릭 키 지원
+   - 해결방안: Backend metric-schema API 활용 (이미 DatabaseMetricsTable에서 사용 중)
+   - 적용 필요: MLflowMetricsCharts.tsx를 DatabaseMetricsTable 방식으로 수정
+
+**Dynamic Metric Handling Pattern** (from MVP DatabaseMetricsTable):
+```typescript
+// 1. Backend metric-schema API 활용
+const { data: metricSchema } = useSWR(`/training/jobs/${jobId}/metric-schema`)
+// Returns: { available_metrics: string[], primary_metric: string, ... }
+
+// 2. Fallback: 런타임 자동 추출
+const allKeys = new Set<string>();
+metrics.forEach(m => {
+  if (m.extra_metrics) Object.keys(m.extra_metrics).forEach(k => allKeys.add(k));
+});
+
+// 3. Heuristic formatting (키 이름 기반)
+if (key.includes('accuracy')) return `${(value * 100).toFixed(2)}%`;
+if (key.includes('loss')) return value.toFixed(4);
+```
+
+**Action Items** (Before Frontend Testing):
+- [ ] Add TrainingMetric persistence in training.py callback handlers
+- [ ] Add WebSocket broadcasts in training.py callbacks
+- [ ] Add validation callback in train.py
+- [ ] Refactor MLflowMetricsCharts.tsx to use metric-schema API
+- [ ] Remove hardcoded metric key patterns
+
+**Recent Session (2025-11-14 Earlier)** 🎉
 
 **Advanced Config Training Integration** ✅ Phase 3.2 COMPLETED (90%):
 - ✅ **train.py 수정**: Advanced config 파라미터 파싱 및 적용
