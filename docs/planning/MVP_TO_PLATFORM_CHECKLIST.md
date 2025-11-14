@@ -23,10 +23,25 @@
 **최근 업데이트**: 2025-11-14
 
 **Recent Session (2025-11-14)** 🎉
+
+**Infrastructure & Environment**:
 - ✅ **UTF-8 Encoding 문제 해결**: training_subprocess.py에 io.TextIOWrapper 추가 (Windows cp949 에러 해결)
-- ✅ **DICEFormat 자동 변환**: Training Service에서 annotations.json → YOLO format 자동 변환
-- ✅ **기본 Split 생성**: split_config 없을 때 80/20 train/val 자동 생성
 - ✅ **Tier-0 스크립트 수정**: PowerShell 특수 문자(✓✗⚠) → ASCII([OK][ERROR][!]) 변환
+- ✅ **MLflow Database 분리**: platform DB와 mlflow DB 분리 (충돌 해결)
+
+**Training Service**:
+- ✅ **DICEFormat 자동 변환**: Training Service에서 annotations.json → YOLO format 자동 변환
+- ✅ **기본 Split 생성**: split_config 없을 때 80/20 train/val 자동 생성 (reproducible seed=42)
+- ✅ **train.py 직접 실행 테스트**: YOLOv8n 모델로 2 epoch 학습 완료
+- ✅ **로그 출력 UTF-8 검증**: 한글 포함 모든 로그 정상 출력 확인
+- ✅ **MLflow 저장 검증**: Parameters 8개, Metrics 5개 정상 로깅 (run_id: 40361bf5...)
+- ✅ **Checkpoint 저장 검증**: best.pt를 MinIO에 정상 업로드 (s3://training-datasets/checkpoints/102/)
+
+**발견된 구현 누락**:
+- ❌ **Validation Callback 미구현**: 현재 progress callback만 있음, validation callback 필요
+- ❌ **Validation Result 듀얼 스토리지 미구현**: DB(PostgreSQL) + MinIO 저장 로직 없음
+- ❌ **Backend Callback API 404**: POST /api/v1/training/jobs/{id}/callback/completion 미구현
+- ❌ **Epoch Callback AsyncIO 에러**: "There is no current event loop in thread" 발생 (train.py:471-479)
 
 **Tier-0 Infrastructure Complete (95%)** 🎉
 - ✅ Docker Compose 기반 경량 개발 환경 구축 (~1.5-2GB RAM)
@@ -1270,25 +1285,225 @@
 
 ## 3. Training Services 분리 (Microservice Architecture)
 
-### 📊 현재 상태 분석
+### 📊 현재 상태 분석 (2025-11-14 Updated)
 
-**TBD** - Training Services 분석은 Phase 2 완료 후 진행
+**Trainer Architecture Refactoring Complete** 🎉
 
-### 🎯 Week 3-4 목표: Training Services 분리
+**MVP Architecture Issues**:
+- ❌ FastAPI-based Training Service (14 files, ~1000 lines)
+- ❌ Complex REST API structure not suitable for plugin model
+- ❌ Difficult for model developers to add new frameworks
 
-**작업 예정**:
-- [x] Ultralytics Training Service (port 8001) - **2025-11-13: Implemented & Running**
-- [ ] Timm Training Service (port 8002) - **Port changed to avoid conflict**
-- [ ] HuggingFace Training Service (port 8003)
-- [x] Backend → Training Service HTTP API - **2025-11-13: Implemented**
-- [ ] Model Registry 동적 로딩
+**Platform Architecture (Simplified)**:
+- ✅ CLI-based trainers (5 files, ~600 lines per framework)
+- ✅ Simple `train.py` script pattern
+- ✅ Easy plugin development: `cp -r ultralytics/ timm/` + modify
+- ✅ Same code works for subprocess (Tier-1) and K8s Job (Tier-2)
 
-**⚠️ Port Allocation Change (2025-11-13)**:
-Originally planned: timm=8001, ultralytics=8002, huggingface=8003
-Current implementation: ultralytics=8001, timm=8002 (planned), huggingface=8003
-Reason: Ultralytics service was implemented first on port 8001. To avoid service restart and maintain stability, we keep current allocation and reserve 8002 for future timm service.
+**Current Implementation**:
+- ✅ `platform/trainers/ultralytics/` - CLI-based YOLO trainer
+  - ✅ `train.py` - Main training script (338 lines)
+  - ✅ `utils.py` - S3Client, CallbackClient, dataset helpers (262 lines)
+  - ✅ `requirements.txt` - Isolated dependencies
+  - ✅ `Dockerfile` - K8s Job ready
+  - ✅ `README.md` - Complete documentation
+- ✅ Backend subprocess execution working (Job 102, 103, 104 tested)
+- ✅ DICEFormat → YOLO auto-conversion
+- ✅ MLflow integration verified
+- ✅ S3 checkpoint upload verified
 
-**Progress**: 0/0 tasks completed (0%)
+### 🎯 Week 3-4 목표: Training Services 완성 및 Advanced Config Schema
+
+#### Phase 3.1: Trainer Architecture Refactoring ✅ COMPLETED (2025-11-14)
+
+**Ultralytics Trainer Simplification**
+- [x] Create new structure: `platform/trainers/ultralytics/`
+- [x] Implement CLI-based `train.py` (338 lines)
+  - [x] argparse interface
+  - [x] S3 dataset download
+  - [x] DICEFormat → YOLO conversion
+  - [x] Training execution
+  - [x] MLflow tracking
+  - [x] S3 checkpoint upload
+  - [x] HTTP callbacks to Backend
+  - [x] K8s Job compatible exit codes (0=success, 1=failure, 2=callback error)
+- [x] Extract utilities to `utils.py` (262 lines)
+  - [x] S3Client class
+  - [x] CallbackClient class (async + sync versions)
+  - [x] convert_diceformat_to_yolo() function
+- [x] Create `requirements.txt` with isolated dependencies
+- [x] Create `Dockerfile` for K8s Job
+- [x] Write comprehensive `README.md`
+- [x] Update Backend subprocess manager
+  - [x] Change path: `training-services/` → `trainers/`
+  - [x] Fix venv detection (Windows/Linux)
+  - [x] UTF-8 log encoding
+- [x] Test training execution via subprocess
+  - [x] Job 103, 104 completed successfully
+  - [x] MLflow metrics logged
+  - [x] S3 checkpoints uploaded
+
+**Issues Fixed**
+- [x] AsyncIO callback error → Added synchronous callback methods
+- [x] MLflow metric name validation → Added sanitize_metric_name()
+- [x] Backend callback schema mismatch → Updated completion data structure
+- [x] UTF-8 encoding on Windows → io.TextIOWrapper with explicit encoding
+
+**Progress**: 22/22 tasks completed (100%) ✅
+
+---
+
+#### Phase 3.2: Advanced Config Schema System 🔄 IN PROGRESS (2025-11-14)
+
+**Goal**: Enable dynamic UI generation for framework-specific configurations
+
+**Architecture**: Distributed Schema Pattern
+- Each trainer owns its config schema (`config_schema.py`)
+- Upload to S3/R2 via GitHub Actions
+- Backend serves schemas via API
+- Frontend renders dynamic forms (MVP UI already implemented)
+
+**Schema Definition** (Per Trainer)
+- [ ] Create `platform/trainers/ultralytics/config_schema.py`
+  - [ ] Define ConfigField list (optimizer, scheduler, augmentation, etc.)
+  - [ ] Define presets (easy, medium, advanced)
+  - [ ] Return JSON-serializable dict
+  - [ ] Example fields:
+    - [ ] optimizer_type (select: Adam, AdamW, SGD, RMSprop)
+    - [ ] mosaic (float: 0.0-1.0, default 1.0)
+    - [ ] mixup (float: 0.0-1.0, default 0.0)
+    - [ ] fliplr (float: 0.0-1.0, default 0.5)
+    - [ ] hsv_h, hsv_s, hsv_v (color augmentation)
+    - [ ] amp (bool: Automatic Mixed Precision)
+- [ ] Reference MVP implementation: `mvp/training/config_schemas.py`
+  - [ ] Use same ConfigField structure
+  - [ ] Include group, advanced, description fields
+  - [ ] Support presets for quick setup
+
+**Upload Script**
+- [ ] Create `platform/scripts/upload_config_schemas.py`
+  - [ ] Auto-discover trainers in `platform/trainers/`
+  - [ ] Import `config_schema.py` from each trainer
+  - [ ] Call `get_config_schema()` function
+  - [ ] Upload to S3/R2: `schemas/{framework}.json`
+  - [ ] Support `--dry-run` for validation
+  - [ ] Support `--all` to upload all frameworks
+- [ ] Reference MVP: `mvp/training/scripts/upload_schema_to_storage.py`
+
+**GitHub Actions**
+- [ ] Create `.github/workflows/upload-config-schemas.yml`
+  - [ ] Trigger on push to main/production
+  - [ ] Trigger on changes to `platform/trainers/*/config_schema.py`
+  - [ ] PR validation: `--dry-run` mode
+  - [ ] Production upload: to Cloudflare R2
+  - [ ] Post PR comment with validation results
+- [ ] Configure secrets in GitHub
+  - [ ] R2_ENDPOINT_URL
+  - [ ] R2_ACCESS_KEY_ID
+  - [ ] R2_SECRET_ACCESS_KEY
+  - [ ] S3_BUCKET_RESULTS
+
+**Backend API**
+- [ ] Add endpoint: `GET /api/v1/training/config-schema`
+  - [ ] Query params: `framework` (required), `task_type` (optional)
+  - [ ] Fetch from S3: `schemas/{framework}.json`
+  - [ ] Return schema JSON
+  - [ ] Handle 404 if schema not found
+- [ ] Add S3 schema caching (optional)
+  - [ ] Cache schemas in memory for 5 minutes
+  - [ ] Reduce S3 API calls
+
+**Frontend Integration** ✅ Already Implemented
+- [x] `mvp/frontend/components/training/DynamicConfigPanel.tsx` exists
+  - [x] Fetches schema from Backend API
+  - [x] Renders fields by type (int, float, bool, select)
+  - [x] Groups fields (optimizer, scheduler, augmentation)
+  - [x] Shows/hides advanced fields
+  - [x] Applies presets
+- [ ] Copy to Platform or reuse MVP component
+- [ ] Test with Ultralytics schema
+
+**Training Integration**
+- [ ] Update `train.py` to accept advanced config
+  - [ ] Parse from `--config` or `--config-file`
+  - [ ] Apply to YOLO model.train() call
+  - [ ] Map config fields to YOLO parameters
+- [ ] Example: `--config '{"mosaic": 0.8, "mixup": 0.1, "amp": true}'`
+- [ ] Validate config against schema (optional)
+
+**Documentation**
+- [ ] Update `platform/trainers/ultralytics/README.md`
+  - [ ] Add Advanced Config section
+  - [ ] Document all config fields
+  - [ ] Show example config JSON
+- [ ] Create `docs/ADVANCED_CONFIG_SCHEMA.md`
+  - [ ] Explain distributed schema pattern
+  - [ ] Show how to add new framework
+  - [ ] Document upload script usage
+  - [ ] Document GitHub Actions workflow
+
+**Testing**
+- [ ] Unit tests
+  - [ ] Schema validation (Pydantic)
+  - [ ] Upload script (dry-run mode)
+- [ ] Integration tests
+  - [ ] Upload schema to test S3
+  - [ ] Fetch via Backend API
+  - [ ] Render in Frontend
+  - [ ] Submit training job with advanced config
+  - [ ] Verify config applied to training
+
+**Progress**: 0/24 tasks completed (0%)
+
+**Benefits**:
+- ✅ Zero-downtime schema updates (upload → Frontend gets new UI)
+- ✅ Plugin-friendly (new trainers just add `config_schema.py`)
+- ✅ Version controlled (schemas in Git)
+- ✅ Auto-discovery (script finds all trainers)
+- ✅ Frontend compatibility (existing MVP UI works)
+
+---
+
+#### Phase 3.3: Additional Trainers (Future)
+
+**Timm Training Service** (port 8002)
+- [ ] Copy Ultralytics structure: `cp -r ultralytics/ timm/`
+- [ ] Modify `train.py` for timm
+  - [ ] Replace YOLO with timm.create_model()
+  - [ ] Adapt dataset loading (ImageFolder)
+  - [ ] Update metrics (accuracy, top5_accuracy)
+- [ ] Create `config_schema.py` for timm
+- [ ] Update `requirements.txt` (timm, torch, torchvision)
+- [ ] Test training execution
+
+**HuggingFace Training Service** (port 8003)
+- [ ] Copy Ultralytics structure
+- [ ] Modify `train.py` for transformers
+  - [ ] Use AutoModel, Trainer API
+  - [ ] Adapt dataset loading (datasets library)
+- [ ] Create `config_schema.py`
+- [ ] Update `requirements.txt`
+- [ ] Test training execution
+
+**Model Registry Dynamic Loading**
+- [ ] Backend discovers trainers automatically
+  - [ ] Scan `platform/trainers/` directory
+  - [ ] List available frameworks
+- [ ] GET /api/v1/models endpoint
+  - [ ] Query trainers for supported models
+  - [ ] Aggregate model list
+- [ ] Remove hardcoded model lists
+
+**Progress**: 0/15 tasks completed (0%)
+
+---
+
+**⚠️ Port Allocation**:
+- Ultralytics: 8001 (implemented)
+- Timm: 8002 (planned)
+- HuggingFace: 8003 (planned)
+
+**Overall Progress**: 22/61 tasks completed (36%)
 
 ---
 
