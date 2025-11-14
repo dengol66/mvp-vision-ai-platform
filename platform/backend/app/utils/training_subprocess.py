@@ -31,57 +31,57 @@ class TrainingSubprocessManager:
     """
 
     def __init__(self):
-        # Get Training Services base directory
+        # Get Trainers base directory
         self.backend_dir = Path(__file__).parent.parent.parent
         self.platform_dir = self.backend_dir.parent
-        self.training_services_dir = self.platform_dir / "training-services"
+        self.trainers_dir = self.platform_dir / "trainers"
 
-        logger.info(f"[TrainingSubprocess] Training Services directory: {self.training_services_dir}")
+        logger.info(f"[TrainingSubprocess] Trainers directory: {self.trainers_dir}")
 
         # Store running processes
         self.processes: Dict[int, subprocess.Popen] = {}
 
     def get_python_executable(self, framework: str) -> Path:
         """
-        Get Python executable for a specific framework's Training Service.
+        Get Python executable for a specific framework's Trainer.
 
         Args:
             framework: Framework name (ultralytics, timm, huggingface)
 
         Returns:
-            Path to Python executable in Training Service's venv
+            Path to Python executable in Trainer's venv
 
         Raises:
-            FileNotFoundError: If Training Service venv not found
+            FileNotFoundError: If Trainer venv not found
         """
-        service_dir = self.training_services_dir / framework
+        trainer_dir = self.trainers_dir / framework
 
         # Check Windows path first
-        python_exe = service_dir / "venv" / "Scripts" / "python.exe"
+        python_exe = trainer_dir / "venv" / "Scripts" / "python.exe"
         if python_exe.exists():
             return python_exe
 
         # Check Linux/macOS path
-        python_exe = service_dir / "venv" / "bin" / "python"
+        python_exe = trainer_dir / "venv" / "bin" / "python"
         if python_exe.exists():
             return python_exe
 
         raise FileNotFoundError(
-            f"Training Service venv not found for {framework}. "
-            f"Expected at: {service_dir / 'venv'}. "
-            f"Please create venv: cd {service_dir} && python -m venv venv && venv/Scripts/pip install -r requirements.txt"
+            f"Trainer venv not found for {framework}. "
+            f"Expected at: {trainer_dir / 'venv'}. "
+            f"Please create venv: cd {trainer_dir} && python -m venv venv && venv/Scripts/pip install -r requirements.txt"
         )
 
-    def get_service_directory(self, framework: str) -> Path:
-        """Get Training Service directory for a framework."""
-        service_dir = self.training_services_dir / framework
+    def get_trainer_directory(self, framework: str) -> Path:
+        """Get Trainer directory for a framework."""
+        trainer_dir = self.trainers_dir / framework
 
-        if not service_dir.exists():
+        if not trainer_dir.exists():
             raise FileNotFoundError(
-                f"Training Service directory not found for {framework}: {service_dir}"
+                f"Trainer directory not found for {framework}: {trainer_dir}"
             )
 
-        return service_dir
+        return trainer_dir
 
     async def start_training(
         self,
@@ -113,18 +113,18 @@ class TrainingSubprocessManager:
         try:
             # Get paths
             python_exe = self.get_python_executable(framework)
-            service_dir = self.get_service_directory(framework)
+            trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[TrainingSubprocess] Starting job {job_id}")
             logger.info(f"[TrainingSubprocess]   Framework: {framework}")
-            logger.info(f"[TrainingSubprocess]   Service dir: {service_dir}")
+            logger.info(f"[TrainingSubprocess]   Trainer dir: {trainer_dir}")
             logger.info(f"[TrainingSubprocess]   Python: {python_exe}")
             logger.info(f"[TrainingSubprocess]   Model: {model_name}")
 
             # Prepare command
             cmd = [
                 str(python_exe),
-                "-m", "app",
+                "train.py",
                 "--job-id", str(job_id),
                 "--model-name", model_name,
                 "--dataset-s3-uri", dataset_s3_uri,
@@ -135,13 +135,13 @@ class TrainingSubprocessManager:
 
             logger.info(f"[TrainingSubprocess] Command: {' '.join(cmd)}")
 
-            # Prepare environment (inherit current env + Training Service will load its own .env)
+            # Prepare environment (inherit current env + Trainer will load its own .env)
             env = os.environ.copy()
 
             # Start subprocess in background
             process = subprocess.Popen(
                 cmd,
-                cwd=str(service_dir),
+                cwd=str(trainer_dir),
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

@@ -13,16 +13,30 @@
 | 0. Infrastructure Setup | 95% | 🟢 Complete | Week 0 |
 | 1. 사용자 & 프로젝트 | 75% | 🟡 In Progress | Week 1-2 |
 | 2. 데이터셋 관리 | 85% ✅ Split & Snapshot Complete | 🟢 Phase 2.1-2.2 Done | Week 3 |
-| 3. Training Services 분리 | 0% | ⚪ Not Started | Week 3-4 |
+| 3. Training Services 분리 | 45% ✅ Phase 3.1-3.3 Done | 🟡 In Progress | Week 3-4 |
 | 4. Experiment & MLflow | 86% | 🟡 Backend Complete | Week 2 |
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 88% (Phase 0 95%, Phase 1.1-1.3 완료, Phase 2.1-2.2 완료 85%)
+**전체 진행률**: 91% (Phase 0 95%, Phase 1.1-1.3 완료, Phase 2.1-2.2 완료 85%, Phase 3.1-3.3 완료 45%)
 
 **최근 업데이트**: 2025-11-14
 
 **Recent Session (2025-11-14)** 🎉
+
+**Dual Storage Architecture** ✅ Phase 3.3 COMPLETED:
+- ✅ **MinIO 분리**: 단일 인스턴스 → Dual Storage (Datasets 9000 + Results 9002)
+- ✅ **DualStorageClient 구현**: 투명한 라우팅으로 개발자 경험 개선
+  - download_dataset() → External Storage (9000)
+  - upload_checkpoint() → Internal Storage (9002)
+- ✅ **End-to-End 검증**: Job 15 학습 완료
+  - Dataset download: training-datasets bucket (9000) ✓
+  - Checkpoint upload: training-checkpoints bucket (9002) ✓
+  - MLflow integration: run_id 924c7209... ✓
+  - Backend callbacks: Success ✓
+- ✅ **Backend CORS 수정**: JSON 배열 → comma-separated 형식
+
+**Previous Session (2025-11-14 Earlier)** 🎉
 
 **Infrastructure & Environment**:
 - ✅ **UTF-8 Encoding 문제 해결**: training_subprocess.py에 io.TextIOWrapper 추가 (Windows cp949 에러 해결)
@@ -35,9 +49,9 @@
 - ✅ **train.py 직접 실행 테스트**: YOLOv8n 모델로 2 epoch 학습 완료
 - ✅ **로그 출력 UTF-8 검증**: 한글 포함 모든 로그 정상 출력 확인
 - ✅ **MLflow 저장 검증**: Parameters 8개, Metrics 5개 정상 로깅 (run_id: 40361bf5...)
-- ✅ **Checkpoint 저장 검증**: best.pt를 MinIO에 정상 업로드 (s3://training-datasets/checkpoints/102/)
+- ✅ **Checkpoint 저장 검증**: best.pt를 MinIO에 정상 업로드
 
-**발견된 구현 누락**:
+**발견된 구현 누락** (이전 세션):
 - ❌ **Validation Callback 미구현**: 현재 progress callback만 있음, validation callback 필요
 - ❌ **Validation Result 듀얼 스토리지 미구현**: DB(PostgreSQL) + MinIO 저장 로직 없음
 - ❌ **Backend Callback API 404**: POST /api/v1/training/jobs/{id}/callback/completion 미구현
@@ -1464,10 +1478,61 @@
 
 ---
 
-#### Phase 3.3: Additional Trainers (Future)
+#### Phase 3.3: Dual Storage Architecture ✅ COMPLETED (2025-11-14)
+
+**Infrastructure Setup**
+- [x] Separate MinIO into two instances
+  - [x] MinIO-Datasets (Port 9000/9001): 데이터셋 전용
+  - [x] MinIO-Results (Port 9002/9003): 학습 결과물 전용
+- [x] Update docker-compose.tier0.yaml
+  - [x] Add minio-datasets service
+  - [x] Add minio-results service
+  - [x] Configure separate volumes and buckets
+  - [x] Update minio-setup to create buckets in both instances
+
+**DualStorageClient Implementation**
+- [x] Create DualStorageClient class in utils.py
+  - [x] Automatic routing (download → External, upload → Internal)
+  - [x] Environment variable configuration
+  - [x] Legacy fallback support (S3_ENDPOINT)
+  - [x] Clear logging for debugging
+- [x] Update train.py to use DualStorageClient
+  - [x] Replace S3Client with DualStorageClient
+  - [x] Simplify storage operation calls
+- [x] Update .env configuration
+  - [x] EXTERNAL_STORAGE_* variables
+  - [x] INTERNAL_STORAGE_* variables
+
+**Verification**
+- [x] End-to-end training pipeline test (Job ID 15)
+  - [x] Dataset download from MinIO-Datasets (9000)
+  - [x] Checkpoint upload to MinIO-Results (9002)
+  - [x] MLflow integration verified
+  - [x] Backend callbacks successful
+- [x] Verify files in correct storage
+  - [x] Datasets in training-datasets bucket (9000)
+  - [x] Checkpoints in training-checkpoints bucket (9002)
+
+**Developer Experience**
+- [x] Simple API: single `storage` object
+- [x] Transparent routing: developers don't need to know which storage
+- [x] Clear documentation in docstrings
+
+**Progress**: 16/16 tasks completed (100%) ✅
+
+**Files Modified**:
+- `platform/infrastructure/docker-compose.tier0.yaml`
+- `platform/trainers/ultralytics/utils.py`
+- `platform/trainers/ultralytics/train.py`
+- `platform/trainers/ultralytics/.env`
+
+---
+
+#### Phase 3.4: Additional Trainers (Future)
 
 **Timm Training Service** (port 8002)
 - [ ] Copy Ultralytics structure: `cp -r ultralytics/ timm/`
+- [ ] Apply DualStorageClient pattern
 - [ ] Modify `train.py` for timm
   - [ ] Replace YOLO with timm.create_model()
   - [ ] Adapt dataset loading (ImageFolder)
@@ -1478,6 +1543,7 @@
 
 **HuggingFace Training Service** (port 8003)
 - [ ] Copy Ultralytics structure
+- [ ] Apply DualStorageClient pattern
 - [ ] Modify `train.py` for transformers
   - [ ] Use AutoModel, Trainer API
   - [ ] Adapt dataset loading (datasets library)
@@ -1494,7 +1560,7 @@
   - [ ] Aggregate model list
 - [ ] Remove hardcoded model lists
 
-**Progress**: 0/15 tasks completed (0%)
+**Progress**: 0/17 tasks completed (0%)
 
 ---
 

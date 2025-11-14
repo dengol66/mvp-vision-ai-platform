@@ -1,3 +1,179 @@
+## [2025-11-14 14:00] Dual Storage 아키텍처 구현 및 검증
+
+### 논의 주제
+- MinIO 단일 인스턴스에서 Dual Storage 분리 필요성
+- 모델 개발자 관점에서 Storage 추상화
+- 학습 파이프라인 전체 테스트 (데이터셋 다운로드 → 학습 → Checkpoint 업로드)
+- Backend CORS 설정 오류 수정
+
+### 주요 결정사항
+
+#### 1. Dual Storage 아키텍처 확립 ✅
+**배경**:
+- 기존: 단일 MinIO 인스턴스에 모든 데이터 혼재
+- 문제: 데이터셋(읽기 위주)과 학습 결과물(쓰기 위주)의 액세스 패턴 차이
+
+**결정**:
+- **External Storage (MinIO-Datasets)** - Port 9000/9001
+  - 용도: 데이터셋 이미지 저장 (읽기 위주)
+  - Bucket: training-datasets, vision-platform-dev
+  
+- **Internal Storage (MinIO-Results)** - Port 9002/9003
+  - 용도: 학습 결과물 (쓰기 위주)
+  - Bucket: training-checkpoints, training-results, model-weights, config-schemas, mlflow-artifacts
+
+**이유**:
+- 성능 격리: 읽기/쓰기 워크로드 분리
+- 보안 경계: 데이터셋과 결과물 분리
+- 비용 최적화: 각 스토리지에 맞는 정책 적용 가능
+
+#### 2. DualStorageClient 구현 - 개발자 경험 개선 ✅
+**문제**: 모델 개발자가 두 개의 S3Client를 직접 관리해야 함
+
+**해결책**: 투명한 라우팅을 제공하는 `DualStorageClient` 추가
+```python
+# 이전 (복잡)
+dataset_client = S3Client(endpoint_9000, ...)
+checkpoint_client = S3Client(endpoint_9002, ...)
+
+dataset_client.download_dataset(...)
+checkpoint_client.upload_checkpoint(...)
+
+# 현재 (심플)
+storage = DualStorageClient()  # 환경변수에서 자동 설정
+
+storage.download_dataset(...)   # 자동으로 External Storage 사용
+storage.upload_checkpoint(...)  # 자동으로 Internal Storage 사용
+```
+
+**특징**:
+- 환경변수 자동 읽기 (EXTERNAL_*, INTERNAL_*)
+- Legacy fallback 지원 (S3_ENDPOINT 등)
+- 명확한 로깅으로 디버깅 용이
+- 모델 개발자는 storage routing 신경 안 써도 됨
+
+### 구현 내용
+
+#### 1. Infrastructure (docker-compose.tier0.yaml)
+- **파일**: `platform/infrastructure/docker-compose.tier0.yaml`
+- **변경사항**:
+  - 단일 `minio` 서비스를 `minio-datasets`, `minio-results`로 분리
+  - 각각 독립적인 port, volume, bucket 설정
+  - minio-setup 서비스에서 양쪽 버킷 생성
+
+#### 2. DualStorageClient 추가
+- **파일**: `platform/trainers/ultralytics/utils.py`
+- **추가 기능**:
+  ```python
+  class DualStorageClient:
+      """Transparent dual storage routing"""
+      def __init__(self):
+          # External Storage (Datasets)
+          self.external_client = S3Client(...)
+          # Internal Storage (Results)
+          self.internal_client = S3Client(...)
+      
+      def download_dataset(self, dataset_id, dest_dir):
+          """Auto-route to External Storage"""
+          self.external_client.download_dataset(...)
+      
+      def upload_checkpoint(self, local_path, job_id):
+          """Auto-route to Internal Storage"""
+          self.internal_client.upload_checkpoint(...)
+  ```
+
+#### 3. train.py 수정
+- **파일**: `platform/trainers/ultralytics/train.py`
+- **변경사항**:
+  - `S3Client` → `DualStorageClient` import 변경
+  - 단일 `storage` 객체로 모든 storage 작업 처리
+  - 자동으로 올바른 storage로 라우팅
+
+#### 4. 환경변수 설정
+- **파일**: `platform/trainers/ultralytics/.env`
+- **구조**:
+  ```bash
+  # External Storage (MinIO-Datasets) - for datasets
+  EXTERNAL_STORAGE_ENDPOINT=http://localhost:9000
+  EXTERNAL_BUCKET_DATASETS=training-datasets
+  
+  # Internal Storage (MinIO-Results) - for checkpoints
+  INTERNAL_STORAGE_ENDPOINT=http://localhost:9002
+  INTERNAL_BUCKET_CHECKPOINTS=training-checkpoints
+  
+  # Legacy fallback
+  S3_ENDPOINT=http://localhost:9000
+  ```
+
+#### 5. Backend CORS 설정 수정
+- **파일**: `platform/backend/.env`
+- **문제**: JSON 배열 형식이 comma-separated로 파싱되지 않음
+- **수정**: 
+  ```bash
+  # Before
+  CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+  
+  # After
+  CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+  ```
+
+### 검증 결과
+
+#### End-to-End 학습 파이프라인 테스트 ✅
+
+**테스트 케이스**: YOLOv8n 학습 (Job ID 15)
+1. ✅ 데이터셋 다운로드: MinIO-Datasets (9000) ← training-datasets bucket
+2. ✅ DICE → YOLO 변환: 25 train, 7 val images, 43 classes
+3. ✅ 학습 실행: 2 epochs, 0.015 hours (CPU)
+4. ✅ Checkpoint 업로드: MinIO-Results (9002) ← training-checkpoints bucket
+5. ✅ MLflow 연동: run_id 924c7209cf824d70a284b951b7e976ba
+6. ✅ Backend callback: 성공
+
+**로그 확인**:
+```
+Dual Storage initialized:
+  External (Datasets): http://localhost:9000 -> training-datasets
+  Internal (Results):  http://localhost:9002 -> training-checkpoints
+
+[Dual Storage] Downloading dataset from External Storage
+[Dual Storage] Uploading checkpoint to Internal Storage
+Checkpoint uploaded to s3://training-checkpoints/checkpoints/15/best.pt
+```
+
+**실제 파일 확인**:
+```bash
+$ docker exec platform-minio-results-tier0 mc ls local/training-checkpoints/checkpoints/15/
+[2025-11-14 06:08:23 UTC] 6.0MiB STANDARD best.pt
+```
+
+### 기술적 개선점
+
+#### 개발자 경험 개선
+- **이전**: 두 개의 S3Client를 직접 관리, endpoint/bucket 선택 필요
+- **현재**: 단일 DualStorageClient, 자동 라우팅
+- **효과**: 코드 단순화, 실수 방지, 명확한 의도 표현
+
+#### 확장성
+- 새로운 storage operation 추가 용이
+- 다른 framework trainer에 동일 패턴 적용 가능
+- Production 환경에서도 동일하게 작동 (환경변수만 변경)
+
+### 다음 단계
+
+- [ ] 체크리스트 업데이트 (Phase 3.3 Dual Storage 완료)
+- [ ] 변경사항 커밋
+- [ ] 다른 framework trainer (timm, huggingface)에도 DualStorageClient 적용
+- [ ] Backend dual_storage.py와 trainer utils.py 통합 고려
+- [ ] Production 배포 시 환경변수 설정 가이드 작성
+
+### 관련 문서
+- Infrastructure: `platform/infrastructure/docker-compose.tier0.yaml`
+- Trainer Utils: `platform/trainers/ultralytics/utils.py`
+- Train Script: `platform/trainers/ultralytics/train.py`
+- Backend Dual Storage: `platform/backend/app/utils/dual_storage.py`
+
+---
+
 # Conversation Log
 
 이 파일은 Claude Code 대화 세션의 타임라인을 기록합니다.
