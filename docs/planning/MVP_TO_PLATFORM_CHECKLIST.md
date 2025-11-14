@@ -24,7 +24,7 @@
 
 **Current Session (2025-11-14 Evening)** 📋
 
-**Validation Callback Implementation** 🔄 IN PROGRESS (30%):
+**Validation Callback Implementation** ✅ COMPLETED (100%):
 - ✅ **Backend Validation Schemas** (commit 935aafd):
   - ValidationCallbackRequest: Trainer → Backend callback payload
   - ValidationImageData: Image-level prediction data structure
@@ -34,12 +34,17 @@
   - Creates/updates ValidationResult + ValidationImageResult records
   - Idempotent update-or-create pattern
   - Logging with [VALIDATION CALLBACK] prefix
-- ⏳ **Trainer Implementation** (In Progress):
-  - [ ] Extract validation metrics from Ultralytics results
-  - [ ] Generate/find validation visualizations (confusion matrix, F1 curve, PR curve)
-  - [ ] Upload visualization images to MinIO Internal Storage
-  - [ ] Send validation callback to Backend API
-  - [ ] Test with actual training run
+- ✅ **Trainer Implementation** (commit f1d8834):
+  - CallbackClient.send_validation_sync() added
+  - Extract validation metrics from Ultralytics results (mAP50-95, mAP50, precision, recall)
+  - Find and upload 6 validation plots to MinIO (confusion_matrix, F1, PR, P, R curves)
+  - Auto-detect task type from model name
+  - Extract class names from data.yaml
+  - Send validation callback to Backend API
+- ⏳ **Testing**:
+  - [ ] Run actual training with validation
+  - [ ] Verify ValidationDashboard displays results
+  - [ ] Test confusion matrix visualization
 
 **Frontend Code-Level Diagnostics** ✅ COMPLETED:
 - ✅ **DynamicConfigPanel.tsx**: Advanced Config UI 존재 및 정상 작동
@@ -68,10 +73,10 @@
    - 해결: Dynamic metric extraction with fallback chain
    - 구현: training.py:1576-1598, 1693-1717
 
-2. ⏸️ **No Validation Results Callbacks** - DEFERRED
+2. ✅ **No Validation Results Callbacks** - RESOLVED (commit f1d8834)
    - 원인: train.py에 validation callback 미구현
-   - 영향: ValidationDashboard shows "No validation results"
-   - 계획: 별도 이슈로 처리 (estimated 2-3 hours)
+   - 해결: Complete validation callback system implemented
+   - 구현: train.py:363-445, utils.py:207-265
 
 3. ✅ **WebSocket Not Broadcasting** - ALREADY WORKING (commit 917b4a2 confirmed)
    - 확인: training.py:1598-1610에 ws_manager.broadcast_to_job() 이미 존재
