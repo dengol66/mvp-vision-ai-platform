@@ -13,16 +13,41 @@
 | 0. Infrastructure Setup | 95% | 🟢 Complete | Week 0 |
 | 1. 사용자 & 프로젝트 | 75% | 🟡 In Progress | Week 1-2 |
 | 2. 데이터셋 관리 | 85% ✅ Split & Snapshot Complete | 🟢 Phase 2.1-2.2 Done | Week 3 |
-| 3. Training Services 분리 | 61% (Phase 3.1-3.5: 85% / Phase 3.6: 15%) | 🟡 In Progress | Week 3-6 |
+| 3. Training Services 분리 | 67% (Phase 3.1-3.5: 85% / Phase 3.6: 29%) | 🟡 In Progress | Week 3-6 |
 | 4. Experiment & MLflow | 86% | 🟡 Backend Complete | Week 2 |
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 61% (136/222 tasks) ✅ Week 1 Day 1-2 of Phase 3.6 Complete
+**전체 진행률**: 67% (147/222 tasks) ✅ Week 2 of Phase 3.6 Complete
 
-**최근 업데이트**: 2025-11-16 (Phase 3.6 Week 1 Day 1-2: Backend Models & Core APIs)
+**최근 업데이트**: 2025-11-16 (Phase 3.6 Week 2: Export Scripts & Backend Integration)
 
-**Current Session (2025-11-16 Evening)** 📋
+**Current Session (2025-11-16 Evening - Continued)** 📋
+
+**Phase 3.6 Week 2 Day 1-5: Export Scripts & Backend Integration** ✅ COMPLETED (11 new tasks - Total: 22/75 - 29%):
+- ✅ **Trainer Export Script** `platform/trainers/ultralytics/export.py` (606 lines):
+  - Complete CLI with env var support (K8s Job compatible)
+  - Multi-format export: ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO
+  - Format-specific optimization (FP16, INT8, opset, dynamic axes)
+  - Checkpoint download from MinIO Internal Storage
+  - Metadata.json generation (preprocessing, postprocessing, classes, specs)
+  - Export package creation (zip with model + metadata + placeholder runtimes)
+  - Upload to MinIO: s3://training-checkpoints/exports/{job_id}/{export_id}/
+  - Completion callback to backend
+  - Exit codes: 0=success, 1=failure, 2=callback_error
+- ✅ **Backend Subprocess Integration** `platform/backend/app/utils/training_subprocess.py:519-625`:
+  - start_export() method following train/evaluate/inference patterns
+  - Env var injection (EXPORT_JOB_ID, TRAINING_JOB_ID, CHECKPOINT_S3_URI, etc.)
+  - MinIO credentials injection (8 storage variables)
+  - Process key collision avoidance: f"export_{export_job_id}"
+  - Async log monitoring
+- ✅ **Backend API Integration** `platform/backend/app/api/export.py`:
+  - Background task in POST /export/jobs (lines 264-324)
+  - Callback endpoint POST /export/jobs/{id}/callback/completion (lines 565-636)
+  - Status updates (running → completed/failed)
+  - Result storage (export_path, file_size_mb, validation_passed)
+
+**Previous Work (Week 1 Day 1-2):**
 
 **Phase 3.6 Week 1 Day 1-2: Backend Models & Core APIs** ✅ COMPLETED (11/75 tasks - 15%):
 - ✅ **Database Models** `platform/backend/app/db/models.py`:
@@ -1912,10 +1937,11 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] Generate presigned S3 URL
   - [ ] 24-hour expiration
   - [ ] Download export package (zip)
-- [ ] POST /api/v1/export/{id}/callback/completion ⏸️ PLANNED
-  - [ ] Callback from export CLI
-  - [ ] Update export job status
-  - [ ] Store optimization_stats, validation_metrics
+- [x] POST /api/v1/export/jobs/{id}/callback/completion ✅ `platform/backend/app/api/export.py:565-636`
+  - [x] Callback from export CLI
+  - [x] Update export job status (completed/failed)
+  - [x] Store export_path, file_size_mb, validation_passed
+  - [x] Store full export_results JSON
 
 **Deployment Endpoints** ✅ COMPLETED (3/6)
 - [x] POST /api/v1/export/deployments ✅ `platform/backend/app/api/export.py:324-371`
@@ -1964,17 +1990,23 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] Register deployment in DeploymentTarget
   - [ ] Health check endpoint
 
-**Trainer Export Scripts** ⏸️ NOT STARTED
-- [ ] Create platform/trainers/ultralytics/export.py
-  - [ ] CLI interface with env var support (K8s Job compatible)
-  - [ ] Download checkpoint from S3 (Internal Storage)
-  - [ ] Format conversion (ONNX, TensorRT, CoreML, TFLite, TorchScript)
-  - [ ] Optimization: Dynamic quantization (optional)
-  - [ ] Generate metadata.json (preprocessing, postprocessing, classes)
-  - [ ] Generate runtime wrappers (Python, C++, Swift, Kotlin)
-  - [ ] Create export package (zip)
-  - [ ] Upload to S3 (Internal Storage)
-  - [ ] Send completion callback
+**Trainer Export Scripts** ✅ COMPLETED (Core Implementation)
+- [x] Create platform/trainers/ultralytics/export.py ✅ (606 lines)
+  - [x] CLI interface with env var support (K8s Job compatible)
+  - [x] Download checkpoint from S3 (Internal Storage)
+  - [x] Format conversion (ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO)
+    - [x] ONNX: opset_version, simplify, dynamic axes
+    - [x] TensorRT: FP16, INT8, workspace size
+    - [x] CoreML: NMS support
+    - [x] TFLite: INT8 quantization
+    - [x] TorchScript: Standard export
+    - [x] OpenVINO: FP16 support
+  - [x] Optimization: Dynamic quantization (format-specific)
+  - [x] Generate metadata.json (preprocessing, postprocessing, classes)
+  - [ ] **TODO**: Generate runtime wrappers (Python, C++, Swift, Kotlin) - Placeholder README only
+  - [x] Create export package (zip with model + metadata)
+  - [x] Upload to S3 (Internal Storage)
+  - [x] Send completion callback (POST /export/{id}/callback/completion)
 - [ ] Runtime wrapper templates
   - [ ] Python wrapper (model_wrapper.py)
     - [ ] Preprocessing (resize, normalize, format conversion)
@@ -2003,13 +2035,17 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] timm: Native ONNX, TorchScript only
   - [ ] HuggingFace: Native ONNX, OpenVINO, TorchScript
 
-**Backend subprocess/K8s execution** ⏸️ NOT STARTED
-- [ ] Add start_export() to training_subprocess.py
-  - [ ] Similar pattern to start_training(), start_evaluation()
-  - [ ] Env var injection (JOB_ID, EXPORT_FORMAT, CHECKPOINT_PATH, etc.)
-  - [ ] MinIO credentials injection
-  - [ ] Process key: f"export_{export_job_id}"
-- [ ] K8s Job template for exports
+**Backend subprocess/K8s execution** ✅ COMPLETED
+- [x] Add start_export() to training_subprocess.py ✅ (lines 519-625)
+  - [x] Similar pattern to start_training(), start_evaluation()
+  - [x] Env var injection (EXPORT_JOB_ID, TRAINING_JOB_ID, CHECKPOINT_S3_URI, EXPORT_FORMAT, etc.)
+  - [x] MinIO credentials injection (8 storage variables)
+  - [x] Process key: f"export_{export_job_id}" (avoid collision)
+  - [x] Async log monitoring
+- [x] Backend API integration ✅ (app/api/export.py)
+  - [x] POST /export/jobs - Background task calls start_export()
+  - [x] POST /export/{id}/callback/completion - Updates job status and results
+- [ ] **TODO**: K8s Job template for exports
   - [ ] Same trainer image as training
   - [ ] Command: python export.py
   - [ ] Env vars from ExportJob model
@@ -2090,7 +2126,10 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] Platform endpoint inference
   - [ ] Edge package generation
 
-**Progress**: 0/75 tasks completed (0%) ⏸️ PLANNED
+**Progress**: 22/75 tasks completed (29%) ⏸️ IN PROGRESS
+- Week 1 Day 1-2: Backend Models & API ✅ 11/11 (100%)
+- Week 2 Day 1-3: Trainer Export Scripts ✅ 9/12 (75% - Runtime wrappers pending)
+- Week 2 Day 4-5: Backend Integration ✅ 2/2 (100%)
 
 **Priority**: High (but after Phase 3.2 & 3.5 completion)
 
