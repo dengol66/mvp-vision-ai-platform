@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
-from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, experiments, invitations
+from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, experiments, invitations, export
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -124,6 +124,7 @@ app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=
 app.include_router(debug.router, prefix=f"{settings.API_V1_PREFIX}/debug", tags=["debug"])
 app.include_router(models.router, prefix=f"{settings.API_V1_PREFIX}", tags=["models"])  # Model registry
 app.include_router(internal.router, prefix=f"{settings.API_V1_PREFIX}", tags=["internal"])  # Internal API for Training Services
+app.include_router(export.router, prefix=f"{settings.API_V1_PREFIX}", tags=["export"])  # Export & Deployment
 
 
 @app.get("/health")

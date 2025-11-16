@@ -835,3 +835,187 @@ class InferenceResult(Base):
     # Relationships
     inference_job = relationship("InferenceJob", back_populates="results")
     job = relationship("TrainingJob", foreign_keys=[training_job_id])
+
+
+# ========== Model Export & Deployment Models ==========
+
+class ExportFormat(str, enum.Enum):
+    """Supported export formats for model conversion."""
+    ONNX = "onnx"
+    TENSORRT = "tensorrt"
+    COREML = "coreml"
+    TFLITE = "tflite"
+    TORCHSCRIPT = "torchscript"
+    OPENVINO = "openvino"
+
+
+class ExportJobStatus(str, enum.Enum):
+    """Export job status."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class DeploymentType(str, enum.Enum):
+    """Deployment type for exported models."""
+    DOWNLOAD = "download"  # Self-hosted download
+    PLATFORM_ENDPOINT = "platform_endpoint"  # Triton Inference Server endpoint
+    EDGE_PACKAGE = "edge_package"  # Mobile/embedded package (iOS, Android)
+    CONTAINER = "container"  # Docker container with runtime
+
+
+class DeploymentStatus(str, enum.Enum):
+    """Deployment status."""
+    PENDING = "pending"
+    DEPLOYING = "deploying"
+    ACTIVE = "active"
+    DEACTIVATED = "deactivated"
+    FAILED = "failed"
+
+
+class DeploymentEventType(str, enum.Enum):
+    """Deployment history event types."""
+    DEPLOYED = "deployed"
+    SCALED = "scaled"
+    DEACTIVATED = "deactivated"
+    REACTIVATED = "reactivated"
+    UPDATED = "updated"
+    ERROR = "error"
+
+
+class ExportJob(Base):
+    """
+    Model export job for converting trained checkpoints to production formats.
+
+    Supports export to ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO
+    with optimization options (quantization, pruning) and validation.
+    """
+
+    __tablename__ = "export_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    training_job_id = Column(Integer, ForeignKey("training_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Export configuration
+    export_format = Column(SQLEnum(ExportFormat), nullable=False, index=True)
+    checkpoint_path = Column(String(500), nullable=False)
+    export_path = Column(String(500), nullable=True)  # Output path (populated after completion)
+
+    # Version management (multiple exports from same training job)
+    version = Column(Integer, nullable=False, default=1, index=True)
+    is_default = Column(Boolean, nullable=False, default=False, index=True)  # Default export for this training job
+
+    # Framework info (cached from training_job for quick access)
+    framework = Column(String(50), nullable=False)
+    task_type = Column(String(50), nullable=False)
+    model_name = Column(String(100), nullable=False)
+
+    # Export configuration (format-specific settings)
+    export_config = Column(JSON, nullable=True)  # {opset_version, dynamic_axes, embed_preprocessing, etc.}
+    optimization_config = Column(JSON, nullable=True)  # {quantization, pruning, etc.}
+    validation_config = Column(JSON, nullable=True)  # {validate_outputs, tolerance, sample_inputs, etc.}
+
+    # Status
+    status = Column(SQLEnum(ExportJobStatus), nullable=False, default=ExportJobStatus.PENDING, index=True)
+    error_message = Column(Text, nullable=True)
+    process_id = Column(Integer, nullable=True)
+
+    # Results (populated after completion)
+    export_results = Column(JSON, nullable=True)  # {model_size_mb, inference_time_ms, validation_passed, etc.}
+    file_size_mb = Column(Float, nullable=True)
+    validation_passed = Column(Boolean, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    training_job = relationship("TrainingJob", backref="export_jobs", foreign_keys=[training_job_id])
+    deployments = relationship("DeploymentTarget", back_populates="export_job", cascade="all, delete-orphan")
+
+
+class DeploymentTarget(Base):
+    """
+    Deployment target for exported models.
+
+    Manages deployment to different targets (download, platform endpoint, edge, container)
+    with usage tracking and lifecycle management.
+    """
+
+    __tablename__ = "deployment_targets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    export_job_id = Column(Integer, ForeignKey("export_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    training_job_id = Column(Integer, ForeignKey("training_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Deployment configuration
+    deployment_type = Column(SQLEnum(DeploymentType), nullable=False, index=True)
+    deployment_name = Column(String(200), nullable=False)  # User-friendly name
+    deployment_config = Column(JSON, nullable=True)  # Type-specific config
+
+    # Platform endpoint specific (Triton Inference Server)
+    endpoint_url = Column(String(500), nullable=True)  # e.g., "http://triton:8000/v2/models/det-yolo11n/versions/1"
+    api_key = Column(String(255), nullable=True)  # API key for authentication
+
+    # Container specific
+    container_image = Column(String(500), nullable=True)  # Docker image name:tag
+    container_registry = Column(String(500), nullable=True)  # Registry URL
+
+    # Edge package specific
+    package_path = Column(String(500), nullable=True)  # Path to mobile/edge package
+    runtime_wrapper_language = Column(String(50), nullable=True)  # python, cpp, swift, kotlin
+
+    # Status
+    status = Column(SQLEnum(DeploymentStatus), nullable=False, default=DeploymentStatus.PENDING, index=True)
+    error_message = Column(Text, nullable=True)
+
+    # Usage tracking
+    request_count = Column(Integer, nullable=False, default=0)
+    total_inference_time_ms = Column(Float, nullable=False, default=0.0)
+    avg_latency_ms = Column(Float, nullable=True)
+    last_request_at = Column(DateTime, nullable=True)
+
+    # Resource usage (for platform endpoint)
+    cpu_limit = Column(String(20), nullable=True)  # e.g., "2000m"
+    memory_limit = Column(String(20), nullable=True)  # e.g., "4Gi"
+    gpu_enabled = Column(Boolean, nullable=False, default=False)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    deployed_at = Column(DateTime, nullable=True)
+    deactivated_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    export_job = relationship("ExportJob", back_populates="deployments")
+    training_job = relationship("TrainingJob", backref="deployments", foreign_keys=[training_job_id])
+    history = relationship("DeploymentHistory", back_populates="deployment", cascade="all, delete-orphan")
+
+
+class DeploymentHistory(Base):
+    """
+    Deployment event history for tracking lifecycle events.
+
+    Records all deployment events: deployed, scaled, deactivated, reactivated, errors.
+    """
+
+    __tablename__ = "deployment_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    deployment_id = Column(Integer, ForeignKey("deployment_targets.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Event information
+    event_type = Column(SQLEnum(DeploymentEventType), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    details = Column(JSON, nullable=True)  # Additional event-specific data
+
+    # User tracking (nullable for system events)
+    triggered_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    deployment = relationship("DeploymentTarget", back_populates="history")
+    user = relationship("User")

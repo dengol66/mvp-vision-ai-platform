@@ -13,19 +13,47 @@
 | 0. Infrastructure Setup | 95% | 🟢 Complete | Week 0 |
 | 1. 사용자 & 프로젝트 | 75% | 🟡 In Progress | Week 1-2 |
 | 2. 데이터셋 관리 | 85% ✅ Split & Snapshot Complete | 🟢 Phase 2.1-2.2 Done | Week 3 |
-| 3. Training Services 분리 | 85% ✅ Phase 3.1-3.4 Done (Validation Callback) | 🟡 In Progress | Week 3-4 |
+| 3. Training Services 분리 | 61% (Phase 3.1-3.5: 85% / Phase 3.6: 15%) | 🟡 In Progress | Week 3-6 |
 | 4. Experiment & MLflow | 86% | 🟡 Backend Complete | Week 2 |
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 85% (Phase 0 95%, Phase 1 75%, Phase 2 85%, Phase 3 85% ✅ 3.4 완료, Phase 4 86%)
+**전체 진행률**: 61% (136/222 tasks) ✅ Week 1 Day 1-2 of Phase 3.6 Complete
 
-**최근 업데이트**: 2025-11-14 (Validation Callback System Complete)
+**최근 업데이트**: 2025-11-16 (Phase 3.6 Week 1 Day 1-2: Backend Models & Core APIs)
 
-**Current Session (2025-11-14 Evening)** 📋
+**Current Session (2025-11-16 Evening)** 📋
+
+**Phase 3.6 Week 1 Day 1-2: Backend Models & Core APIs** ✅ COMPLETED (11/75 tasks - 15%):
+- ✅ **Database Models** `platform/backend/app/db/models.py`:
+  - ExportJob model with 6 enums (ExportFormat, ExportJobStatus, etc.)
+  - DeploymentTarget model with usage tracking and resource management
+  - DeploymentHistory model for event tracking
+  - All relationships and indexes
+- ✅ **Database Migration** `platform/backend/migrate_add_export_deployment_tables.py`:
+  - Complete migration script with 3 tables and 10 indexes
+  - Follows project migration pattern (manual SQLAlchemy)
+- ✅ **Pydantic Schemas** `platform/backend/app/schemas/export.py`:
+  - 15+ request/response schemas for export and deployment
+  - ExportCapabilities, ExportConfig, OptimizationConfig, ValidationConfig
+  - Deployment schemas with type-specific configs
+  - Platform inference endpoint schemas
+- ✅ **Core API Endpoints** `platform/backend/app/api/export.py`:
+  - GET /export/capabilities (framework capability matrix)
+  - POST /export/jobs (create export job with version management)
+  - GET /export/training/{id}/exports (list exports)
+  - GET /export/jobs/{id} (get export details)
+  - POST /export/deployments (create deployment)
+  - GET /export/deployments (list with filters)
+  - GET /export/deployments/{id} (get deployment details)
+- ✅ **Integration** `platform/backend/app/main.py`:
+  - Export router registered with API prefix
+  - All endpoints accessible via /api/v1/export/*
+
+**Previous Session (2025-11-14 Evening)** 📋
 
 **Validation Callback Implementation** ✅ COMPLETED (100%):
-- ✅ **Backend Validation Schemas** (commit 935aafd):
+- ✅ **Backend Validation Schemas**:
   - ValidationCallbackRequest: Trainer → Backend callback payload
   - ValidationImageData: Image-level prediction data structure
   - Supports confusion matrix, metrics, visualization URLs, per-image results
@@ -1580,16 +1608,22 @@ if (key.includes('loss')) return value.toFixed(4);
   - [x] optimizer=AdamW, amp=True verified
 - [x] Validate config against schema (optional)
 
-**Documentation** ⏸️ NEXT STEP
-- [ ] Update `platform/trainers/ultralytics/README.md`
-  - [ ] Add Advanced Config section
-  - [ ] Document all config fields
-  - [ ] Show example config JSON
-- [ ] Create `docs/ADVANCED_CONFIG_SCHEMA.md`
-  - [ ] Explain distributed schema pattern
-  - [ ] Show how to add new framework
-  - [ ] Document upload script usage
-  - [ ] Document GitHub Actions workflow
+**Documentation** ✅ COMPLETED (2025-11-14)
+- [x] Update `platform/trainers/ultralytics/README.md`
+  - [x] Add Advanced Config section (24+ parameters)
+  - [x] Document all config fields with types and ranges
+  - [x] Show example config JSON
+  - [x] Document 3 configuration presets (easy, medium, advanced)
+  - [x] Explain schema-driven configuration
+- [x] Create `docs/ADVANCED_CONFIG_SCHEMA.md`
+  - [x] Explain distributed schema pattern
+  - [x] Show how to add new framework (step-by-step guide)
+  - [x] Document upload script usage
+  - [x] Document GitHub Actions workflow
+  - [x] Include Backend API integration details
+  - [x] Include Frontend integration example
+  - [x] Add troubleshooting section
+  - [x] Add FAQ section
 
 **Testing** ⏸️ NEXT STEP
 - [ ] Unit tests
@@ -1602,7 +1636,7 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] Submit training job with advanced config
   - [ ] Verify config applied to training
 
-**Progress**: 45/50 tasks completed (90%) ✅ Training Integration Complete
+**Progress**: 47/50 tasks completed (94%) ✅ Training Integration & Documentation Complete
 
 **Benefits**:
 - ✅ Zero-downtime schema updates (upload → Frontend gets new UI)
@@ -1699,16 +1733,395 @@ if (key.includes('loss')) return value.toFixed(4);
 
 ---
 
+#### Phase 3.5: Evaluation & Inference CLI ✅ COMPLETED (2025-11-14)
+
+**Goal**: Implement evaluation and inference capabilities for trained models with K8s Job compatibility
+
+**Architecture**: Follow train.py patterns
+- CLI-based scripts: evaluate.py (test datasets) and predict.py (inference)
+- DualStorageClient for storage routing
+- Backend callbacks for results
+- Environment variable configuration for K8s Job compatibility
+
+**evaluate.py Implementation** ✅ COMPLETED
+- [x] Create `platform/trainers/ultralytics/evaluate.py` (434 lines)
+  - [x] CLI argument parsing with env var fallback
+  - [x] Download checkpoint from Internal Storage (9002)
+  - [x] Download test dataset from External Storage (9000)
+  - [x] DICEFormat → YOLO conversion support
+  - [x] Run model.val() with Ultralytics
+  - [x] Extract metrics (mAP50, mAP50-95, precision, recall)
+  - [x] Extract per-class metrics
+  - [x] Upload validation plots to Internal Storage (confusion matrix, PR curve, etc.)
+  - [x] Send callback to Backend: POST /test/{test_run_id}/results
+  - [x] K8s Job compatible exit codes (0=success, 1=failure, 2=callback error)
+  - [x] K8s Job compatible config (env vars > CLI args)
+
+**predict.py Implementation** ✅ COMPLETED
+- [x] Create `platform/trainers/ultralytics/predict.py` (454 lines)
+  - [x] CLI argument parsing with env var fallback
+  - [x] Download checkpoint from Internal Storage (9002)
+  - [x] Download input images from S3 (External or custom bucket)
+  - [x] Run model.predict() with Ultralytics
+  - [x] Aggregate predictions (image_name, class, confidence, bbox)
+  - [x] Create predictions summary with statistics
+  - [x] Upload annotated images to Internal Storage
+  - [x] Upload labels (txt) to Internal Storage
+  - [x] Upload predictions.json to Internal Storage
+  - [x] Send callback to Backend: POST /inference/{inference_job_id}/results
+  - [x] K8s Job compatible exit codes
+  - [x] K8s Job compatible config (env vars > CLI args)
+
+**CallbackClient Extensions** ✅ COMPLETED
+- [x] Add async methods to utils.py
+  - [x] send_test_completion() for evaluate.py
+  - [x] send_inference_completion() for predict.py
+- [x] Add synchronous versions (for Ultralytics callback context)
+  - [x] send_test_completion_sync()
+  - [x] send_inference_completion_sync()
+- [x] Retry logic with tenacity (3 attempts, exponential backoff)
+
+**Backend API Endpoints** ✅ COMPLETED
+- [x] Add callback endpoints to `app/api/test_inference.py`
+  - [x] POST /test/{test_run_id}/results (lines 595-676)
+  - [x] POST /inference/{inference_job_id}/results (lines 679-751)
+- [x] Add callback schemas to `app/schemas/test_inference.py`
+  - [x] TestResultsCallback (lines 315-344)
+  - [x] InferenceResultsCallback (lines 347-374)
+- [x] Idempotent update pattern
+- [x] Comprehensive logging
+
+**K8s Job Compatibility Refactoring** ✅ COMPLETED
+- [x] Update `backend/app/utils/training_subprocess.py`
+  - [x] start_training(): Convert CLI args to env vars (lines 124-159)
+  - [x] start_evaluation(): New method with env var support (lines 295-399)
+  - [x] start_inference(): New method with env var support (lines 401-505)
+  - [x] Explicit MinIO env var injection (8 storage variables)
+- [x] Update CLI scripts to prioritize env vars
+  - [x] train.py load_config(): env vars > CLI args
+  - [x] evaluate.py load_config(): env vars > CLI args
+  - [x] predict.py load_config(): env vars > CLI args
+- [x] Process key collision avoidance
+  - [x] Training: job_id (integer)
+  - [x] Evaluation: f"test_{test_run_id}"
+  - [x] Inference: f"inference_{inference_job_id}"
+
+**Testing** ⏸️ NEXT STEP
+- [ ] E2E test evaluate.py
+  - [ ] Create test run via Backend API
+  - [ ] Verify checkpoint download from MinIO-Results
+  - [ ] Verify test dataset download from MinIO-Datasets
+  - [ ] Verify metrics extraction
+  - [ ] Verify plot upload to MinIO-Results
+  - [ ] Verify Backend callback received
+- [ ] E2E test predict.py
+  - [ ] Create inference job via Backend API
+  - [ ] Verify checkpoint download
+  - [ ] Verify image download
+  - [ ] Verify predictions generated
+  - [ ] Verify result upload to MinIO-Results
+  - [ ] Verify Backend callback received
+
+**Documentation** ✅ COMPLETED
+- [x] Created `docs/planning/PHASE_3_5_INFERENCE_PLAN.md`
+  - [x] Detailed implementation plan
+  - [x] 40-task checklist
+  - [x] Timeline estimates (3-4 hours)
+
+**Progress**: 40/42 tasks completed (95%) ✅ E2E Testing Pending
+
+**Benefits**:
+- ✅ Same execution model for local subprocess and K8s Job
+- ✅ Environment variable configuration (no code changes)
+- ✅ DualStorageClient pattern (automatic routing)
+- ✅ Comprehensive callback integration
+- ✅ Production-ready exit codes and error handling
+
+---
+
+#### Phase 3.6: Model Export & Deployment System ⏸️ PLANNED
+
+**Goal**: Convert trained checkpoints to production-ready formats with deployment options
+
+**Reference**: `platform/docs/architecture/EXPORT_DEPLOYMENT_DESIGN.md`
+
+**Architecture**: Two-Phase Approach
+- **Export**: Convert checkpoint → Optimized format (ONNX, TensorRT, CoreML, TFLite, etc.)
+- **Deployment**: Deploy exported model → Production environment
+
+**Phase 1 Scope (MVP - 3-4 weeks)**:
+- Export formats: ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO
+- Deployment types: Download, Platform Endpoint (Triton), Edge Package, Container
+- Optimizations: Dynamic quantization
+- Runtime wrappers: Python, C++, Swift, Kotlin
+- 3-tier execution support
+
+**Backend Models** ✅ COMPLETED
+- [x] Create ExportJob model ✅ `platform/backend/app/db/models.py:888-937`
+  - [x] Fields: export_format, framework, task_type, checkpoint_path
+  - [x] export_config JSON (opset, dynamic_axes, embed_preprocessing)
+  - [x] optimization_config JSON (quantization, pruning)
+  - [x] validation_config JSON (optional post-export validation)
+  - [x] Status tracking (pending, running, completed, failed)
+  - [x] Version management (version, is_default)
+  - [x] Results: export_path, export_results, file_size_mb, validation_passed
+- [x] Create DeploymentTarget model ✅ `platform/backend/app/db/models.py:940-994`
+  - [x] deployment_type enum (download, platform_endpoint, edge_package, container)
+  - [x] deployment_config JSON
+  - [x] endpoint_url, api_key (platform endpoint)
+  - [x] container_image, container_registry (container)
+  - [x] package_path, runtime_wrapper_language (edge)
+  - [x] Usage tracking (request_count, total_inference_time_ms, avg_latency_ms)
+  - [x] Resource usage (cpu_limit, memory_limit, gpu_enabled)
+  - [x] Status tracking (pending, deploying, active, deactivated, failed)
+- [x] Create DeploymentHistory model ✅ `platform/backend/app/db/models.py:997-1021`
+  - [x] Event tracking (deployed, scaled, deactivated, reactivated, updated, error)
+  - [x] Event details (message, details JSON)
+  - [x] User tracking (triggered_by)
+- [x] Database migrations ✅ `platform/backend/migrate_add_export_deployment_tables.py`
+  - [x] Add export_jobs table
+  - [x] Add deployment_targets table
+  - [x] Add deployment_history table
+  - [x] Add indexes for performance
+  - [x] Add relationships (TrainingJob ↔ ExportJob, ExportJob ↔ DeploymentTarget)
+
+**Backend API Endpoints** ✅ COMPLETED (7/7)
+- [x] GET /api/v1/export/capabilities ✅ `platform/backend/app/api/export.py:109-163`
+  - [x] Query param: framework, task_type (both required)
+  - [x] Return format support matrix (ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO)
+  - [x] Include native_support vs requires_conversion
+  - [x] Include optimization_options per format
+  - [x] Default format recommendation
+- [x] POST /api/v1/export/jobs ✅ `platform/backend/app/api/export.py:169-251`
+  - [x] Request: training_job_id, export_format, export_config, optimization_config, validation_config
+  - [x] Create ExportJob record with version management
+  - [x] Set as default if requested (or first export)
+  - [x] Return export_job_id and metadata
+  - [ ] **TODO**: Launch export subprocess/K8s Job (background task placeholder ready)
+- [x] GET /api/v1/export/training/{id}/exports ✅ `platform/backend/app/api/export.py:254-295`
+  - [x] List all exports for training job
+  - [x] Pagination (skip, limit)
+  - [x] Sort by version (descending)
+- [x] GET /api/v1/export/jobs/{id} ✅ `platform/backend/app/api/export.py:298-319`
+  - [x] Get export job details
+  - [x] Include export_results, file_size_mb, validation_passed
+- [ ] POST /api/v1/export/{id}/set-default ⏸️ PLANNED
+  - [ ] Set export as default version
+  - [ ] Update is_default flag
+- [ ] GET /api/v1/export/{id}/download ⏸️ PLANNED
+  - [ ] Generate presigned S3 URL
+  - [ ] 24-hour expiration
+  - [ ] Download export package (zip)
+- [ ] POST /api/v1/export/{id}/callback/completion ⏸️ PLANNED
+  - [ ] Callback from export CLI
+  - [ ] Update export job status
+  - [ ] Store optimization_stats, validation_metrics
+
+**Deployment Endpoints** ✅ COMPLETED (3/6)
+- [x] POST /api/v1/export/deployments ✅ `platform/backend/app/api/export.py:324-371`
+  - [x] Request: export_job_id, deployment_type, deployment_config
+  - [x] Create DeploymentTarget record
+  - [x] Validate export_job exists and is completed
+  - [ ] **TODO**: If platform_endpoint: Deploy to Triton/TorchServe
+  - [ ] **TODO**: If edge_package: Generate mobile package
+  - [ ] **TODO**: If container: Generate Dockerfile package
+- [x] GET /api/v1/export/deployments ✅ `platform/backend/app/api/export.py:374-419`
+  - [x] List deployments with filters
+  - [x] Filter by training_job_id, export_job_id, deployment_type, status
+  - [x] Pagination support
+  - [x] Include usage stats (request_count, latency)
+- [x] GET /api/v1/export/deployments/{id} ✅ `platform/backend/app/api/export.py:422-445`
+  - [x] Get deployment details
+  - [x] Include endpoint_url, api_key (if platform_endpoint)
+  - [x] Include usage tracking and resource configuration
+- [ ] POST /api/v1/deployments/{id}/deactivate ⏸️ PLANNED
+  - [ ] Deactivate deployment
+  - [ ] Stop Triton/TorchServe instance (if platform_endpoint)
+  - [ ] Add event to deployment history
+- [ ] POST /api/v1/deployments/{id}/reactivate ⏸️ PLANNED
+  - [ ] Reactivate deployment
+  - [ ] Restart platform endpoint if needed
+  - [ ] Add event to deployment history
+- [ ] GET /api/v1/deployments/{id}/history ⏸️ PLANNED
+  - [ ] Get deployment event history
+  - [ ] Return all events from deployment_history table
+
+**Platform Inference Endpoint** ⏸️ NOT STARTED (CRITICAL)
+- [ ] POST /v1/infer/{deployment_id}
+  - [ ] Authentication: Bearer token (API key)
+  - [ ] Request: image (base64), confidence_threshold, iou_threshold
+  - [ ] Response: predictions array (class, confidence, bbox)
+  - [ ] Usage tracking (increment request_count)
+  - [ ] Rate limiting based on user tier
+- [ ] Triton Inference Server setup
+  - [ ] Docker Compose service for Tier-0
+  - [ ] K8s Deployment for Tier-1/2
+  - [ ] Model repository: S3 backed
+  - [ ] Auto-scaling configuration (HPA)
+- [ ] Model deployment workflow
+  - [ ] Upload model to Triton model repository
+  - [ ] Generate config.pbtxt
+  - [ ] Register deployment in DeploymentTarget
+  - [ ] Health check endpoint
+
+**Trainer Export Scripts** ⏸️ NOT STARTED
+- [ ] Create platform/trainers/ultralytics/export.py
+  - [ ] CLI interface with env var support (K8s Job compatible)
+  - [ ] Download checkpoint from S3 (Internal Storage)
+  - [ ] Format conversion (ONNX, TensorRT, CoreML, TFLite, TorchScript)
+  - [ ] Optimization: Dynamic quantization (optional)
+  - [ ] Generate metadata.json (preprocessing, postprocessing, classes)
+  - [ ] Generate runtime wrappers (Python, C++, Swift, Kotlin)
+  - [ ] Create export package (zip)
+  - [ ] Upload to S3 (Internal Storage)
+  - [ ] Send completion callback
+- [ ] Runtime wrapper templates
+  - [ ] Python wrapper (model_wrapper.py)
+    - [ ] Preprocessing (resize, normalize, format conversion)
+    - [ ] Inference (ONNX Runtime integration)
+    - [ ] Postprocessing (NMS, threshold, format)
+    - [ ] Example usage code
+  - [ ] C++ wrapper (model_wrapper.cpp)
+    - [ ] ONNXRuntime C++ API integration
+    - [ ] OpenCV preprocessing
+  - [ ] Swift wrapper (ModelWrapper.swift)
+    - [ ] CoreML integration
+    - [ ] Vision framework preprocessing
+  - [ ] Kotlin wrapper (ModelWrapper.kt)
+    - [ ] TFLite integration
+    - [ ] Android camera preprocessing
+- [ ] Metadata schema
+  - [ ] model_info (framework, task_type, export_format)
+  - [ ] preprocessing (resize, normalize, format)
+  - [ ] postprocessing (nms, output_format)
+  - [ ] input_spec, output_spec
+  - [ ] classes array
+  - [ ] performance benchmarks
+  - [ ] runtime_wrappers paths
+- [ ] Capability detection
+  - [ ] Ultralytics: Native ONNX, TensorRT, CoreML, TFLite
+  - [ ] timm: Native ONNX, TorchScript only
+  - [ ] HuggingFace: Native ONNX, OpenVINO, TorchScript
+
+**Backend subprocess/K8s execution** ⏸️ NOT STARTED
+- [ ] Add start_export() to training_subprocess.py
+  - [ ] Similar pattern to start_training(), start_evaluation()
+  - [ ] Env var injection (JOB_ID, EXPORT_FORMAT, CHECKPOINT_PATH, etc.)
+  - [ ] MinIO credentials injection
+  - [ ] Process key: f"export_{export_job_id}"
+- [ ] K8s Job template for exports
+  - [ ] Same trainer image as training
+  - [ ] Command: python export.py
+  - [ ] Env vars from ExportJob model
+  - [ ] Resource limits (CPU/GPU based on format)
+
+**Frontend Implementation** ⏸️ NOT STARTED
+- [ ] Create ExportDeployPage.tsx
+  - [ ] URL: /training/{job_id}/export-deploy
+  - [ ] Two main sections: Export + Deployment
+- [ ] Export Section Components
+  - [ ] ExportHistoryTable
+    - [ ] Columns: Version, Format, Size, Status, Created At, Actions
+    - [ ] Actions: Download, Deploy, Set Default, Delete
+  - [ ] CreateExportModal (3-step wizard)
+    - [ ] Step 1: Format Selection
+      - [ ] Grid of format cards (ONNX, TensorRT, CoreML, etc.)
+      - [ ] Capability badges (Native, Good Quality, etc.)
+      - [ ] Framework compatibility check
+    - [ ] Step 2: Optimization Options
+      - [ ] Quantization toggle (None, Dynamic, Static)
+      - [ ] Calibration dataset selector (if static)
+      - [ ] Validation toggle (optional)
+      - [ ] Validation dataset selector
+    - [ ] Step 3: Review & Submit
+      - [ ] Configuration summary
+      - [ ] Estimated export time
+      - [ ] Submit button
+  - [ ] ExportDetailModal
+    - [ ] Export job info (version, format, size)
+    - [ ] Optimization stats (compression ratio)
+    - [ ] Validation metrics (if available)
+    - [ ] Download button (presigned URL)
+- [ ] Deployment Section Components
+  - [ ] ActiveDeploymentsList
+    - [ ] Cards showing active deployments
+    - [ ] Deployment type badges
+    - [ ] Status indicators
+  - [ ] CreateDeploymentModal
+    - [ ] Deployment type selector (Platform Endpoint, Download, Edge, Container)
+    - [ ] Platform Endpoint config (GPU, auto-scaling)
+    - [ ] Edge platform selector (iOS, Android)
+  - [ ] PlatformEndpointCard
+    - [ ] Endpoint URL (copy button)
+    - [ ] API key (show/hide, regenerate)
+    - [ ] Usage stats (requests, latency)
+    - [ ] Test playground (upload image, see predictions)
+  - [ ] DeploymentHistoryTimeline
+    - [ ] Event list (deployed, scaled, deactivated)
+    - [ ] Timestamps
+    - [ ] Event details
+
+**Documentation** ⏸️ NOT STARTED
+- [ ] Update EXPORT_DEPLOYMENT_DESIGN.md
+  - [ ] Add implementation status
+  - [ ] Add API examples
+  - [ ] Add troubleshooting section
+- [ ] Create platform/trainers/ultralytics/EXPORT_GUIDE.md
+  - [ ] Export script usage
+  - [ ] Supported formats
+  - [ ] Runtime wrapper examples
+  - [ ] Metadata schema
+- [ ] Update CLAUDE.md
+  - [ ] Add export/deployment section
+  - [ ] Reference new endpoints
+
+**Testing** ⏸️ NOT STARTED
+- [ ] Unit tests
+  - [ ] ExportJob model CRUD
+  - [ ] DeploymentTarget model CRUD
+  - [ ] Export capability detection
+- [ ] Integration tests
+  - [ ] Export workflow (ONNX)
+  - [ ] Export with quantization
+  - [ ] Platform endpoint deployment
+  - [ ] Download presigned URL generation
+- [ ] E2E tests
+  - [ ] Complete export flow (UI → Backend → Trainer → S3)
+  - [ ] Platform endpoint inference
+  - [ ] Edge package generation
+
+**Progress**: 0/75 tasks completed (0%) ⏸️ PLANNED
+
+**Priority**: High (but after Phase 3.2 & 3.5 completion)
+
+**Dependencies**:
+- Phase 3.1 (Trainer architecture) ✅
+- Phase 3.3 (Dual Storage) ✅
+- Phase 3.5 (Inference CLI) ✅
+
+**Benefits**:
+- 🚀 Instant deployment to production endpoints
+- 📦 Multi-format export (ONNX, TensorRT, CoreML, TFLite)
+- 📱 Mobile app deployment ready
+- 🐳 Docker container packages
+- 🔧 Runtime wrappers for all platforms
+- 📊 Usage tracking and analytics
+
+---
+
 **⚠️ Port Allocation**:
 - Ultralytics: 8001 (implemented)
 - Timm: 8002 (planned)
 - HuggingFace: 8003 (planned)
+- Triton Inference Server: 8100-8102 (planned for Phase 3.6)
 
-**Overall Progress**: 83/105 tasks completed (79%)
+**Overall Progress**: 125/222 tasks completed (56%)
 - Phase 3.1: ✅ 22/22 (100%)
-- Phase 3.2: ✅ 45/50 (90% - Training Integration Complete)
+- Phase 3.2: ✅ 47/50 (94% - Documentation Complete, Testing Pending)
 - Phase 3.3: ✅ 16/16 (100%)
 - Phase 3.4: ⏸️ 0/17 (0% - Future)
+- Phase 3.5: ✅ 40/42 (95% - E2E Testing Pending)
+- Phase 3.6: ⏸️ 0/75 (0% - Planned)
 
 ---
 
