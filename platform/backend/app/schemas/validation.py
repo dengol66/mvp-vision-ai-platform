@@ -201,3 +201,67 @@ class ValidationSummaryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ========== Validation Callback (Trainer -> Backend) ==========
+
+class ValidationImageData(BaseModel):
+    """
+    Image-level validation data for callback.
+
+    Sent from trainer to Backend with individual image predictions.
+    """
+    image_name: str
+    image_index: Optional[int] = None
+
+    # Classification fields
+    true_label: Optional[str] = None
+    true_label_id: Optional[int] = None
+    predicted_label: Optional[str] = None
+    predicted_label_id: Optional[int] = None
+    confidence: Optional[float] = None
+    top5_predictions: Optional[List[Dict[str, Any]]] = None
+
+    # Detection fields
+    true_boxes: Optional[List[Dict[str, Any]]] = None
+    predicted_boxes: Optional[List[Dict[str, Any]]] = None
+
+    # Common
+    is_correct: bool
+    iou: Optional[float] = None
+    extra_data: Optional[Dict[str, Any]] = None
+
+
+class ValidationCallbackRequest(BaseModel):
+    """
+    Validation callback payload from trainer to Backend.
+
+    Sent after each validation run (typically per epoch).
+    Includes metrics, confusion matrix, and optionally image-level results.
+    """
+    job_id: int
+    epoch: int
+    task_type: str
+
+    # Primary metric
+    primary_metric_name: Optional[str] = None
+    primary_metric_value: Optional[float] = None
+    overall_loss: Optional[float] = None
+
+    # Task-specific metrics
+    metrics: Optional[Dict[str, Any]] = None
+    per_class_metrics: Optional[Dict[str, Any]] = None
+
+    # Visualization data (can be URLs to S3 images or inline arrays)
+    confusion_matrix: Optional[List[List[int]]] = None
+    pr_curves: Optional[Dict[str, Any]] = None
+    class_names: Optional[List[str]] = None
+    visualization_urls: Optional[Dict[str, str]] = None  # {confusion_matrix: s3://..., f1_curve: s3://...}
+
+    # Sample images (URLs to S3 for confusion matrix cell images)
+    sample_correct_images: Optional[List[str]] = None
+    sample_incorrect_images: Optional[List[str]] = None
+
+    # Optionally send all image-level results (for small datasets)
+    # For large datasets, omit this and let Frontend fetch paginated results via GET API
+    image_results: Optional[List[ValidationImageData]] = None

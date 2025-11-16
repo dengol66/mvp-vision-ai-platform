@@ -175,6 +175,70 @@ async def train_model(
         device = config.get('device', 'cpu')
         primary_metric = config.get('primary_metric', 'mAP50-95')
 
+        # Extract advanced config parameters (from config_schema.py)
+        # These will be passed directly to model.train() if present
+        advanced_params = {}
+
+        # Optimizer parameters
+        if 'optimizer' in config:
+            advanced_params['optimizer'] = config['optimizer']
+        if 'weight_decay' in config:
+            advanced_params['weight_decay'] = config['weight_decay']
+        if 'momentum' in config:
+            advanced_params['momentum'] = config['momentum']
+
+        # Scheduler parameters
+        if 'cos_lr' in config:
+            advanced_params['cos_lr'] = config['cos_lr']
+        if 'lrf' in config:
+            advanced_params['lrf'] = config['lrf']
+        if 'warmup_epochs' in config:
+            advanced_params['warmup_epochs'] = config['warmup_epochs']
+        if 'warmup_momentum' in config:
+            advanced_params['warmup_momentum'] = config['warmup_momentum']
+        if 'warmup_bias_lr' in config:
+            advanced_params['warmup_bias_lr'] = config['warmup_bias_lr']
+
+        # Augmentation parameters
+        if 'mosaic' in config:
+            advanced_params['mosaic'] = config['mosaic']
+        if 'mixup' in config:
+            advanced_params['mixup'] = config['mixup']
+        if 'copy_paste' in config:
+            advanced_params['copy_paste'] = config['copy_paste']
+        if 'degrees' in config:
+            advanced_params['degrees'] = config['degrees']
+        if 'translate' in config:
+            advanced_params['translate'] = config['translate']
+        if 'scale' in config:
+            advanced_params['scale'] = config['scale']
+        if 'shear' in config:
+            advanced_params['shear'] = config['shear']
+        if 'perspective' in config:
+            advanced_params['perspective'] = config['perspective']
+        if 'flipud' in config:
+            advanced_params['flipud'] = config['flipud']
+        if 'fliplr' in config:
+            advanced_params['fliplr'] = config['fliplr']
+        if 'hsv_h' in config:
+            advanced_params['hsv_h'] = config['hsv_h']
+        if 'hsv_s' in config:
+            advanced_params['hsv_s'] = config['hsv_s']
+        if 'hsv_v' in config:
+            advanced_params['hsv_v'] = config['hsv_v']
+
+        # Optimization parameters
+        if 'amp' in config:
+            advanced_params['amp'] = config['amp']
+        if 'close_mosaic' in config:
+            advanced_params['close_mosaic'] = config['close_mosaic']
+
+        # Validation parameters
+        if 'val' in config:
+            advanced_params['val'] = config['val']
+
+        logger.info(f"Advanced config parameters: {list(advanced_params.keys())}")
+
         # Setup MLflow
         setup_mlflow()
         mlflow.set_experiment("vision-training")
@@ -182,8 +246,8 @@ async def train_model(
         with mlflow.start_run(run_name=f"job-{job_id}") as run:
             logger.info(f"Started MLflow run: {run.info.run_id}")
 
-            # Log parameters
-            mlflow.log_params({
+            # Log parameters (including advanced params)
+            mlflow_params = {
                 'job_id': job_id,
                 'model_name': model_name,
                 'framework': 'ultralytics',
@@ -192,7 +256,10 @@ async def train_model(
                 'batch_size': batch_size,
                 'image_size': image_size,
                 'device': device,
-            })
+            }
+            # Add advanced params to MLflow logging
+            mlflow_params.update(advanced_params)
+            mlflow.log_params(mlflow_params)
             logger.info("Logged parameters to MLflow")
 
             # Load model
@@ -245,17 +312,24 @@ async def train_model(
             data_yaml = dataset_dir / "data.yaml"
             project_dir = Path(f"/tmp/training/{job_id}/runs")
 
-            results = model.train(
-                data=str(data_yaml),
-                epochs=epochs,
-                batch=batch_size,
-                imgsz=image_size,
-                device=device,
-                project=str(project_dir),
-                name="train",
-                exist_ok=True,
-                verbose=True,
-            )
+            # Build training arguments
+            train_args = {
+                'data': str(data_yaml),
+                'epochs': epochs,
+                'batch': batch_size,
+                'imgsz': image_size,
+                'device': device,
+                'project': str(project_dir),
+                'name': 'train',
+                'exist_ok': True,
+                'verbose': True,
+            }
+
+            # Add advanced config parameters
+            train_args.update(advanced_params)
+
+            logger.info(f"Training with {len(train_args)} parameters")
+            results = model.train(**train_args)
 
             logger.info("Training completed")
 
@@ -285,6 +359,92 @@ async def train_model(
                 sanitized_metrics = {sanitize_metric_name(k): v for k, v in final_metrics.items()}
                 mlflow.log_metrics(sanitized_metrics)
                 logger.info(f"Logged {len(sanitized_metrics)} metrics to MLflow")
+
+            # ========================================================================
+            # Process validation results and send validation callback
+            # ========================================================================
+            try:
+                logger.info("Processing validation results...")
+
+                # Find validation plots
+                plots_dir = project_dir / "train"
+                visualization_urls = {}
+
+                plot_files = {
+                    'confusion_matrix': 'confusion_matrix.png',
+                    'confusion_matrix_normalized': 'confusion_matrix_normalized.png',
+                    'f1_curve': 'F1_curve.png',
+                    'pr_curve': 'PR_curve.png',
+                    'p_curve': 'P_curve.png',
+                    'r_curve': 'R_curve.png',
+                }
+
+                # Upload validation plots to MinIO Internal Storage
+                for plot_name, plot_file in plot_files.items():
+                    plot_path = plots_dir / plot_file
+                    if plot_path.exists():
+                        try:
+                            # Upload to MinIO Internal Storage: s3://training-checkpoints/job{id}/validation/{plot_file}
+                            s3_key = f"job{job_id}/validation/{plot_file}"
+                            storage.internal_client.client.upload_file(
+                                str(plot_path),
+                                storage.internal_client.bucket,
+                                s3_key,
+                                ExtraArgs={'ContentType': 'image/png'}
+                            )
+                            plot_uri = f"s3://{storage.internal_client.bucket}/{s3_key}"
+                            visualization_urls[plot_name] = plot_uri
+                            logger.info(f"Uploaded {plot_file} → {plot_uri}")
+                        except Exception as e:
+                            logger.warning(f"Failed to upload {plot_file}: {e}")
+
+                # Extract class names from data.yaml
+                import yaml
+                class_names = None
+                try:
+                    with open(data_yaml, 'r') as f:
+                        data_config = yaml.safe_load(f)
+                        class_names = data_config.get('names', [])
+                except Exception as e:
+                    logger.warning(f"Failed to extract class names: {e}")
+
+                # Determine task type from model name
+                task_type = 'detection'  # Default
+                if 'seg' in model_name.lower():
+                    task_type = 'segmentation'
+                elif 'pose' in model_name.lower():
+                    task_type = 'pose'
+                elif 'cls' in model_name.lower() or 'classify' in model_name.lower():
+                    task_type = 'classification'
+
+                # Prepare validation callback data
+                validation_data = {
+                    'job_id': int(job_id),
+                    'epoch': epochs,  # Final epoch
+                    'task_type': task_type,
+                    'primary_metric_name': 'mAP50-95',
+                    'primary_metric_value': final_metrics.get('mAP50-95') if final_metrics else None,
+                    'overall_loss': None,  # Ultralytics doesn't provide val loss separately
+                    'metrics': final_metrics,
+                    'per_class_metrics': None,  # TODO: Extract per-class metrics if needed
+                    'confusion_matrix': None,  # Could extract from confusion_matrix.png if needed
+                    'pr_curves': None,
+                    'class_names': class_names,
+                    'visualization_urls': visualization_urls if visualization_urls else None,
+                }
+
+                # Send validation callback (synchronous)
+                try:
+                    callback_client.send_validation_sync(job_id, validation_data)
+                    logger.info(f"✓ Validation callback sent for epoch {epochs}")
+                except Exception as e:
+                    logger.warning(f"Failed to send validation callback: {e}")
+                    # Don't fail the job if validation callback fails
+
+            except Exception as e:
+                logger.warning(f"Failed to process validation results: {e}")
+                logger.warning(traceback.format_exc())
+                # Continue to completion callback even if validation processing fails
 
             # Send completion callback (K8s Job compatible schema)
             completion_data = {

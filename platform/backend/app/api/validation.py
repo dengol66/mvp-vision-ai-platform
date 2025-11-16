@@ -464,3 +464,137 @@ async def get_pr_curve_image(
         media_type='image/png',
         filename=f'pr_curve_job{job_id}_epoch{epoch}.png'
     )
+
+
+# ========== POST Endpoints (Callbacks from Trainer) ==========
+
+@router.post("/jobs/{job_id}/results")
+async def create_validation_result(
+    job_id: int,
+    callback: validation_schemas.ValidationCallbackRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Validation callback endpoint (Trainer -> Backend).
+
+    Called by training runner after each validation run.
+    Creates ValidationResult and optionally ValidationImageResult records.
+
+    Args:
+        job_id: Training job ID
+        callback: Validation callback data from trainer
+        db: Database session
+
+    Returns:
+        Confirmation with validation_result_id
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"[VALIDATION CALLBACK] Received for job {job_id}, epoch {callback.epoch}")
+
+    # Verify job exists
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Training job {job_id} not found")
+
+    # Check if validation result already exists for this epoch
+    existing = db.query(models.ValidationResult).filter(
+        models.ValidationResult.job_id == job_id,
+        models.ValidationResult.epoch == callback.epoch
+    ).first()
+
+    if existing:
+        logger.warning(f"[VALIDATION CALLBACK] Result already exists for job {job_id}, epoch {callback.epoch}. Updating.")
+        # Update existing record
+        existing.task_type = callback.task_type
+        existing.primary_metric_name = callback.primary_metric_name
+        existing.primary_metric_value = callback.primary_metric_value
+        existing.overall_loss = callback.overall_loss
+        existing.metrics = callback.metrics
+        existing.per_class_metrics = callback.per_class_metrics
+        existing.confusion_matrix = callback.confusion_matrix
+        existing.pr_curves = callback.pr_curves
+        existing.class_names = callback.class_names
+        existing.sample_correct_images = callback.sample_correct_images
+        existing.sample_incorrect_images = callback.sample_incorrect_images
+
+        # Store visualization_urls in visualization_data
+        if callback.visualization_urls:
+            existing.visualization_data = existing.visualization_data or {}
+            existing.visualization_data['urls'] = callback.visualization_urls
+
+        validation_result = existing
+    else:
+        # Create new validation result
+        validation_result = models.ValidationResult(
+            job_id=job_id,
+            epoch=callback.epoch,
+            task_type=callback.task_type,
+            primary_metric_name=callback.primary_metric_name,
+            primary_metric_value=callback.primary_metric_value,
+            overall_loss=callback.overall_loss,
+            metrics=callback.metrics,
+            per_class_metrics=callback.per_class_metrics,
+            confusion_matrix=callback.confusion_matrix,
+            pr_curves=callback.pr_curves,
+            class_names=callback.class_names,
+            sample_correct_images=callback.sample_correct_images,
+            sample_incorrect_images=callback.sample_incorrect_images,
+            visualization_data={'urls': callback.visualization_urls} if callback.visualization_urls else None
+        )
+        db.add(validation_result)
+
+    db.commit()
+    db.refresh(validation_result)
+
+    logger.info(f"[VALIDATION CALLBACK] Created ValidationResult id={validation_result.id}")
+
+    # Process image-level results if provided
+    if callback.image_results:
+        logger.info(f"[VALIDATION CALLBACK] Processing {len(callback.image_results)} image results")
+
+        # Delete existing image results for this epoch (if updating)
+        db.query(models.ValidationImageResult).filter(
+            models.ValidationImageResult.job_id == job_id,
+            models.ValidationImageResult.epoch == callback.epoch
+        ).delete()
+
+        # Create new image results
+        for img_data in callback.image_results:
+            image_result = models.ValidationImageResult(
+                validation_result_id=validation_result.id,
+                job_id=job_id,
+                epoch=callback.epoch,
+                image_name=img_data.image_name,
+                image_index=img_data.image_index,
+                true_label=img_data.true_label,
+                true_label_id=img_data.true_label_id,
+                predicted_label=img_data.predicted_label,
+                predicted_label_id=img_data.predicted_label_id,
+                confidence=img_data.confidence,
+                top5_predictions=img_data.top5_predictions,
+                true_boxes=img_data.true_boxes,
+                predicted_boxes=img_data.predicted_boxes,
+                is_correct=img_data.is_correct,
+                iou=img_data.iou,
+                extra_data=img_data.extra_data
+            )
+            db.add(image_result)
+
+        db.commit()
+        logger.info(f"[VALIDATION CALLBACK] Created {len(callback.image_results)} ValidationImageResult records")
+
+    # TODO: Broadcast validation result via WebSocket
+    # ws_manager.broadcast_to_job(job_id, {
+    #     'type': 'validation_result',
+    #     'epoch': callback.epoch,
+    #     'primary_metric': callback.primary_metric_value
+    # })
+
+    return {
+        "status": "success",
+        "validation_result_id": validation_result.id,
+        "job_id": job_id,
+        "epoch": callback.epoch
+    }
