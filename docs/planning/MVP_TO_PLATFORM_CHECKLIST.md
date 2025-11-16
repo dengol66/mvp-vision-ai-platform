@@ -13,18 +13,87 @@
 | 0. Infrastructure Setup | 95% | 🟢 Complete | Week 0 |
 | 1. 사용자 & 프로젝트 | 75% | 🟡 In Progress | Week 1-2 |
 | 2. 데이터셋 관리 | 85% ✅ Split & Snapshot Complete | 🟢 Phase 2.1-2.2 Done | Week 3 |
-| 3. Training Services 분리 | 67% (Phase 3.1-3.5: 85% / Phase 3.6: 29%) | 🟡 In Progress | Week 3-6 |
+| 3. Training Services 분리 | 81% (Phase 3.1-3.5: 85% / Phase 3.6: 73%) | 🟡 In Progress | Week 3-6 |
 | 4. Experiment & MLflow | 86% | 🟡 Backend Complete | Week 2 |
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 67% (147/222 tasks) ✅ Week 2 of Phase 3.6 Complete
+**전체 진행률**: 81% (180/222 tasks) ✅ Platform Inference Endpoint Complete
 
-**최근 업데이트**: 2025-11-16 (Phase 3.6 Week 2: Export Scripts & Backend Integration)
+**최근 업데이트**: 2025-11-16 (Phase 3.6 Week 3: Platform Inference Endpoint)
 
 **Current Session (2025-11-16 Evening - Continued)** 📋
 
-**Phase 3.6 Week 2 Day 1-5: Export Scripts & Backend Integration** ✅ COMPLETED (11 new tasks - Total: 22/75 - 29%):
+**Phase 3.6 Week 3 Day 1-3: Platform Inference Endpoint** ✅ COMPLETED (15 new tasks - Total: 55/75 - 73%):
+- ✅ **Inference API Endpoint** `platform/backend/app/api/inference.py` (350+ lines):
+  - POST /v1/infer/{deployment_id} - Real-time inference with Bearer token auth
+  - Authentication via verify_api_key dependency (checks API key from DeploymentTarget)
+  - Request validation (base64 image, confidence/IOU thresholds, max_detections)
+  - Response formatting (detections, inference_time_ms, model_info)
+  - Usage tracking (increment request_count, update latency stats)
+  - S3 model download and extraction with caching
+  - Health check endpoint (GET /v1/deployments/{id}/health)
+  - Cache management (POST /v1/deployments/{id}/cache/clear)
+  - Usage stats endpoint (GET /v1/deployments/{id}/usage)
+- ✅ **ONNX Runtime Inference Engine** `platform/backend/app/utils/inference_engine.py` (420 lines):
+  - Model caching by deployment_id (session + metadata)
+  - Image preprocessing (base64 decode, letterbox resize, HWC→CHW, normalization)
+  - ONNX Runtime integration with GPU support (CUDA + CPU providers)
+  - Postprocessing (NMS, cxcywh→xyxy conversion, box scaling)
+  - Metadata-driven configuration (input_spec, preprocessing specs)
+  - Task type support (detection implemented, pose/classify TODO)
+  - S3 package download and zip extraction
+  - Performance tracking (inference time measurement)
+- ✅ **Inference Schemas** `platform/backend/app/schemas/inference.py` (130 lines):
+  - InferenceRequest (image, conf/IOU thresholds, max_detections)
+  - InferenceResponse (detections, poses, classification, model_info)
+  - Detection, BoundingBox, Keypoint, PoseDetection, ClassificationResult
+  - UsageStats, InferenceError
+  - Base64 validation
+- ✅ **Main.py Integration** `platform/backend/app/main.py`:
+  - Registered inference router
+  - No API_V1_PREFIX (uses /v1 directly for inference)
+- ✅ **Dependencies** `platform/backend/requirements.txt`:
+  - onnxruntime>=1.16.0
+  - pillow>=10.0.0
+  - numpy>=1.24.0
+
+**Phase 3.6 Week 2 Day 6-7: Runtime Wrappers** ✅ COMPLETED (18 new tasks - Total: 40/75 - 53%):
+- ✅ **Python ONNX Runtime Wrapper** `platform/trainers/ultralytics/runtimes/python/` (670 lines):
+  - Complete YOLOInference class with preprocessing, inference, postprocessing
+  - Support for detection, segmentation, pose, classification
+  - Letterbox resize, normalization, format conversion (HWC→CHW, BGR→RGB)
+  - NMS implementation with IoU calculation
+  - Visualization with bounding boxes, labels, confidence scores
+  - requirements.txt + comprehensive README with examples
+- ✅ **C++ ONNXRuntime Wrapper** `platform/trainers/ultralytics/runtimes/cpp/`:
+  - Header (model_wrapper.h) + Implementation (model_wrapper.cpp)
+  - ONNXRuntime C++ API integration with GPU support
+  - OpenCV preprocessing with letterbox resize
+  - NMS implementation
+  - CMakeLists.txt for easy building
+  - Example main.cpp + comprehensive README
+- ✅ **Swift CoreML Wrapper** `platform/trainers/ultralytics/runtimes/swift/` (600+ lines):
+  - Complete YOLOInference class for iOS/macOS
+  - CoreML integration with Neural Engine support
+  - Vision framework preprocessing
+  - iOS camera integration examples (AVFoundation + CameraX)
+  - SwiftUI support examples
+  - Package.swift + comprehensive README
+- ✅ **Kotlin TFLite Wrapper** `platform/trainers/ultralytics/runtimes/kotlin/` (500+ lines):
+  - Complete YOLOInference class for Android
+  - TensorFlow Lite integration with GPU delegate
+  - Android camera preprocessing examples (CameraX)
+  - Coroutines and Flow support
+  - Jetpack Compose examples
+  - build.gradle + comprehensive README
+- ✅ **Export.py Runtime Wrapper Integration** `platform/trainers/ultralytics/export.py:287-366`:
+  - copy_runtime_wrappers() function (80 lines)
+  - Format-to-runtime mapping (ONNX→Python/C++, CoreML→Swift, TFLite→Kotlin)
+  - Automatic wrapper copying during export package creation
+  - Main README generation with wrapper links and quick start
+
+**Phase 3.6 Week 2 Day 1-5: Export Scripts & Backend Integration** ✅ COMPLETED (11 tasks - Subtotal: 22/75):
 - ✅ **Trainer Export Script** `platform/trainers/ultralytics/export.py` (606 lines):
   - Complete CLI with env var support (K8s Job compatible)
   - Multi-format export: ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO
@@ -1972,23 +2041,34 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] Get deployment event history
   - [ ] Return all events from deployment_history table
 
-**Platform Inference Endpoint** ⏸️ NOT STARTED (CRITICAL)
-- [ ] POST /v1/infer/{deployment_id}
-  - [ ] Authentication: Bearer token (API key)
-  - [ ] Request: image (base64), confidence_threshold, iou_threshold
-  - [ ] Response: predictions array (class, confidence, bbox)
-  - [ ] Usage tracking (increment request_count)
-  - [ ] Rate limiting based on user tier
-- [ ] Triton Inference Server setup
+**Platform Inference Endpoint** ✅ COMPLETED (ONNX Runtime Implementation)
+- [x] POST /v1/infer/{deployment_id} ✅ `platform/backend/app/api/inference.py:64-183`
+  - [x] Authentication: Bearer token (API key via verify_api_key dependency)
+  - [x] Request: image (base64), confidence_threshold, iou_threshold, max_detections
+  - [x] Response: detections array (class_id, class_name, confidence, bbox)
+  - [x] Usage tracking (increment request_count, total_inference_time_ms, avg_latency_ms)
+  - [x] Task type support (detection - others TODO)
+  - [ ] **TODO**: Rate limiting based on user tier
+- [x] Inference Engine ✅ `platform/backend/app/utils/inference_engine.py` (420 lines)
+  - [x] ONNX Runtime integration with GPU support
+  - [x] Model caching (deployment_id → session cache)
+  - [x] Image preprocessing (base64 decode, letterbox resize, normalization)
+  - [x] Postprocessing (NMS, box scaling, format conversion)
+  - [x] S3 model download and extraction
+  - [x] Metadata-driven inference (input_spec, preprocessing specs)
+- [x] Additional endpoints ✅ `platform/backend/app/api/inference.py`
+  - [x] GET /v1/deployments/{deployment_id}/health (Health check)
+  - [x] POST /v1/deployments/{deployment_id}/cache/clear (Clear model cache)
+  - [x] GET /v1/deployments/{deployment_id}/usage (Usage statistics)
+- [x] Schemas ✅ `platform/backend/app/schemas/inference.py`
+  - [x] InferenceRequest, InferenceResponse
+  - [x] Detection, BoundingBox, PoseDetection, ClassificationResult
+  - [x] InferenceError, UsageStats
+- [ ] Triton Inference Server setup ⏸️ FUTURE (Optional - current ONNX Runtime works)
   - [ ] Docker Compose service for Tier-0
   - [ ] K8s Deployment for Tier-1/2
   - [ ] Model repository: S3 backed
   - [ ] Auto-scaling configuration (HPA)
-- [ ] Model deployment workflow
-  - [ ] Upload model to Triton model repository
-  - [ ] Generate config.pbtxt
-  - [ ] Register deployment in DeploymentTarget
-  - [ ] Health check endpoint
 
 **Trainer Export Scripts** ✅ COMPLETED (Core Implementation)
 - [x] Create platform/trainers/ultralytics/export.py ✅ (606 lines)
@@ -2003,25 +2083,32 @@ if (key.includes('loss')) return value.toFixed(4);
     - [x] OpenVINO: FP16 support
   - [x] Optimization: Dynamic quantization (format-specific)
   - [x] Generate metadata.json (preprocessing, postprocessing, classes)
-  - [ ] **TODO**: Generate runtime wrappers (Python, C++, Swift, Kotlin) - Placeholder README only
+  - [x] Generate runtime wrappers (Python, C++, Swift, Kotlin) ✅ `platform/trainers/ultralytics/runtimes/`
   - [x] Create export package (zip with model + metadata)
   - [x] Upload to S3 (Internal Storage)
   - [x] Send completion callback (POST /export/{id}/callback/completion)
-- [ ] Runtime wrapper templates
-  - [ ] Python wrapper (model_wrapper.py)
-    - [ ] Preprocessing (resize, normalize, format conversion)
-    - [ ] Inference (ONNX Runtime integration)
-    - [ ] Postprocessing (NMS, threshold, format)
-    - [ ] Example usage code
-  - [ ] C++ wrapper (model_wrapper.cpp)
-    - [ ] ONNXRuntime C++ API integration
-    - [ ] OpenCV preprocessing
-  - [ ] Swift wrapper (ModelWrapper.swift)
-    - [ ] CoreML integration
-    - [ ] Vision framework preprocessing
-  - [ ] Kotlin wrapper (ModelWrapper.kt)
-    - [ ] TFLite integration
-    - [ ] Android camera preprocessing
+- [x] Runtime wrapper templates ✅ COMPLETED
+  - [x] Python wrapper (model_wrapper.py) ✅ 670 lines + requirements.txt + README.md
+    - [x] Preprocessing (resize, normalize, format conversion)
+    - [x] Inference (ONNX Runtime integration)
+    - [x] Postprocessing (NMS, threshold, format)
+    - [x] Example usage code
+    - [x] Support for detection, segmentation, pose, classification
+  - [x] C++ wrapper (model_wrapper.cpp) ✅ Header + Implementation + CMakeLists.txt + README.md
+    - [x] ONNXRuntime C++ API integration
+    - [x] OpenCV preprocessing
+    - [x] NMS implementation
+    - [x] CMake build configuration
+  - [x] Swift wrapper (ModelWrapper.swift) ✅ 600+ lines + Package.swift + README.md
+    - [x] CoreML integration
+    - [x] Vision framework preprocessing
+    - [x] iOS camera integration examples
+    - [x] SwiftUI support
+  - [x] Kotlin wrapper (ModelWrapper.kt) ✅ 500+ lines + build.gradle + README.md
+    - [x] TFLite integration
+    - [x] Android camera preprocessing
+    - [x] CameraX integration examples
+    - [x] Coroutines support
 - [ ] Metadata schema
   - [ ] model_info (framework, task_type, export_format)
   - [ ] preprocessing (resize, normalize, format)

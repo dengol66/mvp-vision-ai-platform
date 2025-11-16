@@ -284,6 +284,88 @@ def generate_metadata(
     return metadata
 
 
+def copy_runtime_wrappers(
+    runtimes_dir: Path,
+    export_format: str,
+    metadata: Dict[str, Any]
+):
+    """Copy runtime wrapper templates based on export format"""
+    # Get current directory (trainers/ultralytics)
+    current_dir = Path(__file__).parent
+    runtimes_source = current_dir / 'runtimes'
+
+    if not runtimes_source.exists():
+        logger.warning(f"[EXPORT] Runtime wrappers not found at: {runtimes_source}")
+        return
+
+    # Map export format to runtime wrapper language
+    format_to_runtime = {
+        'onnx': ['python', 'cpp'],
+        'tensorrt': ['python', 'cpp'],
+        'coreml': ['swift'],
+        'tflite': ['kotlin'],
+        'torchscript': ['python'],
+        'openvino': ['python', 'cpp']
+    }
+
+    runtimes_to_copy = format_to_runtime.get(export_format, [])
+
+    if not runtimes_to_copy:
+        logger.warning(f"[EXPORT] No runtime wrappers configured for format: {export_format}")
+        return
+
+    # Copy runtime wrappers
+    for runtime in runtimes_to_copy:
+        source_runtime_dir = runtimes_source / runtime
+
+        if not source_runtime_dir.exists():
+            logger.warning(f"[EXPORT] Runtime wrapper not found: {source_runtime_dir}")
+            continue
+
+        dest_runtime_dir = runtimes_dir / runtime
+        dest_runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy all files from source runtime
+        for item in source_runtime_dir.iterdir():
+            if item.is_file():
+                shutil.copy2(item, dest_runtime_dir / item.name)
+                logger.info(f"[EXPORT] Copied {runtime} wrapper: {item.name}")
+            elif item.is_dir():
+                # Copy directories recursively (for C++ includes, etc.)
+                shutil.copytree(item, dest_runtime_dir / item.name, dirs_exist_ok=True)
+                logger.info(f"[EXPORT] Copied {runtime} directory: {item.name}")
+
+    # Create main README
+    readme_path = runtimes_dir / 'README.md'
+    with open(readme_path, 'w') as f:
+        f.write("# Runtime Wrappers\n\n")
+        f.write(f"Runtime wrappers for **{export_format.upper()}** model.\n\n")
+        f.write(f"**Task Type:** {metadata['model_info']['task_type']}\n")
+        f.write(f"**Classes:** {metadata['model_info']['num_classes']}\n")
+        f.write(f"**Input Shape:** {metadata['input_spec']['shape']}\n\n")
+
+        f.write("## Available Wrappers\n\n")
+        for runtime in runtimes_to_copy:
+            f.write(f"- **{runtime.capitalize()}**: See `{runtime}/README.md`\n")
+
+        f.write("\n## Quick Start\n\n")
+        f.write("Each wrapper directory contains:\n")
+        f.write("- Implementation files (`.py`, `.cpp`, `.swift`, `.kt`)\n")
+        f.write("- README with usage examples\n")
+        f.write("- Dependencies/build instructions\n\n")
+
+        f.write("## Common Operations\n\n")
+        f.write("1. **Load model**: Initialize wrapper with model file\n")
+        f.write("2. **Preprocess**: Resize image to input size, normalize\n")
+        f.write("3. **Inference**: Run model forward pass\n")
+        f.write("4. **Postprocess**: Apply NMS, filter by confidence\n")
+        f.write("5. **Visualize**: Draw boxes/masks on image\n\n")
+
+        f.write("See individual wrapper READMEs for language-specific details.\n")
+
+    logger.info(f"[EXPORT] Copied {len(runtimes_to_copy)} runtime wrapper(s)")
+
+
 def create_export_package(
     exported_file: Path,
     metadata: Dict[str, Any],
@@ -307,18 +389,13 @@ def create_export_package(
         json.dump(metadata, f, indent=2)
     logger.info(f"[EXPORT] Metadata saved to: {metadata_path}")
 
-    # Create runtime wrappers directory (placeholder for now)
+    # Copy runtime wrappers
     runtimes_dir = package_dir / 'runtimes'
     runtimes_dir.mkdir(exist_ok=True)
 
-    # TODO: Generate runtime wrappers (Python, C++, Swift, Kotlin)
-    # For now, create placeholder README
-    readme_path = runtimes_dir / 'README.md'
-    with open(readme_path, 'w') as f:
-        f.write(f"# Runtime Wrappers\n\n")
-        f.write(f"Runtime wrappers for {metadata['model_info']['export_format']} model.\n\n")
-        f.write(f"## Task: {metadata['model_info']['task_type']}\n")
-        f.write(f"## Classes: {metadata['model_info']['num_classes']}\n")
+    # Copy runtime wrappers based on export format
+    copy_runtime_wrappers(runtimes_dir, export_format, metadata)
+    logger.info(f"[EXPORT] Runtime wrappers copied to: {runtimes_dir}")
 
     # Create zip package
     package_zip = output_dir / f"export_{export_job_id}.zip"
