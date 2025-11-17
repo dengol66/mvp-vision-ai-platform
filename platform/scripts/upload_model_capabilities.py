@@ -10,11 +10,16 @@ Usage:
     python upload_model_capabilities.py --framework ultralytics  # Upload single capability
     python upload_model_capabilities.py --all  # Upload all capabilities
 
-Environment Variables:
-    AWS_S3_ENDPOINT_URL: S3-compatible endpoint (MinIO/R2)
+Environment Variables (.env file supported):
+    INTERNAL_STORAGE_ENDPOINT: MinIO/R2 endpoint (default: AWS_S3_ENDPOINT_URL)
+    INTERNAL_STORAGE_ACCESS_KEY: Access key (default: AWS_ACCESS_KEY_ID)
+    INTERNAL_STORAGE_SECRET_KEY: Secret key (default: AWS_SECRET_ACCESS_KEY)
+    INTERNAL_BUCKET_SCHEMAS: Model capabilities bucket name (default: config-schemas)
+
+    Alternative (GitHub Actions compatibility):
+    AWS_S3_ENDPOINT_URL: S3-compatible endpoint
     AWS_ACCESS_KEY_ID: Access key
     AWS_SECRET_ACCESS_KEY: Secret key
-    INTERNAL_BUCKET_SCHEMAS: Model capabilities bucket name (default: config-schemas)
 """
 
 import argparse
@@ -26,6 +31,20 @@ from typing import List, Dict, Any
 
 import boto3
 from botocore.exceptions import ClientError
+
+# Load .env file if available (python-dotenv is optional dependency)
+try:
+    from dotenv import load_dotenv
+    # Try to load .env from platform/backend/ directory
+    script_dir = Path(__file__).parent
+    platform_dir = script_dir.parent
+    backend_env = platform_dir / "backend" / ".env"
+    if backend_env.exists():
+        load_dotenv(backend_env)
+        print(f"[INFO] Loaded environment from {backend_env}")
+except ImportError:
+    # python-dotenv not installed, rely on environment variables
+    pass
 
 
 def discover_trainers(trainers_dir: Path) -> List[str]:
