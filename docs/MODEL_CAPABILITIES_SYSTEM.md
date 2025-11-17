@@ -155,27 +155,40 @@ python platform/scripts/upload_model_capabilities.py --all
 
 ### Local Development
 
+**Prerequisites**: Configure `platform/backend/.env` file
+
+The upload script automatically loads environment variables from `platform/backend/.env` (requires `python-dotenv`).
+
+```bash
+# Copy example and configure
+cd platform/backend
+cp .env.example .env
+# Edit .env with your MinIO credentials (already configured for local dev)
+```
+
 **Validate capabilities**:
 ```bash
 cd platform
 python scripts/upload_model_capabilities.py --all --dry-run
 ```
 
-**Upload to local MinIO** (requires environment variables):
+**Upload to local MinIO**:
 ```bash
-# Set environment variables
-export INTERNAL_STORAGE_ENDPOINT=http://localhost:9002
-export INTERNAL_STORAGE_ACCESS_KEY=minioadmin
-export INTERNAL_STORAGE_SECRET_KEY=minioadmin
-export INTERNAL_BUCKET_SCHEMAS=config-schemas
-
-# Upload
+cd platform
 python scripts/upload_model_capabilities.py --all
 ```
 
 **Upload single framework**:
 ```bash
 python scripts/upload_model_capabilities.py --framework ultralytics
+```
+
+**Note**: The script automatically loads from `platform/backend/.env` if python-dotenv is installed. If not installed, manually set environment variables:
+```bash
+export INTERNAL_STORAGE_ENDPOINT=http://localhost:30900
+export INTERNAL_STORAGE_ACCESS_KEY=minioadmin
+export INTERNAL_STORAGE_SECRET_KEY=minioadmin
+export INTERNAL_BUCKET_SCHEMAS=config-schemas
 ```
 
 ## Backend Implementation

@@ -17,6 +17,7 @@
 | 4. Experiment & MLflow | 86% | 🟡 Backend Complete | Week 2 |
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
+| 7. Trainer Marketplace | 0% | ⚪ Planned | Week 7-21 (15-21주) |
 
 **전체 진행률**: 90% (201/222 tasks) ✅ Phase 3.6 Documentation Complete
 
@@ -2414,6 +2415,166 @@ if (key.includes('loss')) return value.toFixed(4);
 
 ---
 
+## 7. Trainer Marketplace (Custom Trainer System)
+
+### 📊 현재 상태 분석
+
+**Phase 3.6 완료 (2025-01-17)**:
+- ✅ Convention-based model capabilities system
+- ✅ Dynamic framework discovery from R2
+- ✅ GitHub Actions automation for capabilities upload
+- ✅ Backend dynamic framework loading (no hardcoded list)
+
+**현재 제약사항**:
+- ❌ Manual trainer registration (Git commit required)
+- ❌ No automated validation of model existence
+- ❌ No training/inference tests before deployment
+- ❌ No security scanning
+
+### 🎯 Phase 7 목표: UI-driven Trainer Upload & Marketplace
+
+**Vision**: Trainer Marketplace - Developer uploads trainer via UI → Auto validation → Auto registration → Immediately usable
+
+See [TRAINER_MARKETPLACE_VISION.md](./TRAINER_MARKETPLACE_VISION.md) for complete vision document.
+
+---
+
+### Phase 7.1: Trainer Validation Infrastructure (2-3 weeks)
+
+**목표**: Automated validation system for capabilities.json
+
+**작업 항목**:
+- [ ] Create `CapabilityValidator` base class
+- [ ] Implement `UltralyticsValidator` (validate models exist)
+- [ ] Implement `TimmValidator` (use timm.list_models())
+- [ ] Implement `HuggingFaceValidator` (use HF Hub API)
+- [ ] Integrate validators into upload script
+- [ ] Add automated testing framework (test_trainer.py)
+- [ ] Implement training test (1 epoch on sample dataset)
+- [ ] Implement inference test (verify output correctness)
+- [ ] Update GitHub Actions to run validation tests
+- [ ] Create sample dataset generator
+
+**Deliverables**:
+- `platform/trainers/{framework}/validate_capabilities.py` for all frameworks
+- `platform/trainers/{framework}/test_trainer.py` for all frameworks
+- Enhanced `upload_model_capabilities.py` with validation
+- GitHub Actions workflow with training/inference tests
+
+**Progress**: 0/10 tasks completed (0%)
+
+---
+
+### Phase 7.2: Trainer Upload API & Service (4-6 weeks)
+
+**목표**: Backend API for trainer upload and validation
+
+**작업 항목**:
+- [ ] Design `TrainerMetadata` schema
+- [ ] Implement `/trainers/upload` API endpoint
+- [ ] Implement `/trainers/validation/{job_id}` status endpoint
+- [ ] Create `TrainerValidator` service
+- [ ] Implement structure validation
+- [ ] Implement config schema validation
+- [ ] Implement capabilities validation
+- [ ] Implement training test (K8s Job with timeout)
+- [ ] Implement inference test
+- [ ] Implement security scan (malware, secrets, dependencies)
+- [ ] Implement auto-registration after validation
+- [ ] Create validation job tracking (DB model)
+- [ ] Implement WebSocket for real-time validation progress
+- [ ] Add sample dataset creation utility
+
+**Deliverables**:
+- `platform/backend/app/api/trainers.py` (Upload API)
+- `platform/backend/app/services/trainer_validator.py` (Validation service)
+- `platform/backend/app/schemas/trainer.py` (Schemas)
+- Database migrations for `ValidationJob` model
+- WebSocket endpoint for validation progress
+
+**Progress**: 0/14 tasks completed (0%)
+
+---
+
+### Phase 7.3: Frontend Upload UI (3-4 weeks)
+
+**목표**: User-friendly trainer upload interface
+
+**작업 항목**:
+- [ ] Design `TrainerUploadModal` component
+- [ ] Implement file upload zone (drag & drop)
+- [ ] Implement metadata form
+- [ ] Implement validation progress display
+- [ ] Implement real-time status updates (WebSocket)
+- [ ] Implement validation results display
+- [ ] Implement error reporting UI
+- [ ] Add success state with "Start Training" link
+- [ ] Implement trainer list page
+- [ ] Add trainer detail page
+- [ ] Implement trainer versioning UI
+- [ ] Add trainer search & filter
+
+**Deliverables**:
+- `platform/frontend/components/trainer/TrainerUploadModal.tsx`
+- `platform/frontend/components/trainer/ValidationProgress.tsx`
+- `platform/frontend/pages/trainers/upload.tsx`
+- `platform/frontend/pages/trainers/list.tsx`
+- `platform/frontend/pages/trainers/[id].tsx`
+
+**Progress**: 0/12 tasks completed (0%)
+
+---
+
+### Phase 7.4: Trainer Marketplace (6-8 weeks)
+
+**목표**: Community-driven trainer ecosystem
+
+**작업 항목**:
+- [ ] Implement trainer versioning system
+- [ ] Add trainer categories (Official, Community, Enterprise)
+- [ ] Implement rating & review system
+- [ ] Add usage analytics tracking
+- [ ] Implement marketplace UI
+- [ ] Add trainer search & discovery
+- [ ] Implement trainer installation flow
+- [ ] Add trainer update notifications
+- [ ] Implement trainer deprecation workflow
+- [ ] Add trainer popularity metrics
+- [ ] Implement featured trainers
+- [ ] Add trainer documentation portal
+
+**Deliverables**:
+- `platform/frontend/pages/marketplace/trainers.tsx`
+- `platform/backend/app/api/marketplace.py`
+- Database models: `TrainerVersion`, `TrainerRating`, `TrainerReview`
+- Analytics system for trainer usage
+
+**Progress**: 0/12 tasks completed (0%)
+
+---
+
+### Phase 7 Summary
+
+**Total Tasks**: 48
+**Completed**: 0
+**In Progress**: 0
+**Remaining**: 48
+
+**Overall Progress**: 0% (Phase 7 not started)
+
+**Dependencies**:
+- Phase 3.6 (Model Capabilities System) ✅ Complete
+- Phase 2.1 (Dataset Management) ✅ Complete
+- Phase 3.3 (K8s Training Jobs) ✅ Complete
+
+**Estimated Timeline**: 15-21 weeks total
+- Phase 7.1: Weeks 1-3
+- Phase 7.2: Weeks 4-9
+- Phase 7.3: Weeks 10-13
+- Phase 7.4: Weeks 14-21
+
+---
+
 ## 참고 문서
 
 ### 설계 문서
@@ -2421,6 +2582,7 @@ if (key.includes('loss')) return value.toFixed(4);
 - [USER_ANALYTICS_DESIGN.md](../architecture/USER_ANALYTICS_DESIGN.md) - 사용자 분석
 - [BACKEND_DESIGN.md](../architecture/BACKEND_DESIGN.md) - 백엔드 설계
 - [MVP_TO_PLATFORM_MIGRATION.md](./MVP_TO_PLATFORM_MIGRATION.md) - 마이그레이션 전략
+- [TRAINER_MARKETPLACE_VISION.md](./TRAINER_MARKETPLACE_VISION.md) - Trainer Marketplace 비전 및 로드맵
 
 ### 분석 보고서
 - 사용자 & 프로젝트 구현 상태 분석 (2025-01-12) - Agent 분석 결과 참고
@@ -2448,5 +2610,5 @@ Progress: X/Y tasks completed (Z%)
 
 ---
 
-**Last Updated**: 2025-01-12
+**Last Updated**: 2025-01-17 (Added Phase 7: Trainer Marketplace)
 **Next Review**: Phase 1.1 완료 후 (예상: 2025-01-15)
