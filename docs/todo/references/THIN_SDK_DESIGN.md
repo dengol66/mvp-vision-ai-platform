@@ -48,11 +48,11 @@
 ### 1. Minimal Dependencies
 
 ```python
-# Required dependencies
-import httpx   # HTTP client with retry support
-import boto3   # S3-compatible storage
-import yaml    # Dataset configuration (PyYAML)
-import mlflow  # Experiment tracking
+# Required dependencies (최소화)
+import httpx  # HTTP client with retry support
+import boto3  # S3-compatible storage
+import yaml   # Dataset configuration (PyYAML)
+# Note: MLflow, Loki, Prometheus는 Backend에서 처리
 ```
 
 ### 2. Single File Distribution
@@ -634,145 +634,48 @@ def upload_file(
     """
 ```
 
-### 6. MLflow Integration Functions
+### 6. Observability Architecture
 
-SDK는 MLflow 실험 추적을 표준화된 방식으로 제공합니다.
+**핵심 원칙: Trainer는 Backend에만 통신하고, Backend가 모든 Observability 서비스를 처리합니다.**
 
-#### setup_mlflow()
+이 설계는 다음 이점을 제공합니다:
+- **Trainer 의존성 최소화**: httpx, boto3, yaml만 필요
+- **보안**: Trainer가 내부 인프라에 직접 접근하지 않음
+- **단일 접점**: CALLBACK_URL만 알면 됨
+- **스키마 강제**: Backend에서 데이터 표준화 검증
 
-```python
-def setup_mlflow(self, experiment_name: Optional[str] = None) -> str:
-    """
-    Setup MLflow tracking.
+#### Architecture Diagram
 
-    Args:
-        experiment_name: MLflow experiment name.
-                        Defaults to 'training-job-{job_id}'
-
-    Returns:
-        MLflow run ID
-
-    Environment Variables:
-        MLFLOW_TRACKING_URI: MLflow server URL (default: http://localhost:5000)
-
-    Example:
-        sdk = TrainerSDK()
-        run_id = sdk.setup_mlflow()
-        # MLflow run is now active
-    """
+```
+Trainer (SDK)                    Backend                     Services
+    |                               |                           |
+    |-- report_progress() --------->|                           |
+    |   {epoch, metrics}            |-- MLflow log_metrics() -->| MLflow
+    |                               |-- Prometheus gauge ------>| Prometheus
+    |                               |-- WebSocket broadcast --->| Frontend
+    |                               |                           |
+    |-- report_completed() -------->|                           |
+    |   {final_metrics, checkpoints}|-- MLflow end_run() ------>| MLflow
+    |                               |-- Update DB ------------->| PostgreSQL
+    |                               |                           |
+    |-- log_event() --------------->|                           |
+    |   {event_type, message, data} |-- Loki push ------------->| Loki
+    |                               |-- WebSocket broadcast --->| Frontend
 ```
 
-#### log_metrics()
+#### SDK → Backend Callbacks
 
-```python
-def log_metrics(
-    self,
-    metrics: Dict[str, float],
-    step: Optional[int] = None
-) -> None:
-    """
-    Log metrics to MLflow.
+모든 observability 데이터는 기존 callback 함수를 통해 전송됩니다:
 
-    Automatically sanitizes metric names for MLflow compatibility.
+| SDK Function | Backend 처리 |
+|-------------|-------------|
+| `report_progress()` | MLflow log_metrics, Prometheus gauge, WebSocket |
+| `report_validation()` | MLflow log_metrics, DB 저장, WebSocket |
+| `report_completed()` | MLflow end_run, Prometheus, DB 저장, WebSocket |
+| `report_failed()` | MLflow end_run(FAILED), Loki error log, WebSocket |
+| `log_event()` | Loki push, WebSocket (optional) |
 
-    Args:
-        metrics: Dictionary of metric names and values
-        step: Optional step number (epoch)
-
-    Example:
-        sdk.log_metrics({
-            'loss': 0.234,
-            'mAP50': 0.876,
-            'mAP50-95': 0.654
-        }, step=5)
-    """
-```
-
-#### log_params()
-
-```python
-def log_params(self, params: Dict[str, Any]) -> None:
-    """
-    Log hyperparameters to MLflow.
-
-    Args:
-        params: Dictionary of parameter names and values
-
-    Example:
-        sdk.log_params({
-            'epochs': 100,
-            'batch_size': 16,
-            'learning_rate': 0.001,
-            'model_name': 'yolo11n'
-        })
-    """
-```
-
-#### log_artifact()
-
-```python
-def log_artifact(
-    self,
-    local_path: str,
-    artifact_path: Optional[str] = None
-) -> None:
-    """
-    Log artifact file to MLflow.
-
-    Args:
-        local_path: Local file path
-        artifact_path: Directory in artifact store
-
-    Example:
-        sdk.log_artifact('/tmp/confusion_matrix.png', 'plots')
-        sdk.log_artifact('/tmp/model_summary.txt')
-    """
-```
-
-#### end_mlflow_run()
-
-```python
-def end_mlflow_run(self, status: str = 'FINISHED') -> None:
-    """
-    End MLflow run.
-
-    Args:
-        status: Run status ('FINISHED', 'FAILED', 'KILLED')
-
-    Note:
-        Called automatically by report_completed() and report_failed().
-    """
-```
-
-### 7. Logging Functions
-
-SDK는 구조화된 로깅을 제공하여 모든 trainer가 일관된 로그 포맷을 사용합니다.
-
-#### get_logger()
-
-```python
-def get_logger(self, name: Optional[str] = None) -> logging.Logger:
-    """
-    Get a configured logger instance.
-
-    Args:
-        name: Logger name. Defaults to 'trainer.{job_id}'
-
-    Returns:
-        Configured logger with standard format
-
-    Log Format:
-        %(asctime)s - %(name)s - %(levelname)s - %(message)s
-
-    Example:
-        logger = sdk.get_logger()
-        logger.info("Training started")
-        logger.warning("Low GPU memory")
-        logger.error("Dataset validation failed")
-    """
-```
-
-#### log_event()
+#### log_event() Function
 
 ```python
 def log_event(
@@ -783,10 +686,9 @@ def log_event(
     level: str = 'INFO'
 ) -> None:
     """
-    Log structured event.
+    Log structured event to Backend.
 
-    Events are logged locally and optionally sent to Backend for
-    real-time monitoring.
+    Backend forwards to Loki for centralized logging.
 
     Args:
         event_type: Event category
@@ -795,33 +697,108 @@ def log_event(
         data: Additional structured data
         level: Log level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
 
+    Callback:
+        POST /training/jobs/{job_id}/callback/log
+        {
+            "type": "log_event",
+            "job_id": 123,
+            "event_type": "checkpoint",
+            "message": "Saved best checkpoint",
+            "data": {"epoch": 50, "mAP50-95": 0.654},
+            "level": "INFO",
+            "timestamp": "2025-01-19T10:30:00Z"
+        }
+
     Example:
         sdk.log_event(
             'checkpoint',
             'Saved best checkpoint',
             data={'epoch': 50, 'mAP50-95': 0.654, 's3_uri': '...'}
         )
+
+        sdk.log_event(
+            'error',
+            'GPU memory warning',
+            data={'available_mb': 512, 'required_mb': 1024},
+            level='WARNING'
+        )
     """
 ```
 
-### 8. WebSocket Note
+#### Backend Implementation Example
 
-**WebSocket은 SDK가 아닌 Backend에서 처리합니다.**
+```python
+# Backend callback handler
 
+async def handle_progress_callback(data: dict):
+    job_id = data['job_id']
+    epoch = data['epoch']
+    metrics = data['metrics']
+
+    # 1. MLflow
+    with mlflow.start_run(run_id=get_run_id(job_id)):
+        mlflow.log_metrics(sanitize_metrics(metrics), step=epoch)
+
+    # 2. Prometheus
+    for key, value in metrics.items():
+        training_metrics.labels(job_id=job_id, metric=key).set(value)
+
+    # 3. WebSocket broadcast
+    await websocket_manager.broadcast({
+        'type': 'training_metrics',
+        'job_id': job_id,
+        'epoch': epoch,
+        'metrics': metrics
+    })
+
+async def handle_log_event(data: dict):
+    # Loki push
+    loki_client.push({
+        'streams': [{
+            'stream': {
+                'job': 'trainer',
+                'job_id': str(data['job_id']),
+                'level': data['level'],
+                'event_type': data['event_type']
+            },
+            'values': [[
+                str(int(time.time() * 1e9)),
+                json.dumps({
+                    'message': data['message'],
+                    'data': data.get('data', {})
+                })
+            ]]
+        }]
+    })
 ```
-Trainer (SDK)                    Backend                     Frontend
-    |                               |                           |
-    |-- HTTP callback ------------->|                           |
-    |   (report_progress)           |-- WebSocket broadcast --->|
-    |                               |   (training_metrics)      |
-    |                               |                           |
+
+#### Why Backend Proxy?
+
+**Trainer가 직접 접근하면:**
+```python
+# ❌ BAD: Trainer에 많은 의존성
+import mlflow
+import prometheus_client
+from loki_logger import LokiHandler
+
+# Trainer가 모든 서비스 URL 알아야 함
+MLFLOW_URI = "..."
+PROMETHEUS_URI = "..."
+LOKI_URI = "..."
 ```
 
-- **SDK 역할**: HTTP callback으로 Backend에 상태/메트릭 전송
-- **Backend 역할**: Callback 수신 → WebSocket으로 실시간 브로드캐스트
-- **Frontend 역할**: WebSocket 연결 → 실시간 UI 업데이트
+**Backend가 중계하면:**
+```python
+# ✅ GOOD: Trainer는 CALLBACK_URL만 알면 됨
+sdk = TrainerSDK()  # CALLBACK_URL 환경변수에서 자동 로드
+sdk.report_progress(epoch=5, metrics={'loss': 0.5})
+```
 
-Trainer는 WebSocket을 직접 사용하지 않으므로 SDK에 WebSocket 기능이 없습니다.
+**장점 요약:**
+- Trainer 의존성 3개만 (httpx, boto3, yaml)
+- 보안: 내부 인프라 URL 노출 없음
+- 유연성: Backend에서 observability 서비스 변경 가능
+- 표준화: Backend가 스키마 검증 및 데이터 가공
 
 ---
 
@@ -1460,42 +1437,34 @@ dataset/
 
 ### SDK Structure (Final)
 
-모든 기능이 포함된 SDK 구조:
+Backend 중계 방식으로 최소화된 SDK 구조 (17개 함수):
 
 ```python
 # platform/trainers/common/trainer_sdk.py
 
 class TrainerSDK:
-    """Main SDK class"""
+    """Main SDK class - 최소 의존성으로 최대 기능"""
 
-    # Core functions (Lifecycle)
+    # Core functions (Lifecycle) - 4개
     def report_started(self): ...
     def report_progress(self): ...
     def report_completed(self): ...
     def report_failed(self): ...
 
-    # Inference & Export
+    # Inference & Export - 2개
     def report_inference_completed(self): ...
     def report_export_completed(self): ...
 
-    # Storage functions
+    # Storage functions - 4개
     def upload_checkpoint(self): ...
     def download_checkpoint(self): ...
     def download_dataset(self): ...
     def upload_file(self): ...
 
-    # MLflow integration
-    def setup_mlflow(self): ...
-    def log_metrics(self): ...
-    def log_params(self): ...
-    def log_artifact(self): ...
-    def end_mlflow_run(self): ...
-
-    # Logging functions
-    def get_logger(self): ...
+    # Logging (Backend → Loki) - 1개
     def log_event(self): ...
 
-    # Data utility functions
+    # Data utility functions - 5개
     def convert_dataset(self): ...
     def create_data_yaml(self): ...
     def split_dataset(self): ...
@@ -1508,25 +1477,30 @@ class TrainerSDK:
 ```python
 # trainer_sdk.py
 
-# All dependencies are required
+# 최소 의존성 - 단 3개!
 import httpx     # HTTP client with retry
 import boto3     # S3 storage
 import yaml      # Dataset configuration (PyYAML)
-import mlflow    # Experiment tracking
-import logging   # Built-in
-import json      # Built-in
-import random    # Built-in
-from pathlib import Path  # Built-in
+
+# Built-in modules (추가 설치 불필요)
+import logging   # Local logging
+import json      # JSON parsing
+import random    # Dataset split
+from pathlib import Path
 
 class TrainerSDK:
     """
-    Complete SDK with all functions available.
-    No optional imports - all dependencies are required.
+    Minimal SDK with Backend-proxied observability.
+    MLflow, Loki, Prometheus는 Backend에서 처리.
     """
     pass
 ```
 
-**참고:** 모든 ML trainer는 이미 PyYAML과 MLflow를 사용하므로 추가 의존성 부담이 없습니다.
+**핵심 변경:**
+- ~~MLflow 의존성~~ → Backend가 처리
+- ~~Prometheus 의존성~~ → Backend가 처리
+- ~~Loki 의존성~~ → Backend가 처리
+- **Trainer 외부 의존성: httpx, boto3, yaml만!**
 
 ---
 
