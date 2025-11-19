@@ -19,8 +19,8 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 5. Analytics | ⬜ 0% | 미시작 | - |
 | 6. Model Deployment & Serving | ⬜ 0% | Triton 기반 고도화 배포 계획 완료 | [Phase 6 Details](#phase-6-model-deployment--serving-0) |
 | 7. Trainer Marketplace | ⬜ 0% | 계획 완료 | [TRAINER_MARKETPLACE_VISION.md](../planning/TRAINER_MARKETPLACE_VISION.md) |
-| 8. E2E Testing | ⬜ 5% | 기본 테스트 완료, 전체 커버리지 필요 | [E2E_TEST_GUIDE.md](../E2E_TEST_GUIDE.md) |
-| 9. Thin SDK | ⬜ 0% | 설계 완료, 구현 대기 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
+| 8. E2E Testing | 🔄 25% | Inference/Export E2E 완료 | [E2E_TEST_REPORT_20251120.md](reference/E2E_TEST_REPORT_20251120.md) |
+| 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 
 ---
 
@@ -386,7 +386,7 @@ Production-grade 모델 서빙 인프라 구현. Export된 모델을 실제 추�
 
 ---
 
-## Phase 8: Comprehensive E2E Testing (0%)
+## Phase 8: Comprehensive E2E Testing (25%)
 
 E2E 테스트는 프론트엔드가 보내는 모든 요청 조합을 검증해야 함.
 핵심 원칙: "API가 동작하는가?"가 아니라 "프론트엔드의 모든 UI 조합이 동작하는가?"
@@ -509,7 +509,7 @@ E2E 테스트는 프론트엔드가 보내는 모든 요청 조합을 검증해�
 
 ---
 
-## Phase 9: Thin SDK Implementation (0%)
+## Phase 9: Thin SDK Implementation (85%)
 
 Trainer-Platform 통신 표준화를 위한 SDK 구현. 의존성 격리와 통일된 callback 스키마 제공.
 

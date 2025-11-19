@@ -170,6 +170,9 @@ class TrainerSDK:
         if not self.job_id:
             raise ValueError("JOB_ID environment variable is required")
 
+        # Track operation type for proper callback routing
+        self._operation_type = 'training'
+
         # HTTP client with retry and timeout
         self.http_client = httpx.Client(
             timeout=httpx.Timeout(30.0, connect=10.0),
@@ -238,7 +241,18 @@ class TrainerSDK:
             'timestamp': self._get_timestamp()
         }
 
-        self._send_callback(f'/training/jobs/{self.job_id}/callback/progress', data)
+        # Store operation type for use in report_failed()
+        self._operation_type = operation_type
+
+        # Use appropriate endpoint based on operation type
+        if operation_type == 'inference':
+            endpoint = f'/inference/jobs/{self.job_id}/callback/started'
+        elif operation_type == 'export':
+            endpoint = f'/export/jobs/{self.job_id}/callback/started'
+        else:  # training
+            endpoint = f'/training/jobs/{self.job_id}/callback/progress'
+
+        self._send_callback(endpoint, data)
         logger.info(f"Reported {operation_type} started for job {self.job_id}")
 
     def report_progress(
@@ -395,7 +409,15 @@ class TrainerSDK:
         if traceback:
             data['traceback'] = traceback
 
-        self._send_callback(f'/training/jobs/{self.job_id}/callback/completion', data)
+        # Use appropriate endpoint based on operation type
+        if self._operation_type == 'inference':
+            endpoint = f'/inference/jobs/{self.job_id}/callback/completion'
+        elif self._operation_type == 'export':
+            endpoint = f'/export/jobs/{self.job_id}/callback/completion'
+        else:  # training
+            endpoint = f'/training/jobs/{self.job_id}/callback/completion'
+
+        self._send_callback(endpoint, data)
         logger.error(f"Reported failure: {error_type} - {message}")
 
     # =========================================================================
@@ -434,7 +456,7 @@ class TrainerSDK:
         if result_urls:
             data['result_urls'] = result_urls
 
-        self._send_callback(f'/test_inference/inference/{self.job_id}/results', data)
+        self._send_callback(f'/inference/jobs/{self.job_id}/callback/completion', data)
         logger.info(f"Reported inference completed: {total_images} images in {total_time_ms:.1f}ms")
 
     def report_export_completed(
@@ -464,7 +486,7 @@ class TrainerSDK:
             'timestamp': self._get_timestamp()
         }
 
-        self._send_callback(f'/export/{self.job_id}/callback', data)
+        self._send_callback(f'/export/jobs/{self.job_id}/callback/completion', data)
         logger.info(f"Reported export completed: {export_format} ({file_size_bytes} bytes)")
 
     @staticmethod
