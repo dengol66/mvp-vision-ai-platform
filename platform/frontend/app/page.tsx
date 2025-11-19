@@ -39,7 +39,7 @@ export default function Home() {
   const [sidebarKey, setSidebarKey] = useState(0) // For forcing Sidebar refresh
   const [centerWidth, setCenterWidth] = useState(25) // Chat panel width (25%)
   const [isDragging, setIsDragging] = useState(false)
-  const [chatCollapsed, setChatCollapsed] = useState(false) // Chat panel collapse state
+  const [chatCollapsed, setChatCollapsed] = useState(true) // Chat panel collapse state (collapsed by default)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Modal states

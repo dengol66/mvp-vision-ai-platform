@@ -264,6 +264,62 @@ class CallbackClient:
             response.raise_for_status()
             logger.info(f"Validation callback sent: epoch {data.get('epoch')}")
 
+    # ========================================================================
+    # Test and Inference callbacks
+    # ========================================================================
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    async def send_test_completion(self, test_run_id: str, data: Dict[str, Any]) -> None:
+        """Send test completion callback"""
+        url = f"{self.base_url}/test/{test_run_id}/results"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Test completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    async def send_inference_completion(self, inference_job_id: str, data: Dict[str, Any]) -> None:
+        """Send inference completion callback"""
+        url = f"{self.base_url}/inference/{inference_job_id}/results"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Inference completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def send_test_completion_sync(self, test_run_id: str, data: Dict[str, Any]) -> None:
+        """Send test completion callback (synchronous version)"""
+        url = f"{self.base_url}/test/{test_run_id}/results"
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Test completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def send_inference_completion_sync(self, inference_job_id: str, data: Dict[str, Any]) -> None:
+        """Send inference completion callback (synchronous version)"""
+        url = f"{self.base_url}/inference/{inference_job_id}/results"
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Inference completion callback sent: {data.get('status')}")
+
 
 # ============================================================================
 # Dataset Utilities
@@ -304,8 +360,14 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict[st
             image_annotations[img_id] = []
         image_annotations[img_id].append(ann)
 
-    # Create category_id -> index mapping
+    # IMPORTANT: YOLO requires class IDs to be 0-indexed and continuous (0, 1, 2, ...)
+    # Always remap category_id to 0-based indices using enumerate
+    # This ensures:
+    #   1. All datasets are treated consistently (COCO subset, custom datasets, etc.)
+    #   2. Class IDs in labels match the index in data.yaml names list
+    #   3. No gaps in class ID sequence (required by YOLO)
     category_map = {cat['id']: idx for idx, cat in enumerate(categories)}
+    logger.info(f"Dataset: {len(categories)} classes, remapping category_id to 0-{len(categories)-1}")
 
     # Create labels directory
     labels_dir = dataset_dir / "labels"
@@ -377,18 +439,33 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict[st
     logger.info(f"Created train.txt ({len(train_images)} images) and val.txt ({len(val_images)} images)")
 
     # Create data.yaml
-    class_names = [cat['name'] for cat in categories]
+    # Use actual category names from the dataset (in enumerate order)
+    # This matches the category_map remapping done above
+    names = [cat['name'] for cat in categories]
+    nc = len(categories)
 
+    # Note: Do NOT use 'path' field - YOLO resolves paths relative to data.yaml location
     data_yaml = {
-        'path': str(dataset_dir.absolute()),
-        'train': 'train.txt',
-        'val': 'val.txt',
-        'nc': len(class_names),
-        'names': class_names
+        'train': 'train.txt',  # File list relative to data.yaml
+        'val': 'val.txt',      # File list relative to data.yaml
+        'nc': nc,
+        'names': names
     }
 
     import yaml
     with open(dataset_dir / "data.yaml", 'w') as f:
         yaml.dump(data_yaml, f, default_flow_style=False)
 
-    logger.info(f"Created data.yaml with {len(class_names)} classes")
+    logger.info(f"Created data.yaml with nc={nc} classes")
+
+    # CRITICAL: Delete old YOLO cache files to prevent stale metadata
+    # Old cache can cause training failures (cls_loss ≈ 5, mAP=0)
+    # Cache files are created in dataset root (e.g., dataset/labels.cache)
+    import glob
+    cache_files = glob.glob(str(dataset_dir / "*.cache"))
+    for cache_file in cache_files:
+        try:
+            Path(cache_file).unlink()
+            logger.info(f"Deleted old cache file: {cache_file}")
+        except Exception as e:
+            logger.warning(f"Failed to delete cache {cache_file}: {e}")

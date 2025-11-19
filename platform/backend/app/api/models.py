@@ -40,8 +40,21 @@ def load_framework_capabilities(framework: str) -> Optional[Dict[str, Any]]:
         capabilities_bytes = dual_storage.get_capabilities(framework)
 
         if not capabilities_bytes:
-            logger.warning(f"[models] Capabilities not found: {framework}")
-            return None
+            logger.warning(f"[models] Capabilities not found in S3, trying local file: {framework}")
+
+            # Fallback to local file for development
+            import os
+            from pathlib import Path
+
+            # Try to read from platform/trainers/{framework}/capabilities.json
+            local_path = Path(__file__).parent.parent.parent.parent / "trainers" / framework / "capabilities.json"
+            if local_path.exists():
+                logger.info(f"[models] Loading capabilities from local file: {local_path}")
+                capabilities_dict = json.loads(local_path.read_text())
+                return capabilities_dict
+            else:
+                logger.error(f"[models] Local capabilities file not found: {local_path}")
+                return None
 
         # Parse JSON
         capabilities_dict = json.loads(capabilities_bytes.decode('utf-8'))
@@ -124,6 +137,10 @@ class ModelInfo(BaseModel):
     description: str
     supported: bool
     parameters: Optional[Dict[str, Any]] = None  # Model-specific parameters (min, macs, etc.)
+    # Validation fields (from validate_capabilities.py)
+    validated: Optional[bool] = None
+    validation_date: Optional[str] = None
+    validation_error: Optional[str] = None
 
 
 class ModelGuide(BaseModel):
@@ -212,7 +229,10 @@ async def list_models(
                 task_types=model_data["task_types"],
                 description=model_data["description"],
                 supported=model_data.get("supported", False),
-                parameters=model_data.get("parameters")
+                parameters=model_data.get("parameters"),
+                validated=model_data.get("validated"),
+                validation_date=model_data.get("validation_date"),
+                validation_error=model_data.get("validation_error")
             )
             models.append(model_info)
         except Exception as e:
@@ -237,39 +257,6 @@ async def get_model_by_query(
     Args:
         framework: Framework name
         model_name: Model name
-
-    Returns:
-        Complete model information
-
-    Raises:
-        HTTPException: If model not found or capabilities not available
-    """
-    model_info = get_model_info_by_name(framework, model_name)
-
-    if not model_info:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Model '{model_name}' not found in framework '{framework}'. "
-                   f"Check /models/list?framework={framework} for available models."
-        )
-
-    # Add framework to response
-    response = {
-        "framework": framework,
-        **model_info
-    }
-
-    return response
-
-
-@router.get("/{framework}/{model_name:path}", response_model=Dict[str, Any])
-async def get_model(framework: str, model_name: str):
-    """
-    Get detailed information for a specific model using path parameters.
-
-    Args:
-        framework: Framework name (ultralytics, timm, huggingface)
-        model_name: Model name (e.g., yolo11n, resnet50)
 
     Returns:
         Complete model information
@@ -322,3 +309,36 @@ async def get_framework_capabilities(framework: str):
         )
 
     return capabilities
+
+
+@router.get("/{framework}/{model_name:path}", response_model=Dict[str, Any])
+async def get_model(framework: str, model_name: str):
+    """
+    Get detailed information for a specific model using path parameters.
+
+    Args:
+        framework: Framework name (ultralytics, timm, huggingface)
+        model_name: Model name (e.g., yolo11n, resnet50)
+
+    Returns:
+        Complete model information
+
+    Raises:
+        HTTPException: If model not found or capabilities not available
+    """
+    model_info = get_model_info_by_name(framework, model_name)
+
+    if not model_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model_name}' not found in framework '{framework}'. "
+                   f"Check /models/list?framework={framework} for available models."
+        )
+
+    # Add framework to response
+    response = {
+        "framework": framework,
+        **model_info
+    }
+
+    return response
