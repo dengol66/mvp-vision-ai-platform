@@ -1780,3 +1780,85 @@ async def training_completion_callback(
             status_code=500,
             detail=f"Failed to process completion callback: {str(e)}"
         )
+
+
+@router.post(
+    "/jobs/{job_id}/callback/log",
+    response_model=training.TrainingCallbackResponse
+)
+async def training_log_callback(
+    job_id: int,
+    callback: training.LogEventCallback,
+    db: Session = Depends(get_db)
+):
+    """
+    Receive log events from Training Service.
+
+    Backend forwards logs to Loki for centralized logging.
+    This provides structured logging from trainers without requiring
+    direct Loki access.
+
+    Args:
+        job_id: Training job ID
+        callback: Log event data
+        db: Database session
+
+    Returns:
+        Acknowledgment response
+    """
+    try:
+        # Verify job exists
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            logger.error(f"[LOG] Job {job_id} not found")
+            raise HTTPException(status_code=404, detail="Training job not found")
+
+        logger.info(
+            f"[LOG] Event for job {job_id}: [{callback.level}] {callback.event_type} - {callback.message}"
+        )
+
+        # Store in database
+        log_entry = models.TrainingLog(
+            job_id=job_id,
+            log_type=callback.event_type,
+            content=f"[{callback.level}] {callback.message}"
+        )
+        db.add(log_entry)
+        db.commit()
+
+        # TODO: Forward to Loki if configured
+        # loki_url = os.getenv("LOKI_URL")
+        # if loki_url:
+        #     import requests
+        #     loki_payload = {
+        #         "streams": [{
+        #             "stream": {
+        #                 "job": "training",
+        #                 "job_id": str(job_id),
+        #                 "level": callback.level,
+        #                 "event_type": callback.event_type
+        #             },
+        #             "values": [[
+        #                 str(int(datetime.utcnow().timestamp() * 1e9)),
+        #                 callback.message
+        #             ]]
+        #         }]
+        #     }
+        #     requests.post(f"{loki_url}/loki/api/v1/push", json=loki_payload)
+
+        return training.TrainingCallbackResponse(
+            success=True,
+            message=f"Log event received: {callback.event_type}",
+            job_status=job.status
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[LOG] Error processing log callback: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process log callback: {str(e)}"
+        )

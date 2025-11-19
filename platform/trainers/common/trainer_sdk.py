@@ -259,14 +259,21 @@ class TrainerSDK:
         """
         progress_percent = (epoch / total_epochs) * 100
 
+        # Convert metrics to Backend schema format
+        callback_metrics = {
+            'loss': metrics.get('loss'),
+            'accuracy': metrics.get('accuracy') or metrics.get('mAP50-95'),
+            'learning_rate': metrics.get('learning_rate') or metrics.get('lr'),
+            'extra_metrics': metrics  # Include all metrics
+        }
+
         data = {
-            'type': 'progress',
             'job_id': int(self.job_id),
-            'epoch': epoch,
+            'status': 'running',
+            'current_epoch': epoch,
             'total_epochs': total_epochs,
             'progress_percent': progress_percent,
-            'metrics': metrics,
-            'timestamp': self._get_timestamp()
+            'metrics': callback_metrics,
         }
 
         if extra_data:
@@ -335,23 +342,25 @@ class TrainerSDK:
             total_epochs: Total epochs completed
             extra_data: Additional data
         """
+        # Convert metrics to Backend schema format
+        callback_metrics = {
+            'loss': final_metrics.get('loss'),
+            'accuracy': final_metrics.get('accuracy') or final_metrics.get('mAP50-95'),
+            'learning_rate': final_metrics.get('learning_rate'),
+            'extra_metrics': final_metrics
+        }
+
         data = {
-            'type': 'completed',
             'job_id': int(self.job_id),
             'status': 'completed',
-            'final_metrics': final_metrics,
+            'total_epochs_completed': total_epochs or 0,
+            'final_metrics': callback_metrics,
             'exit_code': 0,
-            'timestamp': self._get_timestamp()
         }
 
         if checkpoints:
-            data['checkpoints'] = checkpoints
-            # Backward compatibility
             data['best_checkpoint_path'] = checkpoints.get('best')
             data['last_checkpoint_path'] = checkpoints.get('last')
-
-        if total_epochs is not None:
-            data['total_epochs_completed'] = total_epochs
 
         if extra_data:
             data['extra_data'] = extra_data
@@ -376,14 +385,11 @@ class TrainerSDK:
             epochs_completed: Number of epochs completed before failure
         """
         data = {
-            'type': 'failed',
             'job_id': int(self.job_id),
             'status': 'failed',
-            'error_type': error_type,
-            'error_message': message,
             'total_epochs_completed': epochs_completed,
+            'error_message': f"[{error_type}] {message}",
             'exit_code': 1,
-            'timestamp': self._get_timestamp()
         }
 
         if traceback:
