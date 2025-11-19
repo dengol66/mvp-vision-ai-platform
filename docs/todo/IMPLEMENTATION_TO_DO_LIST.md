@@ -509,6 +509,103 @@ E2E 테스트는 프론트엔드가 보내는 모든 요청 조합을 검증해�
 
 ---
 
+## Phase 9: Thin SDK Implementation (0%)
+
+Trainer-Platform 통신 표준화를 위한 SDK 구현. 의존성 격리와 통일된 callback 스키마 제공.
+
+**설계 문서**: [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md)
+
+**핵심 원칙**:
+- 최소 의존성 (httpx, boto3, yaml만)
+- Backend-proxied observability (MLflow/Loki/Prometheus는 Backend에서 처리)
+- Fallback 없는 공격적 마이그레이션
+
+### 9.1 SDK Core Development ⬜
+
+**9.1.1 기본 구조**
+- [ ] `trainer_sdk.py` 파일 생성
+- [ ] 환경변수 로딩 (CALLBACK_URL, JOB_ID, storage credentials)
+- [ ] HTTP client 설정 (httpx with retry)
+- [ ] S3 client 설정 (boto3 dual storage)
+
+**9.1.2 Lifecycle Functions (4개)**
+- [ ] `report_started()` - 작업 시작 알림
+- [ ] `report_progress()` - 학습 진행 보고 (epoch, metrics)
+- [ ] `report_completed()` - 작업 완료 (checkpoints, final_metrics)
+- [ ] `report_failed()` - 작업 실패 (error_type, message, traceback)
+
+**9.1.3 Inference & Export Functions (2개)**
+- [ ] `report_inference_completed()` - 추론 결과 보고
+- [ ] `report_export_completed()` - 내보내기 결과 보고
+
+**9.1.4 Storage Functions (4개)**
+- [ ] `upload_checkpoint()` - 체크포인트 업로드
+- [ ] `download_checkpoint()` - 체크포인트 다운로드
+- [ ] `download_dataset()` - 데이터셋 다운로드
+- [ ] `upload_file()` - 일반 파일 업로드
+
+**9.1.5 Logging Function (1개)**
+- [ ] `log_event()` - 구조화된 이벤트 로깅 (Backend → Loki)
+
+**9.1.6 Data Utility Functions (5개)**
+- [ ] `convert_dataset()` - 데이터셋 포맷 변환 (DICE→YOLO, COCO→YOLO)
+- [ ] `create_data_yaml()` - YOLO data.yaml 생성
+- [ ] `split_dataset()` - train/val/test 분할
+- [ ] `validate_dataset()` - 데이터셋 검증
+- [ ] `clean_dataset_cache()` - 캐시 파일 정리
+
+### 9.2 Ultralytics Migration ⬜
+
+**9.2.1 train.py 마이그레이션**
+- [ ] CallbackClient → SDK lifecycle functions
+- [ ] DualStorageClient → SDK storage functions
+- [ ] MLflow 직접 호출 제거 (Backend에서 처리)
+- [ ] convert_diceformat_to_yolo → SDK convert_dataset
+
+**9.2.2 predict.py 마이그레이션**
+- [ ] CallbackClient → SDK report_inference_completed
+
+**9.2.3 export.py 마이그레이션**
+- [ ] 직접 HTTP 호출 → SDK report_export_completed
+- [ ] Metadata 생성 표준화
+
+**9.2.4 utils.py 정리**
+- [ ] CallbackClient 클래스 제거
+- [ ] DualStorageClient 클래스 제거
+- [ ] SDK로 이전된 함수 제거
+
+### 9.3 Backend Callback Handler Update ⬜
+
+**9.3.1 Observability 통합**
+- [ ] Progress callback → MLflow log_metrics
+- [ ] Progress callback → Prometheus gauge 업데이트
+- [ ] Completion callback → MLflow end_run
+- [ ] Log event callback → Loki push
+
+**9.3.2 Callback API 표준화**
+- [ ] 새 callback 엔드포인트: `/training/jobs/{job_id}/callback/log`
+- [ ] SDK 스키마에 맞게 기존 엔드포인트 업데이트
+- [ ] 에러 타입 기반 처리 로직
+
+### 9.4 Testing & Validation ⬜
+
+**9.4.1 Unit Tests**
+- [ ] SDK 함수별 unit test
+- [ ] Mock backend로 callback 검증
+- [ ] Storage 함수 테스트
+
+**9.4.2 Integration Tests**
+- [ ] Training lifecycle E2E (started → progress → completed)
+- [ ] Inference lifecycle E2E
+- [ ] Export lifecycle E2E
+
+**9.4.3 실제 학습 테스트**
+- [ ] Ultralytics detection 학습
+- [ ] Ultralytics segmentation 학습
+- [ ] Export 및 inference 테스트
+
+---
+
 ## Phase 3 References
 
 | Document | Description |

@@ -1593,3 +1593,5 @@ if __name__ == '__main__':
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-11-19 | Initial design specification |
+| 1.1 | 2025-11-19 | Data utilities 필수화, 공격적 마이그레이션 전략 |
+| 1.2 | 2025-11-19 | Backend-proxied observability (MLflow/Loki/Prometheus 제거) |
