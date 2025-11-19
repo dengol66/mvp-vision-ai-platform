@@ -123,23 +123,30 @@ async def run_inference(
         callback_client = CallbackClient(callback_url)
 
         # ========================================================================
-        # Step 1: Download checkpoint from Internal Storage (MinIO-Results)
+        # Step 1: Load checkpoint (pretrained or from S3)
         # ========================================================================
-        logger.info(f"Downloading checkpoint from {checkpoint_s3_uri}")
+        if checkpoint_s3_uri == 'pretrained':
+            # Use pretrained model - Ultralytics will auto-download
+            model_name = os.getenv('MODEL_NAME', 'yolo11n')
+            checkpoint_path = f"{model_name}.pt"
+            logger.info(f"Using pretrained model: {checkpoint_path}")
+        else:
+            # Download checkpoint from Internal Storage (MinIO-Results)
+            logger.info(f"Downloading checkpoint from {checkpoint_s3_uri}")
 
-        # Extract checkpoint path from S3 URI
-        # s3://training-checkpoints/checkpoints/456/best.pt -> checkpoints/456/best.pt
-        checkpoint_key = checkpoint_s3_uri.replace(f"s3://{storage.internal_client.bucket}/", "")
-        checkpoint_path = Path(f"/tmp/inference/{inference_job_id}/checkpoint/best.pt")
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            # Extract checkpoint path from S3 URI
+            # s3://training-checkpoints/checkpoints/456/best.pt -> checkpoints/456/best.pt
+            checkpoint_key = checkpoint_s3_uri.replace(f"s3://{storage.internal_client.bucket}/", "")
+            checkpoint_path = Path(f"/tmp/inference/{inference_job_id}/checkpoint/best.pt")
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Download from Internal Storage
-        storage.internal_client.client.download_file(
-            storage.internal_client.bucket,
-            checkpoint_key,
-            str(checkpoint_path)
-        )
-        logger.info(f"Checkpoint downloaded to {checkpoint_path}")
+            # Download from Internal Storage
+            storage.internal_client.client.download_file(
+                storage.internal_client.bucket,
+                checkpoint_key,
+                str(checkpoint_path)
+            )
+            logger.info(f"Checkpoint downloaded to {checkpoint_path}")
 
         # ========================================================================
         # Step 2: Download input images
@@ -159,11 +166,20 @@ async def run_inference(
         images_prefix = s3_parts[1].rstrip('/') if len(s3_parts) > 1 else ''
 
         # Download all images from prefix
-        # Use External Storage client (same as datasets)
+        # Select storage client based on bucket name
+        # Internal Storage buckets: training-checkpoints, inference-data
+        # External Storage buckets: training-datasets
+        if images_bucket in ['training-checkpoints', 'inference-data']:
+            s3_client = storage.internal_client.client
+            logger.info(f"Using Internal Storage for bucket={images_bucket}")
+        else:
+            s3_client = storage.external_client.client
+            logger.info(f"Using External Storage for bucket={images_bucket}")
+
         logger.info(f"Downloading from bucket={images_bucket}, prefix={images_prefix}")
 
         # List objects with prefix
-        response = storage.external_client.client.list_objects_v2(
+        response = s3_client.list_objects_v2(
             Bucket=images_bucket,
             Prefix=images_prefix
         )
@@ -186,7 +202,7 @@ async def run_inference(
 
             # Download to local
             local_path = images_dir / Path(key).name
-            storage.external_client.client.download_file(images_bucket, key, str(local_path))
+            s3_client.download_file(images_bucket, key, str(local_path))
             image_count += 1
             logger.debug(f"Downloaded {key} → {local_path}")
 
@@ -219,6 +235,9 @@ async def run_inference(
         results_dir = Path(f"/tmp/inference/{inference_job_id}/results")
 
         # Run prediction
+        import time
+        start_time = time.time()
+
         results = model.predict(
             source=str(images_dir),
             conf=conf_threshold,
@@ -235,15 +254,15 @@ async def run_inference(
             max_det=max_det,
         )
 
-        logger.info("Inference completed")
+        total_inference_time_ms = (time.time() - start_time) * 1000
+        logger.info(f"Inference completed in {total_inference_time_ms:.1f}ms")
 
         # ========================================================================
-        # Step 6: Aggregate predictions
+        # Step 6: Extract per-image results
         # ========================================================================
-        logger.info("Aggregating predictions...")
+        logger.info("Extracting per-image results...")
 
-        predictions: List[Dict[str, Any]] = []
-        class_counts: Dict[str, int] = {}
+        image_results: List[Dict[str, Any]] = []
         total_detections = 0
 
         for result in results:
@@ -251,8 +270,14 @@ async def run_inference(
             image_path = Path(result.path)
             image_name = image_path.name
 
-            # Extract predictions
+            # Extract per-image inference time (if available)
+            # Note: Ultralytics doesn't provide per-image time, estimate it
+            image_inference_time_ms = result.speed.get('inference', 0) if hasattr(result, 'speed') else 0
+
+            # Extract predictions for this image
+            image_predictions: List[Dict[str, Any]] = []
             boxes = result.boxes
+
             if boxes is not None and len(boxes) > 0:
                 for box in boxes:
                     cls_id = int(box.cls[0])
@@ -260,33 +285,38 @@ async def run_inference(
                     confidence = float(box.conf[0])
                     bbox = box.xyxy[0].tolist()  # [x1, y1, x2, y2]
 
-                    predictions.append({
-                        'image_name': image_name,
+                    image_predictions.append({
                         'class_id': cls_id,
                         'class_name': cls_name,
                         'confidence': confidence,
                         'bbox': bbox,
                     })
-
-                    # Count classes
-                    class_counts[cls_name] = class_counts.get(cls_name, 0) + 1
                     total_detections += 1
 
-        logger.info(f"Total detections: {total_detections}")
-        logger.info(f"Classes detected: {list(class_counts.keys())}")
+            # Store per-image result
+            image_results.append({
+                'image_path': str(image_path),
+                'image_name': image_name,
+                'predictions': image_predictions,
+                'inference_time_ms': image_inference_time_ms,
+                'num_detections': len(image_predictions)
+            })
+
+        avg_inference_time_ms = total_inference_time_ms / image_count if image_count > 0 else 0
+        logger.info(f"Total detections: {total_detections} across {image_count} images")
+        logger.info(f"Avg inference time: {avg_inference_time_ms:.1f}ms per image")
 
         # ========================================================================
-        # Step 7: Create predictions summary
+        # Step 7: Save predictions summary (optional, for debugging)
         # ========================================================================
         predictions_summary = {
             'total_images': image_count,
             'total_detections': total_detections,
-            'class_counts': class_counts,
-            'avg_confidence': sum(p['confidence'] for p in predictions) / len(predictions) if predictions else 0.0,
-            'predictions': predictions,
+            'avg_inference_time_ms': avg_inference_time_ms,
+            'results': image_results,
         }
 
-        # Save predictions.json
+        # Save predictions.json for debugging
         predictions_json_path = results_dir / "predictions.json"
         with open(predictions_json_path, 'w') as f:
             json.dump(predictions_summary, f, indent=2)
@@ -345,47 +375,15 @@ async def run_inference(
         logger.info(f"All results uploaded to S3")
 
         # ========================================================================
-        # Step 9: Determine task type from model
-        # ========================================================================
-        task_type = 'detection'  # Default
-        if hasattr(model, 'task'):
-            task_type = model.task
-        elif 'seg' in str(checkpoint_path).lower():
-            task_type = 'segmentation'
-        elif 'pose' in str(checkpoint_path).lower():
-            task_type = 'pose'
-        elif 'cls' in str(checkpoint_path).lower() or 'classify' in str(checkpoint_path).lower():
-            task_type = 'classification'
-
-        # ========================================================================
         # Step 10: Send inference completion callback
         # ========================================================================
+        # Follows the unified pattern: Train/Validate/Infer use same callback structure
         completion_data = {
-            'inference_job_id': int(inference_job_id),
-            'training_job_id': int(training_job_id) if training_job_id else None,
             'status': 'completed',
-            'task_type': task_type,
-
-            # Summary
             'total_images': image_count,
-            'total_detections': total_detections,
-            'class_counts': class_counts,
-            'avg_confidence': predictions_summary['avg_confidence'],
-
-            # Results
-            'predictions_json_uri': predictions_uri,
-            'result_urls': result_urls,
-
-            # Config
-            'config': {
-                'conf_threshold': conf_threshold,
-                'iou_threshold': iou_threshold,
-                'image_size': image_size,
-                'save_txt': save_txt,
-                'save_crop': save_crop,
-            },
-
-            'exit_code': 0,
+            'total_inference_time_ms': total_inference_time_ms,
+            'avg_inference_time_ms': avg_inference_time_ms,
+            'results': image_results,
         }
 
         try:
@@ -405,12 +403,9 @@ async def run_inference(
         # Try to send error callback
         try:
             error_data = {
-                'inference_job_id': int(inference_job_id),
-                'training_job_id': int(training_job_id) if training_job_id else None,
                 'status': 'failed',
                 'error_message': str(e),
                 'traceback': traceback.format_exc(),
-                'exit_code': 1,
             }
             await callback_client.send_inference_completion(inference_job_id, error_data)
         except Exception as cb_error:
