@@ -69,7 +69,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
   // Visualization settings
   const [showMasks, setShowMasks] = useState(true)
-  const [showBoxes, setShowBoxes] = useState(false)
+  const [showBoxes, setShowBoxes] = useState(true)
 
   // Canvas ref for bbox visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
