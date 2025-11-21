@@ -262,3 +262,18 @@ class TrainingCallbackResponse(BaseModel):
     success: bool = Field(..., description="Whether callback was processed successfully")
     message: str = Field(..., description="Response message")
     job_status: Optional[str] = Field(None, description="Current job status in Backend DB")
+
+
+class LogEventCallback(BaseModel):
+    """
+    Log event from Training Service to Backend.
+
+    Backend forwards to Loki for centralized logging.
+    """
+
+    job_id: int = Field(..., description="Training job ID")
+    event_type: str = Field(..., description="Event category (training, validation, checkpoint, error)")
+    message: str = Field(..., description="Human-readable message")
+    level: str = Field("INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
+    data: Optional[dict] = Field(None, description="Additional structured data")
+    timestamp: Optional[str] = Field(None, description="Event timestamp (ISO format)")

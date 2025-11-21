@@ -309,6 +309,11 @@ class TrainingSubprocessManager:
             loop = asyncio.get_event_loop()
 
             def save_to_db():
+                # Skip DB save for non-training jobs (export_, inference_, eval_)
+                # These are short-lived tasks and report results via callbacks
+                if not isinstance(job_id, int):
+                    return
+                    
                 db = SessionLocal()
                 try:
                     # Create log entries

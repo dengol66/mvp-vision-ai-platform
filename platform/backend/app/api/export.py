@@ -17,6 +17,7 @@ from pathlib import Path
 
 from app.db.database import get_db
 from app.db import models
+import asyncio
 from app.schemas import export as export_schemas
 from app.utils.training_subprocess import get_training_subprocess_manager
 from app.utils.dual_storage import dual_storage
@@ -316,7 +317,6 @@ async def create_export_job(
             "new_status": "pending",
             "timestamp": datetime.utcnow().isoformat()
         }
-        import asyncio
         asyncio.create_task(ws_manager.broadcast_to_job(request.training_job_id, ws_message))
         logger.info(f"[EXPORT] WebSocket broadcast sent for new export job {export_job.id}")
     except Exception as e:
@@ -699,6 +699,69 @@ async def get_deployment(
 
 # ========== Export Callback Endpoint ==========
 
+@router.post("/jobs/{export_job_id}/callback/started", status_code=200)
+async def export_started_callback(
+    export_job_id: int,
+    callback_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """
+    Receive export started callback from export subprocess.
+
+    Called by export.py when export job starts.
+
+    Args:
+        export_job_id: Export job ID
+        callback_data: Callback payload
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    logger.info(f"[EXPORT CALLBACK] Received started callback for job {export_job_id}")
+
+    # Get export job
+    export_job = db.query(models.ExportJob).filter(
+        models.ExportJob.id == export_job_id
+    ).first()
+
+    if not export_job:
+        logger.error(f"[EXPORT CALLBACK] Export job {export_job_id} not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Export job {export_job_id} not found"
+        )
+
+    # Update status to running if still pending
+    if export_job.status == models.ExportJobStatus.PENDING:
+        export_job.status = models.ExportJobStatus.RUNNING
+        export_job.started_at = datetime.utcnow()
+        db.commit()
+        logger.info(f"[EXPORT CALLBACK] Job {export_job_id} status updated to RUNNING")
+
+    # Broadcast WebSocket event
+    try:
+        ws_manager = get_websocket_manager()
+        ws_message = {
+            "type": "export_status_change",
+            "job_id": export_job.training_job_id,
+            "export_job_id": export_job_id,
+            "old_status": "pending",
+            "new_status": "running",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        asyncio.create_task(ws_manager.broadcast_to_job(export_job.training_job_id, ws_message))
+        logger.info(f"[EXPORT CALLBACK] WebSocket broadcast sent for job {export_job_id}")
+    except Exception as e:
+        logger.warning(f"[EXPORT CALLBACK] Failed to send WebSocket broadcast: {e}")
+
+    return {
+        "message": "Started callback received",
+        "export_job_id": export_job_id,
+        "status": "running"
+    }
+
+
 @router.post("/jobs/{export_job_id}/callback/completion", status_code=200)
 async def export_completion_callback(
     export_job_id: int,
@@ -740,16 +803,18 @@ async def export_completion_callback(
         export_job.status = models.ExportJobStatus.COMPLETED
         export_job.completed_at = datetime.utcnow()
 
-        # Update results
-        export_results = callback_data.get('export_results', {})
-        export_job.export_path = export_results.get('export_path')
-        export_job.file_size_mb = export_results.get('file_size_mb')
-        export_job.validation_passed = export_results.get('validation_passed')
-        export_job.export_results = export_results
+        # SDK format only (no legacy fallback)
+        export_job.export_path = callback_data.get('output_s3_uri')
+        
+        file_size_bytes = callback_data.get('file_size_bytes')
+        export_job.file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes else None
+        
+        export_job.export_results = callback_data.get('metadata', {})
 
         logger.info(f"[EXPORT CALLBACK] Job {export_job_id} completed successfully")
         logger.info(f"[EXPORT CALLBACK]   Export path: {export_job.export_path}")
-        logger.info(f"[EXPORT CALLBACK]   File size: {export_job.file_size_mb:.2f} MB")
+        if export_job.file_size_mb:
+            logger.info(f"[EXPORT CALLBACK]   File size: {export_job.file_size_mb:.2f} MB")
 
     elif status == 'failed':
         export_job.status = models.ExportJobStatus.FAILED
@@ -777,7 +842,6 @@ async def export_completion_callback(
             "new_status": status,
             "timestamp": datetime.utcnow().isoformat()
         }
-        import asyncio
         asyncio.create_task(ws_manager.broadcast_to_job(export_job.training_job_id, ws_message))
         logger.info(f"[EXPORT CALLBACK] WebSocket broadcast sent for training job {export_job.training_job_id}")
     except Exception as e:
