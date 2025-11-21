@@ -34,7 +34,7 @@ async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Sessi
         Snapshot dataset ID (either newly created or existing)
     """
     from app.db.models import Dataset
-    from app.utils.storage_utils import get_storage_client
+    from app.utils.dual_storage import dual_storage
     import json
 
     # Get parent dataset
@@ -71,7 +71,7 @@ async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Sessi
     snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
 
     # Copy dataset files in storage
-    storage_client = get_storage_client()
+    storage_client = dual_storage
     parent_storage_path = parent_dataset.storage_path.rstrip('/')
 
     try:
@@ -2004,12 +2004,17 @@ async def get_checkpoint_upload_url(
         object_key = f"checkpoints/job-{job_id}/{request.checkpoint_filename}"
 
         # Generate presigned upload URL
-        from app.utils.s3_storage import s3_storage
+        from app.utils.dual_storage import dual_storage
 
-        upload_url = s3_storage.generate_presigned_upload_url(
-            object_key=object_key,
-            expiration=3600,  # 1 hour
-            content_type=request.content_type
+        # Use boto3 client's generate_presigned_url
+        upload_url = dual_storage.internal_client.generate_presigned_url(
+            ClientMethod='put_object',
+            Params={
+                'Bucket': dual_storage.internal_bucket_checkpoints,
+                'Key': object_key,
+                'ContentType': request.content_type
+            },
+            ExpiresIn=3600  # 1 hour
         )
 
         if not upload_url:
