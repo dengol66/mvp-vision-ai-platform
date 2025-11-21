@@ -689,11 +689,22 @@ Training 파이프라인 전체 구현을 위한 SDK 개발. Dataset 처리, Con
 - [x] 상태 변경: running → completed
 - [x] MLflow run 종료
 
-**10.3.6 Failed Callback**
-- [x] `POST /api/v1/training/jobs/{id}/callback/failed`
+**10.3.6 Failed Callback** ✅
+- [x] `POST /api/v1/training/jobs/{id}/callback/completion` (status='failed')
 - [x] SDK `report_failed(error_message, error_type, traceback)` 메서드
 - [x] 상태 변경: running → failed
-- [x] 에러 정보 저장
+- [x] 에러 정보 저장 (error_message, traceback, exit_code)
+- [x] ErrorType 클래스 (8가지 구조화된 에러 타입)
+
+**10.3.7 Error Handling 강화** 🔄 (50%)
+- [x] SDK ErrorType 정의 (DATASET_ERROR, CONFIG_ERROR, RESOURCE_ERROR, etc.)
+- [x] SDK report_failed() 구현
+- [x] Backend failed callback 처리
+- [x] 기본 Unit 테스트 (test_sdk_integration.py)
+- [ ] E2E 에러 핸들링 테스트 (각 ErrorType별 실제 실패 시나리오)
+- [ ] SDK callback 재시도 로직 (exponential backoff, 최대 3회)
+- [ ] 에러 모니터링 구성 (Grafana 대시보드, Loki 쿼리)
+- [ ] Frontend 에러 표시 UI 테스트
 
 ### 10.4 Logging System ✅
 

@@ -948,6 +948,168 @@ async def receive_inference_results(
     return {"status": "success", "inference_job_id": inference_job_id}
 
 
+@router.post("/inference/jobs/{inference_job_id}/callback/started")
+async def inference_started_callback(
+    inference_job_id: int,
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Callback endpoint for inference job started notification from predict.py.
+
+    Args:
+        inference_job_id: Inference job ID
+        request: Started notification data
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    # Get inference job
+    inference_job = db.query(models.InferenceJob).filter(
+        models.InferenceJob.id == inference_job_id
+    ).first()
+
+    if not inference_job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Inference job {inference_job_id} not found"
+        )
+
+    logger.info(f"[INFERENCE CALLBACK] Started notification for job {inference_job_id}")
+
+    # Update status to running if still pending
+    if inference_job.status == "pending":
+        inference_job.status = "running"
+        inference_job.started_at = datetime.utcnow()
+        db.commit()
+
+    return {"status": "success", "message": f"Inference job {inference_job_id} started"}
+
+
+@router.post("/inference/jobs/{inference_job_id}/callback/completion")
+async def inference_completion_callback(
+    inference_job_id: int,
+    request: ti_schemas.InferenceResultsCallback,
+    db: Session = Depends(get_db)
+):
+    """
+    Callback endpoint for inference job completion from predict.py.
+
+    This endpoint follows the unified callback pattern used by the TrainerSDK.
+
+    Args:
+        inference_job_id: Inference job ID
+        request: Completion data with results
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    # Get inference job
+    inference_job = db.query(models.InferenceJob).filter(
+        models.InferenceJob.id == inference_job_id
+    ).first()
+
+    if not inference_job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Inference job {inference_job_id} not found"
+        )
+
+    logger.info(f"[INFERENCE CALLBACK] Completion for job {inference_job_id}")
+    logger.info(f"[INFERENCE CALLBACK] Status: {request.status}, Total images: {request.total_images}")
+
+    # Update inference job summary
+    inference_job.status = request.status
+    inference_job.completed_at = datetime.utcnow()
+
+    # Update performance metrics
+    if request.total_images is not None:
+        inference_job.total_images = request.total_images
+
+    if request.total_inference_time_ms is not None:
+        inference_job.total_inference_time_ms = request.total_inference_time_ms
+
+    if request.avg_inference_time_ms is not None:
+        inference_job.avg_inference_time_ms = request.avg_inference_time_ms
+
+    # Handle error case
+    if request.status == 'failed':
+        inference_job.error_message = request.error_message
+        if request.traceback:
+            logger.error(f"[INFERENCE CALLBACK] Error traceback:\n{request.traceback}")
+
+    # Handle success case - create InferenceResult records
+    elif request.status == 'completed' and request.results:
+        logger.info(f"[INFERENCE CALLBACK] Creating {len(request.results)} InferenceResult records")
+
+        for idx, image_result in enumerate(request.results):
+            # Extract image name from path if not provided
+            image_name = image_result.image_name
+            if not image_name:
+                image_name = Path(image_result.image_path).name
+
+            # Get training job to determine task_type
+            training_job = db.query(models.TrainingJob).filter(
+                models.TrainingJob.id == inference_job.training_job_id
+            ).first()
+
+            # Create InferenceResult record
+            result_record = models.InferenceResult(
+                inference_job_id=inference_job_id,
+                training_job_id=inference_job.training_job_id,
+                image_path=image_result.image_path,
+                image_name=image_name,
+                image_index=idx,
+                predictions=image_result.predictions,
+                inference_time_ms=image_result.inference_time_ms,
+                created_at=datetime.utcnow()
+            )
+
+            # Add task-specific fields based on predictions
+            if training_job and training_job.task_type:
+                if 'detection' in training_job.task_type or 'segment' in training_job.task_type:
+                    result_record.predicted_boxes = [
+                        {
+                            'label': pred.get('class_name'),
+                            'confidence': pred.get('confidence'),
+                            'x1': pred['bbox'][0] if 'bbox' in pred else None,
+                            'y1': pred['bbox'][1] if 'bbox' in pred else None,
+                            'x2': pred['bbox'][2] if 'bbox' in pred else None,
+                            'y2': pred['bbox'][3] if 'bbox' in pred else None,
+                        }
+                        for pred in image_result.predictions
+                        if 'bbox' in pred
+                    ]
+                elif 'classification' in training_job.task_type:
+                    if len(image_result.predictions) > 0:
+                        top_pred = image_result.predictions[0]
+                        result_record.predicted_label = top_pred.get('class_name')
+                        result_record.predicted_label_id = top_pred.get('class_id')
+                        result_record.confidence = top_pred.get('confidence')
+
+                    result_record.top5_predictions = [
+                        {
+                            'label': pred.get('class_name'),
+                            'confidence': pred.get('confidence'),
+                            'class_id': pred.get('class_id')
+                        }
+                        for pred in image_result.predictions[:5]
+                    ]
+
+            db.add(result_record)
+
+        logger.info(f"[INFERENCE CALLBACK] Created {len(request.results)} InferenceResult records")
+
+    db.commit()
+    db.refresh(inference_job)
+
+    logger.info(f"[INFERENCE CALLBACK] Updated inference job {inference_job_id} - status: {inference_job.status}")
+
+    return {"status": "success", "inference_job_id": inference_job_id}
+
+
 # ========== Image Serving Endpoints ==========
 
 @router.get("/test/images/{image_result_id}")

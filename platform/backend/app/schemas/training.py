@@ -277,3 +277,22 @@ class LogEventCallback(BaseModel):
     level: str = Field("INFO", description="Log level (DEBUG, INFO, WARNING, ERROR)")
     data: Optional[dict] = Field(None, description="Additional structured data")
     timestamp: Optional[str] = Field(None, description="Event timestamp (ISO format)")
+
+
+class CheckpointUploadUrlRequest(BaseModel):
+    """
+    Request from Training Service to get presigned URL for checkpoint upload.
+    """
+
+    checkpoint_filename: str = Field(..., description="Checkpoint filename (e.g., 'epoch_10.pt')")
+    content_type: Optional[str] = Field("application/octet-stream", description="MIME type")
+
+
+class CheckpointUploadUrlResponse(BaseModel):
+    """
+    Response with presigned URL for checkpoint upload.
+    """
+
+    upload_url: str = Field(..., description="Presigned S3 upload URL")
+    object_key: str = Field(..., description="S3 object key")
+    expires_in: int = Field(..., description="URL expiration time in seconds")

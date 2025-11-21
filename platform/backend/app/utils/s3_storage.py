@@ -339,7 +339,7 @@ class S3Storage:
         bucket: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Generate a presigned URL for temporary access.
+        Generate a presigned URL for temporary access (download).
 
         Args:
             object_key: S3 object key
@@ -370,6 +370,54 @@ class S3Storage:
 
         except ClientError as e:
             logger.error(f"Failed to generate presigned URL: {e}")
+            return None
+
+    def generate_presigned_upload_url(
+        self,
+        object_key: str,
+        expiration: int = 3600,
+        bucket: Optional[str] = None,
+        content_type: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Generate a presigned URL for uploading a file.
+
+        Args:
+            object_key: S3 object key
+            expiration: URL expiration time in seconds (default: 1 hour)
+            bucket: Bucket name (defaults to checkpoints bucket)
+            content_type: MIME type (optional, e.g., "application/octet-stream")
+
+        Returns:
+            Presigned upload URL or None if failed
+        """
+        if not self.client:
+            logger.error("S3 client not initialized")
+            return None
+
+        bucket_name = bucket or self.bucket_checkpoints
+
+        try:
+            params = {
+                "Bucket": bucket_name,
+                "Key": object_key
+            }
+
+            # Add content type if specified
+            if content_type:
+                params["ContentType"] = content_type
+
+            url = self.client.generate_presigned_url(
+                "put_object",
+                Params=params,
+                ExpiresIn=expiration
+            )
+
+            logger.info(f"Generated presigned upload URL for {bucket_name}/{object_key}")
+            return url
+
+        except ClientError as e:
+            logger.error(f"Failed to generate presigned upload URL: {e}")
             return None
 
     def upload_dataset_zip(
