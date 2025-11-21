@@ -275,6 +275,223 @@ class MLflowService:
 
         logger.info(f"[MLflow] Updated best metrics for experiment {experiment_id}")
 
+    # ==================== MLflow Metric Logging ====================
+
+    def create_mlflow_run(
+        self,
+        experiment_name: str,
+        run_name: str,
+        tags: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
+        """
+        Create a new MLflow run for training.
+
+        Args:
+            experiment_name: MLflow experiment name
+            run_name: Run name (e.g., "job-123")
+            tags: Optional tags for the run
+
+        Returns:
+            MLflow run ID if successful, None otherwise
+        """
+        if not self.mlflow_client.available:
+            logger.debug(f"[MLflow] Client not available, skipping create_mlflow_run for {run_name}")
+            return None
+
+        try:
+            import mlflow
+
+            # Get or create experiment
+            try:
+                experiment = mlflow.get_experiment_by_name(experiment_name)
+                if not experiment:
+                    experiment_id = mlflow.create_experiment(experiment_name)
+                else:
+                    experiment_id = experiment.experiment_id
+            except Exception as e:
+                logger.error(f"[MLflow] Error getting/creating experiment: {e}")
+                return None
+
+            # Create run with tags
+            run_tags = tags or {}
+            run_tags["mlflow.runName"] = run_name
+
+            run = self.mlflow_client.client.create_run(
+                experiment_id=experiment_id,
+                tags=run_tags
+            )
+
+            logger.info(f"[MLflow] Created run {run.info.run_id} for {run_name}")
+            return run.info.run_id
+
+        except Exception as e:
+            logger.error(f"[MLflow] Failed to create run for {run_name}: {e}")
+            return None
+
+    def log_training_metrics(
+        self,
+        run_id: str,
+        metrics: Dict[str, float],
+        step: Optional[int] = None
+    ) -> bool:
+        """
+        Log training metrics to MLflow run.
+
+        Args:
+            run_id: MLflow run ID
+            metrics: Dictionary of metric name to value
+            step: Training step/epoch number
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.mlflow_client.available:
+            logger.debug(f"[MLflow] Client not available, skipping log_training_metrics for run {run_id}")
+            return False
+
+        try:
+            # Sanitize metrics (remove NaN, Inf, None)
+            sanitized_metrics = self._sanitize_metrics(metrics)
+
+            if not sanitized_metrics:
+                logger.warning(f"[MLflow] No valid metrics to log for run {run_id}")
+                return False
+
+            # Log metrics using client
+            timestamp_ms = int(datetime.utcnow().timestamp() * 1000)
+
+            for key, value in sanitized_metrics.items():
+                self.mlflow_client.client.log_metric(
+                    run_id=run_id,
+                    key=key,
+                    value=value,
+                    timestamp=timestamp_ms,
+                    step=step or 0
+                )
+
+            logger.debug(f"[MLflow] Logged {len(sanitized_metrics)} metrics for run {run_id} at step {step}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[MLflow] Failed to log metrics for run {run_id}: {e}")
+            return False
+
+    def log_training_params(
+        self,
+        run_id: str,
+        params: Dict[str, Any]
+    ) -> bool:
+        """
+        Log training parameters to MLflow run.
+
+        Args:
+            run_id: MLflow run ID
+            params: Dictionary of parameter name to value
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.mlflow_client.available:
+            logger.debug(f"[MLflow] Client not available, skipping log_training_params for run {run_id}")
+            return False
+
+        try:
+            # Convert all values to strings (MLflow param requirement)
+            str_params = {k: str(v) for k, v in params.items()}
+
+            for key, value in str_params.items():
+                self.mlflow_client.client.log_param(run_id=run_id, key=key, value=value)
+
+            logger.debug(f"[MLflow] Logged {len(str_params)} params for run {run_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[MLflow] Failed to log params for run {run_id}: {e}")
+            return False
+
+    def end_mlflow_run(
+        self,
+        run_id: str,
+        status: str = "FINISHED"
+    ) -> bool:
+        """
+        End MLflow run with status.
+
+        Args:
+            run_id: MLflow run ID
+            status: Run status ("FINISHED", "FAILED", "KILLED")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.mlflow_client.available:
+            logger.debug(f"[MLflow] Client not available, skipping end_mlflow_run for run {run_id}")
+            return False
+
+        try:
+            # Validate status
+            valid_statuses = ["FINISHED", "FAILED", "KILLED"]
+            if status not in valid_statuses:
+                logger.warning(f"[MLflow] Invalid status '{status}', using 'FINISHED'")
+                status = "FINISHED"
+
+            # Import RunStatus
+            from mlflow.entities import RunStatus
+
+            # Convert to RunStatus enum
+            if status == "FINISHED":
+                run_status = RunStatus.FINISHED
+            elif status == "FAILED":
+                run_status = RunStatus.FAILED
+            else:  # KILLED
+                run_status = RunStatus.KILLED
+
+            self.mlflow_client.client.set_terminated(run_id, status=run_status)
+
+            logger.info(f"[MLflow] Ended run {run_id} with status {status}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[MLflow] Failed to end run {run_id}: {e}")
+            return False
+
+    def _sanitize_metrics(self, metrics: Dict[str, Any]) -> Dict[str, float]:
+        """
+        Sanitize metrics by removing invalid values (NaN, Inf, None).
+
+        Args:
+            metrics: Dictionary of metric name to value
+
+        Returns:
+            Dictionary with only valid float values
+        """
+        import math
+
+        sanitized = {}
+
+        for key, value in metrics.items():
+            # Skip None values
+            if value is None:
+                logger.debug(f"[MLflow] Skipping None value for metric '{key}'")
+                continue
+
+            # Try to convert to float
+            try:
+                float_value = float(value)
+
+                # Skip NaN and Inf
+                if math.isnan(float_value) or math.isinf(float_value):
+                    logger.debug(f"[MLflow] Skipping invalid value for metric '{key}': {float_value}")
+                    continue
+
+                sanitized[key] = float_value
+
+            except (ValueError, TypeError) as e:
+                logger.debug(f"[MLflow] Cannot convert metric '{key}' to float: {e}")
+                continue
+
+        return sanitized
+
     # ==================== MLflow Data Retrieval ====================
 
     def get_experiment_runs(self, experiment_id: int) -> List[Dict[str, Any]]:

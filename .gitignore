@@ -151,3 +151,11 @@ test_*.py
 *-analysis-*.md
 nul
 
+
+# Test data and debug files
+platform/backend/data/
+platform/backend/test_*/
+platform/trainers/*/debug_*.py
+platform/trainers/*/quick_*.py
+*.old/
+test_output.txt
