@@ -37,14 +37,18 @@ class Settings(BaseSettings):
     # If not set, will default to localhost in main.py
     REDIS_URL: Optional[str] = "redis://localhost:6379/0"
 
-    # LLM (OpenAI Compatible API)
-    # Supports OpenAI, Azure OpenAI, LocalAI, Ollama, vLLM, etc.
-    OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = "https://api.openai.com/v1"  # Override for custom endpoints
-    LLM_MODEL: str = "gpt-4o-mini"
+    # LLM Configuration (Dual Provider Support)
+    # Provider: "openai" or "gemini"
+    LLM_PROVIDER: str = "openai"  # Options: "openai", "gemini"
+    LLM_MODEL: str = "gpt-4o-mini"  # OpenAI: gpt-4o-mini, Gemini: gemini-2.0-flash-exp
     LLM_TEMPERATURE: float = 0.0
 
-    # Legacy: Keep GOOGLE_API_KEY for backward compatibility (deprecated)
+    # OpenAI Compatible API (when LLM_PROVIDER=openai)
+    # Supports: OpenAI, Azure OpenAI, LocalAI, Ollama, vLLM, etc.
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"  # Override for custom endpoints
+
+    # Google Gemini API (when LLM_PROVIDER=gemini)
     GOOGLE_API_KEY: str = ""
     # Security & Authentication
     JWT_SECRET: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"

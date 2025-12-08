@@ -8,8 +8,9 @@ sqlalchemy==2.0.23
 psycopg2-binary==2.9.9  # PostgreSQL driver for Railway
 alembic==1.13.1  # Database migrations
 
-# LLM (OpenAI Compatible API)
+# LLM (Dual Provider Support)
 openai>=1.0.0
+google-generativeai>=0.3.0
 # Legacy LangChain (kept for potential future use)
 langchain>=0.1.0
 langchain-core>=0.1.7
