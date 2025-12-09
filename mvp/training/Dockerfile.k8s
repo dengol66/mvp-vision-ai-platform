@@ -1,9 +1,9 @@
-# MVP Training - Kubernetes Dockerfile
+# MVP Training - Kubernetes Dockerfile (with uv)
 FROM python:3.11-slim
 
 WORKDIR /workspace
 
-# Install system dependencies for CV libraries
+# Install system dependencies for CV libraries and uv
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -14,16 +14,19 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Add uv to PATH
+ENV PATH="/root/.local/bin:$PATH"
 
 # Copy requirements
 COPY requirements.txt .
 
-# Install training dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir "numpy<2.0" && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi uvicorn
+# Install training dependencies with uv
+RUN uv pip install --system --no-cache "numpy<2.0" && \
+    uv pip install --system --no-cache -r requirements.txt && \
+    uv pip install --system --no-cache fastapi uvicorn
 
 # Copy training code
 COPY . /workspace/training/
