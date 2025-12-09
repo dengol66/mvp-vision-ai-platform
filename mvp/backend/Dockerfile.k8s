@@ -1,20 +1,21 @@
 # MVP Backend - Kubernetes Dockerfile (with uv)
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies and uv
+# Copy uv binary from official image
+COPY --from=uv /uv /usr/local/bin/uv
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     postgresql-client \
     libpq-dev \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Add uv to PATH
-ENV PATH="/root/.local/bin:$PATH"
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
 COPY requirements.txt .
