@@ -1651,25 +1651,29 @@ class TrainerSDK:
             image_id = img['id']
             file_name = img['file_name']
 
-            # Calculate actual file location using local_image_root
-            # file_name is relative to storage_info['image_root']
-            # Example:
-            #   storage_info['image_root'] = "datasets/ds_abc/images/"
-            #   file_name = "images/wood/scratch/000.png"
-            #   local_image_root = "images/"
-            #   actual file = dataset_dir / local_image_root / file_name
-            #               = /tmp/training/83/dataset/images/images/wood/scratch/000.png
+            # Try multiple possible paths to find the image
+            # Different download methods may store images in different locations:
+            # 1. download_dataset_selective: saves to images/ folder
+            # 2. download_dataset: preserves S3 structure (may be at root)
+            # 3. local_image_root from storage_info
+            possible_paths = [
+                dataset_dir / "images" / file_name,  # download_dataset_selective saves here
+                dataset_dir / file_name,              # root level (direct from S3 structure)
+            ]
             if local_image_root:
-                image_file = dataset_dir / local_image_root / file_name
-            else:
-                # Fallback: no storage_info, look in images/ folder
-                # This matches download_dataset_selective which saves to images/
-                image_file = dataset_dir / "images" / file_name
+                possible_paths.insert(0, dataset_dir / local_image_root / file_name)
 
-            if not image_file.exists():
+            image_file = None
+            for path in possible_paths:
+                if path.exists():
+                    image_file = path
+                    break
+
+            if not image_file:
+                tried_paths = '\n  - '.join(str(p) for p in possible_paths)
                 raise FileNotFoundError(
                     f"Image file not found: {file_name}\n"
-                    f"Expected at: {image_file}\n"
+                    f"Tried paths:\n  - {tried_paths}\n"
                     f"storage_info.image_root: {image_root_s3}\n"
                     f"local_image_root: {local_image_root}\n"
                     f"This indicates a mismatch between annotation metadata and downloaded files.\n"
