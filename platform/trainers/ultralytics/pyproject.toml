@@ -47,24 +47,6 @@ export = [
     # tensorrt>=8.6.0
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.uv]
-# Use .venv directory for virtual environment
-venv = ".venv"
-
-[tool.uv.pip]
-# PyTorch index for CUDA support (adjust based on your CUDA version)
-# For CPU-only: use default PyPI
-# For CUDA 11.8: https://download.pytorch.org/whl/cu118
-# For CUDA 12.1: https://download.pytorch.org/whl/cu121
-index-url = "https://pypi.org/simple"
-extra-index-url = [
-    "https://download.pytorch.org/whl/cpu",
-]
-
 [tool.black]
 line-length = 100
 target-version = ["py310", "py311"]
