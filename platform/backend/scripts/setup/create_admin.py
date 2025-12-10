@@ -3,8 +3,8 @@
 import sys
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add backend directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal, engine
@@ -39,7 +39,7 @@ def create_admin_user():
             email="admin@example.com",
             hashed_password=hashed_password,
             full_name="Admin User",
-            system_role="admin",
+            system_role=models.UserRole.ADMIN,
             is_active=True,
             badge_color="violet",  # Special color for admin
             created_at=datetime.utcnow(),
