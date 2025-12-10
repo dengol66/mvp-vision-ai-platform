@@ -16,9 +16,14 @@ Environment Variables:
 import sys
 import argparse
 from datetime import datetime
+from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
+
+# Load .env file for local development
+from dotenv import load_dotenv
+load_dotenv()
 
 from app.core.config import settings
 from app.db.database import Base
@@ -167,7 +172,7 @@ def create_platform_db(engine, reset=False):
     # Verify creation
     new_tables = get_table_names(engine)
     print()
-    print(f"✅ Database initialized successfully!")
+    print(f"[OK] Database initialized successfully!")
     print(f"Total tables: {len(new_tables)}")
     print()
     print("Tables created:")
@@ -202,13 +207,13 @@ def create_user_db(engine, reset=False):
     print()
 
     if reset:
-        print("⚠️  WARNING: Dropping all existing tables...")
+        print("[WARNING]  WARNING: Dropping all existing tables...")
         confirmation = input("Are you sure? Type 'yes' to confirm: ")
         if confirmation.lower() != 'yes':
             print("Aborted.")
             return False
         Base.metadata.drop_all(bind=engine)
-        print("✅ All tables dropped.")
+        print("[OK] All tables dropped.")
         print()
 
     # Create tables
@@ -218,7 +223,7 @@ def create_user_db(engine, reset=False):
     # Verify creation
     new_tables = get_table_names(engine)
     print()
-    print(f"✅ User database initialized successfully!")
+    print(f"[OK] User database initialized successfully!")
     print(f"Total tables: {len(new_tables)}")
     print()
     print("Tables created:")
@@ -235,10 +240,10 @@ def test_connection(engine, db_name):
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
             result.fetchone()
-        print(f"✅ {db_name} connection successful")
+        print(f"[OK] {db_name} connection successful")
         return True
     except Exception as e:
-        print(f"❌ {db_name} connection failed: {e}")
+        print(f"[ERROR] {db_name} connection failed: {e}")
         return False
 
 
@@ -290,7 +295,7 @@ def main():
                     print()
 
         except Exception as e:
-            print(f"❌ Platform DB initialization failed: {e}")
+            print(f"[ERROR] Platform DB initialization failed: {e}")
             success = False
 
     # Initialize User DB (if separate from Platform DB)
@@ -311,10 +316,10 @@ def main():
                     create_user_db(user_engine, reset=args.reset)
                     user_engine.dispose()
             except Exception as e:
-                print(f"❌ User DB initialization failed: {e}")
+                print(f"[ERROR] User DB initialization failed: {e}")
                 success = False
         else:
-            print("ℹ️  User DB uses same database as Platform DB (skipping separate initialization)")
+            print("[INFO]  User DB uses same database as Platform DB (skipping separate initialization)")
             print()
 
     # Cleanup
@@ -324,7 +329,7 @@ def main():
     # Summary
     print("=" * 60)
     if success:
-        print("✅ Database initialization completed successfully!")
+        print("[OK] Database initialization completed successfully!")
         print()
         if args.reset:
             print("===========================================")
@@ -343,7 +348,7 @@ def main():
         print("3. Access the API documentation:")
         print("   http://localhost:8000/docs")
     else:
-        print("❌ Database initialization completed with errors.")
+        print("[ERROR] Database initialization completed with errors.")
         print("Please check the error messages above and try again.")
         sys.exit(1)
     print("=" * 60)
