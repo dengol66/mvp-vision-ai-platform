@@ -48,6 +48,8 @@ def run_inference_task(inference_job_id: int):
 
     Executes predict.py via subprocess with environment variable injection,
     following the same pattern as Training/Validation.
+
+    Supports both traditional venv and uv package manager modes (USE_UV env var).
     """
     from app.db.database import SessionLocal
     from app.core.config import settings
@@ -91,16 +93,47 @@ def run_inference_task(inference_job_id: int):
 
         if training_job.framework == "ultralytics":
             trainer_dir = trainers_dir / "ultralytics"
-            trainer_python = trainer_dir / "venv" / "Scripts" / "python.exe"
             predict_script = trainer_dir / "predict.py"
         else:
             raise ValueError(f"Unsupported framework: {training_job.framework}")
 
-        if not trainer_python.exists():
-            raise FileNotFoundError(f"Trainer Python not found: {trainer_python}")
-
         if not predict_script.exists():
             raise FileNotFoundError(f"predict.py not found: {predict_script}")
+
+        # UV package manager support (same pattern as subprocess_manager.py)
+        use_uv = os.getenv('USE_UV', 'false').lower() == 'true'
+        uv_path = None
+
+        if use_uv:
+            uv_path = shutil.which('uv')
+            if uv_path:
+                logger.info(f"[INFERENCE] UV mode enabled: {uv_path}")
+            else:
+                logger.warning("[INFERENCE] USE_UV=true but 'uv' not found in PATH. Falling back to venv.")
+                use_uv = False
+
+        # Build command based on mode
+        if use_uv:
+            # UV mode: use "uv run python script.py"
+            cmd = [uv_path, "run", "python", str(predict_script)]
+            logger.info(f"[INFERENCE] Using UV mode")
+        else:
+            # Traditional venv mode
+            # Check Windows path first
+            trainer_python = trainer_dir / "venv" / "Scripts" / "python.exe"
+            if not trainer_python.exists():
+                # Check Linux/macOS path
+                trainer_python = trainer_dir / "venv" / "bin" / "python"
+
+            if not trainer_python.exists():
+                raise FileNotFoundError(
+                    f"Trainer Python not found: {trainer_python}. "
+                    f"Expected at: {trainer_dir / 'venv'}. "
+                    f"Please create venv or set USE_UV=true"
+                )
+
+            cmd = [str(trainer_python), str(predict_script)]
+            logger.info(f"[INFERENCE] Using venv mode: {trainer_python}")
 
         # Parse input_data
         input_data = json.loads(inference_job.input_data) if isinstance(inference_job.input_data, str) else inference_job.input_data or {}
@@ -136,13 +169,15 @@ def run_inference_task(inference_job_id: int):
         })
 
         # Execute predict.py subprocess
-        logger.info(f"[INFERENCE] Executing: {trainer_python} {predict_script}")
+        logger.info(f"[INFERENCE] Executing: {' '.join(cmd)}")
+        logger.info(f"[INFERENCE] Working directory: {trainer_dir}")
         logger.info(f"[INFERENCE] IMAGES_S3_URI: {env['IMAGES_S3_URI']}")
         logger.info(f"[INFERENCE] CHECKPOINT_S3_URI: {env['CHECKPOINT_S3_URI']}")
 
         process = subprocess.Popen(
-            [str(trainer_python), str(predict_script)],
+            cmd,
             env=env,
+            cwd=str(trainer_dir),  # Set working directory for uv mode
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
