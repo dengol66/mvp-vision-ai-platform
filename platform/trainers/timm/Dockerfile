@@ -1,9 +1,9 @@
-# Ultralytics YOLO Trainer
-# Build: docker build -t trainer-ultralytics:latest .
-# Run: docker run --env-file .env trainer-ultralytics:latest python train.py --job-id 123 ...
+# Timm (PyTorch Image Models) Trainer
+# Build: docker build -t trainer-timm:latest .
+# Run: docker run --env-file .env trainer-timm:latest python train.py --job-id 123 ...
 #
 # For GPU support, use NVIDIA base image:
-# docker build -f Dockerfile.gpu -t trainer-ultralytics:gpu .
+# docker build -f Dockerfile.gpu -t trainer-timm:gpu .
 
 # ============================================
 # Builder Stage
@@ -50,18 +50,8 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy all trainer code
-COPY train.py .
-COPY export.py .
-COPY predict.py .
-COPY evaluate.py .
-COPY utils.py .
-COPY config_schema.py .
-COPY trainer_sdk.py .
-COPY validate_capabilities.py .
-
-# Copy configuration and runtime files
+COPY *.py ./
 COPY capabilities.json .
-COPY runtimes/ ./runtimes/
 
 # Create directories for data and outputs
 RUN mkdir -p /app/data /app/outputs /app/checkpoints
@@ -79,7 +69,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Health check (for Kubernetes readiness probe)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import ultralytics; print('OK')" || exit 1
+    CMD python -c "import timm; print('OK')" || exit 1
 
 # Default command (can be overridden)
 CMD ["python", "train.py", "--help"]
