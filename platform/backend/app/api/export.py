@@ -635,12 +635,19 @@ async def create_deployment(
             detail=f"Export job {request.export_job_id} is not completed (status: {export_job.status})"
         )
 
+    # Auto-generate deployment name if not provided
+    deployment_name = request.deployment_name
+    if not deployment_name:
+        # Format: {model_name}-{deployment_type}-{export_job_id}
+        model_name = export_job.model_name or "model"
+        deployment_name = f"{model_name}-{request.deployment_type}-{request.export_job_id}"
+
     # Create deployment record
     deployment = models.DeploymentTarget(
         export_job_id=request.export_job_id,
         training_job_id=export_job.training_job_id,
         deployment_type=request.deployment_type,
-        deployment_name=request.deployment_name,
+        deployment_name=deployment_name,
         deployment_config=request.deployment_config.model_dump() if request.deployment_config else None,
         cpu_limit=request.cpu_limit,
         memory_limit=request.memory_limit,
