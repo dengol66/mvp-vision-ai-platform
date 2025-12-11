@@ -16,6 +16,7 @@ Usage:
 
 Environment Variables (alternative to CLI args):
     EXPORT_JOB_ID, TRAINING_JOB_ID, CHECKPOINT_S3_URI, EXPORT_FORMAT, CALLBACK_URL, CONFIG
+    WORKSPACE_DIR: Working directory for export (default: /workspace, useful for local testing)
 
 Exit Codes:
     0 = Success
@@ -345,8 +346,8 @@ def run_export(
         # Report started
         sdk.report_started('export')
 
-        # Create workspace
-        workspace = Path('/workspace')
+        # Create workspace (configurable via env var for local testing)
+        workspace = Path(os.getenv('WORKSPACE_DIR', '/workspace'))
         workspace.mkdir(parents=True, exist_ok=True)
 
         # Download checkpoint
