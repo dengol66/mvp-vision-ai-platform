@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "trainer.name" -}}
+{{- define "training-infrastructure.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "trainer.fullname" -}}
+{{- define "training-infrastructure.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,46 +24,44 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "trainer.chart" -}}
+{{- define "training-infrastructure.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "trainer.labels" -}}
-helm.sh/chart: {{ include "trainer.chart" . }}
-{{ include "trainer.selectorLabels" . }}
+{{- define "training-infrastructure.labels" -}}
+helm.sh/chart: {{ include "training-infrastructure.chart" . }}
+{{ include "training-infrastructure.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/component: trainer
 {{- end }}
 
 {{/*
 Selector labels
 */}}
-{{- define "trainer.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "trainer.name" . }}
+{{- define "training-infrastructure.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "training-infrastructure.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "trainer.serviceAccountName" -}}
+{{- define "training-infrastructure.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "trainer.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "training-infrastructure.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
 {{/*
-Generate job name with unique suffix
+Training namespace
 */}}
-{{- define "trainer.jobName" -}}
-{{- $name := include "trainer.fullname" . }}
-{{- printf "%s-%s" $name (randAlphaNum 8 | lower) | trunc 63 | trimSuffix "-" }}
+{{- define "training-infrastructure.namespace" -}}
+{{- default .Release.Namespace .Values.namespace }}
 {{- end }}
