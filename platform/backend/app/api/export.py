@@ -126,6 +126,46 @@ EXPORT_CAPABILITIES = {
             ],
             "default_format": "onnx"
         }
+    },
+    "huggingface": {
+        "image_classification": {
+            "supported_formats": [
+                {
+                    "format": "onnx",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": ["dynamic_quantization", "dynamic_axes"]
+                },
+                {
+                    "format": "torchscript",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": []
+                }
+            ],
+            "default_format": "onnx"
+        },
+        "semantic_segmentation": {
+            "supported_formats": [
+                {
+                    "format": "onnx",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": ["dynamic_quantization"]
+                },
+                {
+                    "format": "torchscript",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": []
+                }
+            ],
+            "default_format": "onnx"
+        }
     }
 }
 
