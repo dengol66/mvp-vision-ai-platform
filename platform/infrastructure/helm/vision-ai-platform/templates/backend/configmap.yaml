@@ -7,8 +7,8 @@ metadata:
     {{- include "vision-ai.backend.labels" . | nindent 4 }}
 data:
   # Auto-generated API_BASE_URL for training pod callbacks
-  # Uses K8s internal service DNS: http://{service-name}:{port}
-  API_BASE_URL: {{ printf "http://%s:%d" (include "vision-ai.backend.fullname" .) (.Values.backend.service.port | int) | quote }}
+  # Uses K8s FQDN for cross-namespace access: http://{service}.{namespace}.svc.cluster.local:{port}
+  API_BASE_URL: {{ printf "http://%s.%s.svc.cluster.local:%d" (include "vision-ai.backend.fullname" .) .Release.Namespace (.Values.backend.service.port | int) | quote }}
   {{- range $key, $value := .Values.backend.env }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
